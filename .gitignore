@@ -96,3 +96,4 @@ probe-output.json
 **/config/.env
 Dhan/
 **/Dhan/
+n**/token.env.bakn**/*.env.bakn**/sim_access_token.jsonn
