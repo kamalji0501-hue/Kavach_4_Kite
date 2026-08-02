@@ -1,7 +1,7 @@
 ﻿# Branch policy — batman-algo
 
-**Product / commercial track (later):** ELGO Algorithmic — private Git for developers only; customers get compiled releases later (see Market Order Algo ELGO docs).  
-**This repo:** internal source for Batman / ELGO algo development.
+**Product / commercial track (later):** Algo — private Git for developers only; customers get compiled releases later (see Market Order Algo Algo docs).  
+**This repo:** internal source for Batman / Algo algo development.
 
 ## Roles
 
@@ -33,7 +33,7 @@ rahul    ──PR/merge──┘
 1. Develop on `kamalji` or `rahul`.  
 2. When both agree it is stable → merge into **`main`** (PR recommended).  
 3. Lightsail pulls **`main`**.  
-4. Commercial packaging / license checks stay parked until Rahul reopens ELGO phases.
+4. Commercial packaging / license checks stay parked until Rahul reopens Algo phases.
 
 ## Naming note
 
