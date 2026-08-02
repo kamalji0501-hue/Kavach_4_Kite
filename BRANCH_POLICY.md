@@ -1,7 +1,7 @@
 ﻿# Branch policy — batman-algo
 
-**Product / commercial track (later):** Algo — private Git for developers only; customers get compiled releases later (see Market Order Algo Algo docs).  
-**This repo:** internal source for Batman / Algo algo development.
+**Product / commercial track (later):** Algo — private Git for developers only; customers get compiled releases later (see Market Order Algo docs).  
+**This repo:** internal source for Batman / Algo development.
 
 ## Roles
 
