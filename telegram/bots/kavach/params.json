@@ -1,0 +1,100 @@
+{
+    "_bot": "KAVACH (कवच)",
+    "_purpose": "Core Positions, ATO Protection, Deployment Wizard",
+    "_file_role": "Tunable parameters ONLY. Secrets (token, chat_id) live in token.env.",
+    "_last_updated": "2026-04-04",
+    "enabled": true,
+    "quiet_hours": {
+        "_comment": "Outbound proactive notifications suppressed outside this window. Commands and wizard work 24/7.",
+        "start": "08:00",
+        "end": "23:30",
+        "timezone": "Asia/Kolkata"
+    },
+    "commands": {
+        "_comment": "Toggle individual commands on/off without restarting the bot. confirm_deploy is RETIRED.",
+        "deploy": true,
+        "batman_complete": true,
+        "emergency_exit": true,
+        "ato_status": true,
+        "ato_tune": true,
+        "stop_algo": true,
+        "resume_algo": true
+    },
+    "confirmations": {
+        "_comment": "Commands that require an explicit yes/no reply before executing. Prevents accidental triggers.",
+        "require_confirm_for": [
+            "emergency_exit",
+            "batman_complete"
+        ],
+        "confirm_timeout_seconds": 30
+    },
+    "notifications": {
+        "_comment": "Which trade events KAVACH bot should announce via Telegram. Quiet hours apply.",
+        "ato_triggered": true,
+        "ato_retrace_exit": true,
+        "ato_max_cycles_reached": true,
+        "deploy_confirmed": true,
+        "batman_complete": true,
+        "emergency_exit_done": true,
+        "algo_started": true,
+        "algo_stopped": true
+    },
+    "ato_monitoring": {
+        "_comment": "When KAVACH ATO monitoring is expected to start (IST). Feed auto-resume waits until this time, not 09:15.",
+        "start_time_ist": "09:25",
+        "timezone": "Asia/Kolkata"
+    },
+    "strategy": {
+        "lot_size": 65,
+        "_lot_size_comment": "NIFTY index options lot size — broker positions are qty; divide by this for lots."
+    },
+    "ato_operator": {
+        "_comment": "Operator rules — docs/KAVACH_ATO_OPERATOR_RULES.md. No hardcoded limits in code.",
+        "order_retry_max": 3,
+        "cleanup_retry_max": 3,
+        "soft_cap_first_warn_cycles": 3,
+        "soft_cap_repeat_every_cycles": 2,
+        "strike_presets_ce": [500, 1000],
+        "strike_presets_pe": [100, 500],
+        "monitor_breach_counts_toward_soft_cap": true,
+        "limit_buffer_pct": 10.0,
+        "_limit_buffer_pct_comment": "ATO only — aggressive LIMIT = LTP ± this % (BUY above, SELL below). SEBI/algo MARKET ban workaround.",
+        "limit_tick_size": 0.05,
+        "limit_chase_timeout_sec": 45.0,
+        "limit_chase_interval_sec": 5.0
+    },
+    "deploy_wizard": {
+        "_comment": "Settings for the /deploy 4-leg selection wizard.",
+        "ato_step": 50,
+        "_ato_step_comment": "NIFTY strike interval for ATO protection. PE_ATO = pe_sell_strike - ato_step. CE_ATO = ce_sell_strike + ato_step.",
+        "wizard_timeout_seconds": 120,
+        "_wizard_timeout_comment": "Seconds of user inactivity before wizard auto-cancels. No file written on timeout.",
+        "position_filter": {
+            "_comment": "Rules applied to broker open positions before displaying in wizard.",
+            "underlying": "NIFTY",
+            "_underlying_comment": "Only show positions whose underlying is NIFTY. Rejects SENSEX, BANKNIFTY, equity, futures.",
+            "option_types": [
+                "CE",
+                "PE"
+            ],
+            "_option_types_comment": "Only options shown. Futures and equity are excluded even if underlying matches."
+        },
+        "storage": {
+            "active_dir": "data/deployments",
+            "archive_dir": "data/deployments/archive",
+            "log_file": "data/deployments/deploy_log.jsonl",
+            "_comment": "On /deploy start: all *.json in active_dir are moved to archive_dir before wizard runs."
+        }
+    },
+    "retry": {
+        "_comment": "Retry behaviour for broker API calls (position fetch, order placement).",
+        "max_attempts": 3,
+        "delay_seconds": 2,
+        "backoff_multiplier": 1.5
+    },
+    "rate_limit": {
+        "_comment": "Protect against accidental command spamming.",
+        "max_commands_per_minute": 10,
+        "cooldown_seconds": 5
+    }
+}

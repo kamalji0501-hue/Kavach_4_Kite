@@ -1,0 +1,4 @@
+ubuntu ALL=(ALL) NOPASSWD: /bin/systemctl restart my_telegram_bot.service
+ubuntu ALL=(ALL) NOPASSWD: /bin/systemctl restart my_telegram_bot
+ubuntu ALL=(ALL) NOPASSWD: /bin/systemctl stop my_telegram_bot.service
+ubuntu ALL=(ALL) NOPASSWD: /bin/systemctl start my_telegram_bot.service

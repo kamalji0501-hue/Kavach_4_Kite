@@ -1,0 +1,7 @@
+{
+    "_bot": "<BOT_NAME>",
+    "_purpose": "<Purpose>",
+    "_file_role": "Tunable parameters ONLY. Secrets (token, chat_id) live in token.env.",
+    "enabled": true,
+    "mode": "design_locked_not_coded"
+}

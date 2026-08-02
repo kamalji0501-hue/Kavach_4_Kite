@@ -1,0 +1,155 @@
+{
+  "schema_version": "shadow_p0_v1",
+  "fixture": "data_runtime/data/uat/deployed_positions/positions.json",
+  "expiry_date": "2026-07-21",
+  "spot_at_capture": 0.0,
+  "lot_size": 65,
+  "jwt_validated": true,
+  "positions_roles": {
+    "pe_sell": {
+      "symbol": "NIFTY-Jul2026-24050-PE",
+      "strike": 24050,
+      "expiry": "Jul2026",
+      "qty": 130,
+      "avg_price": 125.1,
+      "instrument_token": "57343",
+      "side": "SELL"
+    },
+    "pe_buy": {
+      "symbol": "NIFTY-Jul2026-24100-PE",
+      "strike": 24100,
+      "expiry": "Jul2026",
+      "qty": 65,
+      "avg_price": 150.55,
+      "instrument_token": "57345",
+      "side": "BUY"
+    },
+    "ce_buy": {
+      "symbol": "NIFTY-Jul2026-24050-CE",
+      "strike": 24050,
+      "expiry": "Jul2026",
+      "qty": 65,
+      "avg_price": 136.65,
+      "instrument_token": "57342",
+      "side": "BUY"
+    },
+    "ce_sell": {
+      "symbol": "NIFTY-Jul2026-24100-CE",
+      "strike": 24100,
+      "expiry": "Jul2026",
+      "qty": 130,
+      "avg_price": 112.65,
+      "instrument_token": "57344",
+      "side": "SELL"
+    }
+  },
+  "resolved_instruments": {
+    "pe_sell": {
+      "strike": 24050,
+      "option_type": "PE",
+      "expiry_date": "2026-07-21",
+      "trading_symbol": "NIFTY-Jul2026-24050-PE",
+      "security_id": "57343",
+      "lot_size": 65,
+      "source": "instrument_master"
+    },
+    "pe_buy": {
+      "strike": 24100,
+      "option_type": "PE",
+      "expiry_date": "2026-07-21",
+      "trading_symbol": "NIFTY-Jul2026-24100-PE",
+      "security_id": "57345",
+      "lot_size": 65,
+      "source": "instrument_master"
+    },
+    "ce_buy": {
+      "strike": 24050,
+      "option_type": "CE",
+      "expiry_date": "2026-07-21",
+      "trading_symbol": "NIFTY-Jul2026-24050-CE",
+      "security_id": "57342",
+      "lot_size": 65,
+      "source": "instrument_master"
+    },
+    "ce_sell": {
+      "strike": 24100,
+      "option_type": "CE",
+      "expiry_date": "2026-07-21",
+      "trading_symbol": "NIFTY-Jul2026-24100-CE",
+      "security_id": "57344",
+      "lot_size": 65,
+      "source": "instrument_master"
+    }
+  },
+  "ato": {
+    "ato_step": 50,
+    "pe_protect_symbol": "NIFTY-Jul2026-24000-PE",
+    "pe_protect_strike": 24000,
+    "pe_protect_security_id": "57341",
+    "ce_protect_symbol": "NIFTY-Jul2026-24150-CE",
+    "ce_protect_strike": 24150,
+    "ce_protect_security_id": "57346",
+    "pe_trigger_spot": 24050,
+    "ce_trigger_spot": 24100
+  },
+  "ratio_checks": {
+    "pe_ok": true,
+    "pe_msg": "",
+    "ce_ok": true,
+    "ce_msg": ""
+  },
+  "option_chain_cross_check": {
+    "skipped": true
+  },
+  "broker_positions_preview": [
+    {
+      "tradingSymbol": "NIFTY-Jul2026-24050-PE",
+      "netQty": -130,
+      "avgPrice": 125.1,
+      "costPrice": 125.1,
+      "drvStrikePrice": 24050.0,
+      "drvExpiryDate": "2026-07-21",
+      "drvOptionType": "PE",
+      "securityId": "57343",
+      "exchangeSegment": "NSE_FNO",
+      "productType": "MARGIN"
+    },
+    {
+      "tradingSymbol": "NIFTY-Jul2026-24100-PE",
+      "netQty": 65,
+      "avgPrice": 150.55,
+      "costPrice": 150.55,
+      "drvStrikePrice": 24100.0,
+      "drvExpiryDate": "2026-07-21",
+      "drvOptionType": "PE",
+      "securityId": "57345",
+      "exchangeSegment": "NSE_FNO",
+      "productType": "MARGIN"
+    },
+    {
+      "tradingSymbol": "NIFTY-Jul2026-24050-CE",
+      "netQty": 65,
+      "avgPrice": 136.65,
+      "costPrice": 136.65,
+      "drvStrikePrice": 24050.0,
+      "drvExpiryDate": "2026-07-21",
+      "drvOptionType": "CE",
+      "securityId": "57342",
+      "exchangeSegment": "NSE_FNO",
+      "productType": "MARGIN"
+    },
+    {
+      "tradingSymbol": "NIFTY-Jul2026-24100-CE",
+      "netQty": -130,
+      "avgPrice": 112.65,
+      "costPrice": 112.65,
+      "drvStrikePrice": 24100.0,
+      "drvExpiryDate": "2026-07-21",
+      "drvOptionType": "CE",
+      "securityId": "57344",
+      "exchangeSegment": "NSE_FNO",
+      "productType": "MARGIN"
+    }
+  ],
+  "production_filter_count": 4
+}

@@ -1,0 +1,24 @@
+# Watchdog for Batman Phase-1 systemd units (deployed next to vps_ops on the VPS).
+# Paths rewritten by vps/install_systemd.sh
+
+[Unit]
+Description=VPS Service Monitor — Batman Phase-1 units
+After=network-online.target batman-phase1.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__BATMAN_USER__
+WorkingDirectory=__VPS_OPS_DIR__
+Environment=VPS_OPS_DIR=__VPS_OPS_DIR__
+Environment=TELEGRAM_ENV_PATH=__TELEGRAM_ENV_PATH__
+Environment=WATCHED_SERVICES=batman-drishti.service,batman-kavach2.service,batman-jagran.service,batman-saransh.service
+Environment=MONITOR_MAX_RETRIES=5
+Environment=MONITOR_RETRY_BASE_SEC=3
+Environment=MONITOR_CHECK_INTERVAL=15
+ExecStart="__VPS_OPS_DIR__/venv/bin/python" "__VPS_OPS_DIR__/service_monitor.py"
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,32 @@
+# Batman Phase-1 — KAVACH2 (ATO / Register). Starts after DRISHTI.
+
+[Unit]
+Description=Batman Phase-1 KAVACH2 (ATO protection)
+After=network-online.target batman-drishti.service
+Wants=network-online.target
+Requires=batman-drishti.service
+PartOf=batman-phase1.target
+
+[Service]
+Type=simple
+User=__BATMAN_USER__
+Group=__BATMAN_USER__
+WorkingDirectory=__BATMAN_ROOT__
+Environment=BATMAN_LAUNCHED_VIA_BAT=1
+Environment=PYTHONUNBUFFERED=1
+# Give DRISHTI a short head-start for LTP cache / JWT bootstrap
+ExecStartPre=/bin/sleep 8
+ExecStart="__PYTHON__" "__BATMAN_ROOT__/run_kavach2.py"
+Restart=always
+RestartSec=10
+TimeoutStopSec=45
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=batman-kavach2
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=batman-phase1.target

@@ -1,0 +1,30 @@
+{
+  "_comment": "Single switch: dev | uat | prod. Prefer Mode/*.bat on laptop \u2014 do not edit by hand unless needed. Logs + data/reports live outside repo (see logs_root, data_reports_root).",
+  "mode": "uat",
+  "logs_root": "~/Batman Executed Data/Logs",
+  "data_reports_root": "~/Batman Executed Data/Data and Reports",
+  "secrets_root": "~/Batman-Secrets",
+  "modes": {
+    "dev": {
+      "label": "Development",
+      "description": "Laptop: live NIFTY read APIs, orders blocked (no static IP).",
+      "broker": "dhan_readonly",
+      "orders": "blocked",
+      "positions_source": "dhan_live"
+    },
+    "uat": {
+      "label": "UAT (virtual broker)",
+      "description": "Laptop: Sensibull screenshot book, shadow orders, full bot flow.",
+      "broker": "shadow",
+      "orders": "virtual",
+      "positions_source": "uat_screenshot"
+    },
+    "prod": {
+      "label": "Production",
+      "description": "VPS + static IP: real Dhan positions and orders.",
+      "broker": "dhan_live",
+      "orders": "live",
+      "positions_source": "dhan_live"
+    }
+  }
+}

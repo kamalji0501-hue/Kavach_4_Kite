@@ -1,0 +1,26 @@
+{
+    "_bot": "SANCHALAK",
+    "_purpose": "Global control-plane authorization bot",
+    "_file_role": "Tunable parameters ONLY. Secrets (token, chat_id) live in token.env.",
+    "enabled": true,
+    "mode": "runtime_optional",
+    "default_mode": "mock",
+    "confirmation_timeout_seconds": 60,
+    "commands": {
+        "start_all": "start_all",
+        "stop_all": "stop_all",
+        "pause_bot": "pause_bot",
+        "resume_bot": "resume_bot",
+        "set_mode": "set_mode",
+        "status_all": "status_all"
+    },
+    "global_authorization": {
+        "controls_core_bots_only": true,
+        "allow_unattended_only_when_globally_enabled": true,
+        "allow_chained_execution_when_globally_enabled": true
+    },
+    "runtime": {
+        "always_on": true,
+        "manual_disable_required": true
+    }
+}

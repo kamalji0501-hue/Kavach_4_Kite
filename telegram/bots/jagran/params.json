@@ -1,0 +1,17 @@
+{
+    "_bot": "JAGRAN",
+    "_purpose": "Critical incident routing bot",
+    "_file_role": "Tunable incident-routing parameters only. Secrets live in token.env.",
+    "enabled": true,
+    "mode": "phase1_standalone",
+    "dedup_window_seconds": 300,
+    "still_failing_interval_seconds": 1800,
+    "send_recovery": true,
+    "ledger_write_csv": true,
+    "ledger_export_excel": true,
+    "ledger_retry_interval_seconds": 180,
+    "ledger_max_export_retries": 3,
+    "recent_limit": 10,
+    "eod_time_ist": "15:32",
+    "websocket_jagran_retry_threshold": 5
+}

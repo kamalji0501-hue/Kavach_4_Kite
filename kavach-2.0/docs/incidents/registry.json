@@ -1,0 +1,1244 @@
+{
+  "schema_version": "1.0",
+  "last_updated": "2026-06-25T11:44:55.055494+05:30",
+  "incidents": [
+    {
+      "incident_id": "INC-2026-016",
+      "title": "Expired UAT fixture expiry blocks ShadowBroker bootstrap",
+      "category": "broker",
+      "subsystem": "shadow_broker",
+      "robot_affected": "kavach",
+      "date_first_observed": "2026-06-25",
+      "date_resolved": "2026-06-25",
+      "lifecycle": "closed",
+      "severity": "critical",
+      "priority": "p0",
+      "environment": "uat",
+      "frequency": "daily_after_weekly_expiry",
+      "symptoms": "Broker connect failed: No NIFTY PE strike 23500 for expiry 2026-06-23 in instrument master",
+      "business_impact": "KAVACH and SARANSH could not load virtual positions; /register and /positions broken",
+      "technical_impact": "create_broker() raised LookupError during ShadowBroker._reload_positions_from_fixture",
+      "trading_impact": "ATO module did not start; no mock order flow",
+      "root_cause": "uat/deployed_positions/positions.json retained past weekly expiry; instrument master drops expired series",
+      "contributing_factors": [
+        "Fixture captured 2026-06-13 for 23 Jun expiry",
+        "No auto-roll on weekly expiry boundary"
+      ],
+      "investigation": "logs_uat/.../kavach/errors/all_errors.log 10:46 IST; incident CSV kavach::log_error",
+      "files_modules": [
+        "backtest_engine/shadow/shadow_broker.py",
+        "backtest_engine/resolver/instrument_master.py",
+        "uat/deployed_positions/positions.json"
+      ],
+      "logs_referenced": [
+        "logs_uat/runtime/2026-06/2026-06-25/kavach/errors/all_errors.log",
+        "data/analytics/incidents/by_domain/kavach/incidents_20260625.csv"
+      ],
+      "fix_implemented": "resolve_fixture_trading_expiry() rolls to nearest valid weekly; ShadowBroker clears virtual ledger on roll",
+      "fix_rationale": "UAT book remains loadable without manual fixture edit every expiry day; stale virtual fills cannot corrupt qty",
+      "regression_risk": "New weekly expiry without strikes in master may still fail — operator should refresh screenshot",
+      "validation_performed": [
+        "ShadowBroker.connect_with_token manual test",
+        "scripts/run_uat_e2e_verification.py ALL PASSED",
+        "3-cycle ShadowBroker stress connect",
+        "pytest test_shadow_resolver"
+      ],
+      "stress_testing": [
+        "3-cycle broker connect loop"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [
+        "Operator fixture still shows 23 Jun label until new screenshot ingested"
+      ],
+      "related_incidents": [
+        "INC-2026-019"
+      ],
+      "runtime_incident_ids": [
+        "kavach::log_error"
+      ],
+      "preventive_measures": [
+        "Refresh Sensibull screenshot after weekly expiry",
+        "Run validate_fixture.py after positions.json change"
+      ],
+      "lessons_learned": [
+        "UAT fixture expiry must roll or block with clear operator message",
+        "Virtual ledger must reset when core book expiry changes"
+      ],
+      "future_recommendations": [
+        "Optional Telegram reminder on expiry day if fixture age > 5 days"
+      ],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "",
+      "tags": [
+        "uat",
+        "shadow-broker",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-017",
+      "title": "Mid-session WebSocket false failover — stale watchdog grace gap",
+      "category": "market_data",
+      "subsystem": "nifty_ltp_feed",
+      "robot_affected": "drishti",
+      "date_first_observed": "2026-06-25",
+      "date_resolved": "2026-06-25",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "on_ws_reconnect_after_0930",
+      "symptoms": "WS connected at 10:46:02 then ATO auto-paused nifty_ltp_websocket_failed at 10:46:05 before first tick",
+      "business_impact": "",
+      "technical_impact": "on_feed_stale → on_websocket_crash → REST fallback + algo pause cascade",
+      "trading_impact": "ATO paused repeatedly with nifty_ltp_feed_stale warnings",
+      "root_cause": "Feed stale watchdog only applied 09:15 startup grace, not grace after mid-session WS reconnect when last_update_at is None",
+      "contributing_factors": [
+        "consumer_max_age_seconds=5",
+        "WS connect-to-first-tick latency"
+      ],
+      "investigation": "logs_uat/.../drishti/logs/all.log lines 104602–104605 IST",
+      "files_modules": [
+        "core/nifty_ltp_feed.py",
+        "core/nifty_ltp_websocket_feed.py",
+        "bat_telegram/bots/drishti/nifty_feed_integration.py"
+      ],
+      "logs_referenced": [
+        "logs_uat/runtime/2026-06/2026-06-25/drishti/logs/all.log"
+      ],
+      "fix_implemented": "mark_transport_started() + is_within_transport_grace() — 30s grace after WS connect / REST service start",
+      "fix_rationale": "Distinguishes cold reconnect from true feed death",
+      "regression_risk": "Very slow first tick (>30s) could still false-positive — monitor ws_ltp audit log",
+      "validation_performed": [
+        "pytest test_feed_stale_watchdog_ws_transport_grace_after_reconnect"
+      ],
+      "stress_testing": [],
+      "validation_cycles": 2,
+      "remaining_risks": [],
+      "related_incidents": [
+        "INC-2026-STAB-04",
+        "INC-2026-STAB-06"
+      ],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [
+        "Transport-level grace must cover reconnect, not only market open"
+      ],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "",
+      "tags": [
+        "websocket",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-018",
+      "title": "diagnose_robot.py reads wrong log root in UAT mode",
+      "category": "documentation",
+      "subsystem": "observability",
+      "robot_affected": "drishti",
+      "date_first_observed": "2026-06-25",
+      "date_resolved": "2026-06-25",
+      "lifecycle": "closed",
+      "severity": "medium",
+      "priority": "p2",
+      "environment": "uat",
+      "frequency": "once",
+      "symptoms": "diagnose_robot reported 0 B all.log while bots were logging to logs_uat/",
+      "business_impact": "",
+      "technical_impact": "",
+      "trading_impact": "",
+      "root_cause": "Hardcoded logs/runtime path ignored batman_mode log_root",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "scripts/diagnose_robot.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "Use log_runtime_root(ROOT) from core.batman_mode",
+      "fix_rationale": "",
+      "regression_risk": "",
+      "validation_performed": [
+        "diagnose_robot.py kavach shows logs_uat paths and non-zero size"
+      ],
+      "stress_testing": [],
+      "validation_cycles": 1,
+      "remaining_risks": [],
+      "related_incidents": [],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [
+        "All agent diagnostic tools must be mode-aware"
+      ],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "",
+      "tags": [
+        "observability",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-019",
+      "title": "PE managed qty mismatch after partial virtual ledger on expiry roll",
+      "category": "testing",
+      "subsystem": "ato_protection",
+      "robot_affected": "kavach",
+      "date_first_observed": "2026-06-25",
+      "date_resolved": "2026-06-25",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "once",
+      "symptoms": "PE managed qty mismatch — broker=65 managed=130 after ATO auto CE protect",
+      "business_impact": "",
+      "technical_impact": "",
+      "trading_impact": "",
+      "root_cause": "Stale shadow_order_ledger TRADED BUY PE 65 applied on top of rolled fixture before ledger clear fix",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "backtest_engine/shadow/shadow_broker.py",
+        "data/uat/shadow_order_ledger.json",
+        "modules/ato_protection.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "Clear virtual ledger when fixture expiry rolls forward",
+      "fix_rationale": "",
+      "regression_risk": "",
+      "validation_performed": [
+        "Post-fix KAVACH start — 4 legs PE netQty -130",
+        "ATO startup scan without PE halt"
+      ],
+      "stress_testing": [],
+      "validation_cycles": 2,
+      "remaining_risks": [],
+      "related_incidents": [
+        "INC-2026-016"
+      ],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "",
+      "tags": [
+        "uat",
+        "ato",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-020",
+      "title": "UAT E2E log scan flagged pre-fix errors in same-day tail",
+      "category": "testing",
+      "subsystem": "uat_e2e",
+      "robot_affected": "",
+      "date_first_observed": "2026-06-25",
+      "date_resolved": "2026-06-25",
+      "lifecycle": "closed",
+      "severity": "low",
+      "priority": "p3",
+      "environment": "uat",
+      "frequency": "once",
+      "symptoms": "uat_log_scan FAIL with morning broker errors after afternoon fix",
+      "business_impact": "",
+      "technical_impact": "",
+      "trading_impact": "",
+      "root_cause": "step_log_scan used full tail window without scoping to latest bot session",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "scripts/run_uat_e2e_verification.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "_current_session_lines() scans from last 'Batman mode:' startup marker",
+      "fix_rationale": "",
+      "regression_risk": "",
+      "validation_performed": [
+        "run_uat_e2e_verification.py uat_log_scan PASS"
+      ],
+      "stress_testing": [],
+      "validation_cycles": 2,
+      "remaining_risks": [],
+      "related_incidents": [],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "",
+      "tags": [
+        "testing",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-021",
+      "title": "JAGRAN Telegram publish timeout during morning feed incident",
+      "category": "connectivity",
+      "subsystem": "jagran",
+      "robot_affected": "jagran",
+      "date_first_observed": "2026-06-25",
+      "date_resolved": "2026-06-25",
+      "lifecycle": "closed",
+      "severity": "medium",
+      "priority": "p2",
+      "environment": "uat",
+      "frequency": "once",
+      "symptoms": "publish failed: Timed out at 10:50:54 IST during DRISHTI feed failover spam",
+      "business_impact": "",
+      "technical_impact": "",
+      "trading_impact": "",
+      "root_cause": "Telegram API timeout while incident alerts flooded chat during WS/REST churn",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "bat_telegram/bots/jagran/"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "No code change — transient; feed stabilization + sustained auto-resume reduces alert volume",
+      "fix_rationale": "",
+      "regression_risk": "",
+      "validation_performed": [
+        "JAGRAN logs post-11:15 show no further publish timeouts"
+      ],
+      "stress_testing": [],
+      "validation_cycles": 1,
+      "remaining_risks": [],
+      "related_incidents": [
+        "INC-2026-STAB-04",
+        "INC-2026-022"
+      ],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [
+        "Correlate JAGRAN timeouts with upstream feed incidents before chasing bot bugs"
+      ],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "2026-06-25T11:44:55.016598+05:30",
+      "legacy_stab_id": "",
+      "tags": [
+        "telegram",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-022",
+      "title": "DRISHTI cold-start without JWT + ATO pause/resume churn after false WS failover",
+      "category": "connectivity",
+      "subsystem": "nifty_ltp_feed",
+      "robot_affected": "drishti",
+      "date_first_observed": "2026-06-25",
+      "date_resolved": "2026-06-25",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "once",
+      "symptoms": "Start All 10:43 without JWT until 10:44:52; false WS failover 10:46:05; ~25 min ATO pause/resume churn on nifty_ltp_feed_stale",
+      "business_impact": "",
+      "technical_impact": "",
+      "trading_impact": "",
+      "root_cause": "Mid-session reconnect lacked transport grace (STAB-06 fix); on_feed_stale_cleared immediately resumed on brief fresh cache while REST was flaky",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "core/nifty_ltp_feed.py",
+        "core/nifty_ltp_websocket_feed.py",
+        "core/feed_recovery.py",
+        "bat_telegram/bots/drishti/nifty_feed_integration.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "Transport grace on reconnect + AUTO_RESUME_STABLE_SECONDS=45 sustained can_auto_resume_feed_recovery before auto-resume",
+      "fix_rationale": "",
+      "regression_risk": "",
+      "validation_performed": [
+        "pytest test_feed_recovery sustained resume",
+        "Post-fix session no pause/resume churn in drishti logs"
+      ],
+      "stress_testing": [],
+      "validation_cycles": 2,
+      "remaining_risks": [],
+      "related_incidents": [
+        "INC-2026-STAB-06",
+        "INC-2026-021"
+      ],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [
+        "Never auto-resume ATO on first stale_cleared tick — require sustained trading-ready cache"
+      ],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "2026-06-25T11:44:55.055494+05:30",
+      "legacy_stab_id": "",
+      "tags": [
+        "websocket",
+        "ato",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-023",
+      "title": "DRISHTI cache replace race caused feed task exits and restart churn",
+      "category": "market_data",
+      "subsystem": "nifty_ltp_feed",
+      "robot_affected": "drishti",
+      "date_first_observed": "2026-06-25",
+      "date_resolved": "2026-06-25",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "NIFTY feed task exited repeatedly with [WinError 5] Access is denied replacing data/nifty_ltp_cache.json, followed by watchdog restarts and KAVACH stale-cache pauses",
+      "business_impact": "Operator saw repeated reconnect-style feed churn while the upstream WebSocket could still connect successfully.",
+      "technical_impact": "Local cache persistence failure was misclassified as feed-task death, which triggered watchdog restarts and downstream stale-cache cascades.",
+      "trading_impact": "KAVACH/ATO lost fresh cache visibility and paused on stale reads even though the transport itself was not consistently failing.",
+      "root_cause": "write_nifty_ltp_cache() raised after a short Windows os.replace retry window. Transient file-lock races on nifty_ltp_cache.json therefore tore down the live feed task.",
+      "contributing_factors": [
+        "Shared cache file is replaced frequently during market updates",
+        "Windows file-lock races can block rename/replace longer than the prior retry window",
+        "Feed watchdog treated any cache-write exception as a dead feed task"
+      ],
+      "investigation": "logs_uat/runtime/2026-06/2026-06-25/drishti/logs/all.log shows repeated WinError 5 cache-replace failures at 13:34, 13:35, and 13:39 IST with watchdog restarts after each exit.",
+      "files_modules": [
+        "core/nifty_ltp_feed.py",
+        "tests/test_nifty_ltp_feed.py"
+      ],
+      "logs_referenced": [
+        "logs_uat/runtime/2026-06/2026-06-25/drishti/logs/all.log",
+        "logs_uat/runtime/2026-06/2026-06-25/kavach/logs/all.log",
+        "logs_uat/runtime/2026-06/2026-06-25/jagran/logs/all.log"
+      ],
+      "fix_implemented": "Extended Windows-safe replace retries and changed NIFTY cache writes to log-and-return on persistent replace-lock races instead of raising and killing the feed task.",
+      "fix_rationale": "A transient local file lock should not be interpreted as a transport disconnect. The feed task now survives short-lived cache persistence races, reducing false restart and stale-cache cascades.",
+      "regression_risk": "If another process holds the cache file lock for several seconds, cache freshness can still degrade and KAVACH may still pause; however DRISHTI no longer enters a restart storm for the same local file issue.",
+      "validation_performed": [
+        "pytest tests/test_nifty_ltp_feed.py tests/test_feed_recovery.py tests/test_nifty_ltp_failover.py -q --tb=short",
+        "Added regression tests for transient and persistent Windows cache replace locks",
+        "Reviewed 2026-06-25 UAT logs to confirm the repeated restart pattern originated from cache replace failures"
+      ],
+      "stress_testing": [
+        "Repeated retry-path simulation via new cache replace lock tests"
+      ],
+      "validation_cycles": 2,
+      "remaining_risks": [
+        "Broader runtime verification remains dependent on long-running bot checks completing in this environment"
+      ],
+      "related_incidents": [
+        "INC-2026-021",
+        "INC-2026-022",
+        "INC-2026-STAB-15"
+      ],
+      "runtime_incident_ids": [],
+      "preventive_measures": [
+        "Keep Windows file-replace retries tuned for high-frequency cache writers",
+        "Do not let local cache persistence failures tear down the transport task"
+      ],
+      "lessons_learned": [
+        "Not every feed-task exception is a network problem; local filesystem races can create transport-like symptoms",
+        "Shared disk cache layers need their own resilience budget separate from WebSocket retry logic"
+      ],
+      "future_recommendations": [
+        "Add explicit telemetry for cache-write failure counts in DRISHTI health/status",
+        "Consider harmonizing other high-frequency JSON writers with the same Windows retry policy"
+      ],
+      "owner": "agent",
+      "last_updated": "2026-06-25T13:55:00+05:30",
+      "legacy_stab_id": "",
+      "tags": [
+        "windows",
+        "cache-write",
+        "websocket",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-STAB-01",
+      "title": "UAT state-file split-brain — ATO pause written to wrong path",
+      "category": "configuration",
+      "subsystem": "algo_control",
+      "robot_affected": "kavach",
+      "date_first_observed": "2026-06-12",
+      "date_resolved": "2026-06-12",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "UAT state-file split-brain — ATO pause written to wrong path",
+      "business_impact": "",
+      "technical_impact": "Phase 1 reliability / feed / lifecycle",
+      "trading_impact": "ATO may not pause/resume correctly; feed outages; orphan processes",
+      "root_cause": "pause_algo() used data/batman_state.json while UAT reads data/uat/batman_state.json",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "core/algo_control.py",
+        "core/feed_recovery.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "default_state_path() → state_path(workspace_root()) mode-aware",
+      "fix_rationale": "default_state_path() → state_path(workspace_root()) mode-aware",
+      "regression_risk": "Re-test on UAT mode + feed failover after changes to listed modules",
+      "validation_performed": [
+        "pytest stabilization subset",
+        "scripts/stabilization_verify.py",
+        "phase1_bot_check"
+      ],
+      "stress_testing": [
+        "3-cycle stabilization_verify"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [],
+      "related_incidents": [
+        "INC-2026-STAB-02"
+      ],
+      "runtime_incident_ids": [],
+      "preventive_measures": [
+        "All cross-bot state writes must use state_path() — never hard-code data/"
+      ],
+      "lessons_learned": [
+        "All cross-bot state writes must use state_path() — never hard-code data/"
+      ],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "STAB-01",
+      "tags": [
+        "stabilization-sprint",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-STAB-02",
+      "title": "KAVACH menu reads wrong pause state in UAT",
+      "category": "robot",
+      "subsystem": "",
+      "robot_affected": "kavach",
+      "date_first_observed": "2026-06-12",
+      "date_resolved": "2026-06-12",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "KAVACH menu reads wrong pause state in UAT",
+      "business_impact": "",
+      "technical_impact": "Phase 1 reliability / feed / lifecycle",
+      "trading_impact": "ATO may not pause/resume correctly; feed outages; orphan processes",
+      "root_cause": "_read_algo_pause_reason() used default StateManager path",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "bat_telegram/bots/kavach/bot.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "Use state_path(workspace_root())",
+      "fix_rationale": "Use state_path(workspace_root())",
+      "regression_risk": "Re-test on UAT mode + feed failover after changes to listed modules",
+      "validation_performed": [
+        "pytest stabilization subset",
+        "scripts/stabilization_verify.py",
+        "phase1_bot_check"
+      ],
+      "stress_testing": [
+        "3-cycle stabilization_verify"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [],
+      "related_incidents": [
+        "INC-2026-STAB-01"
+      ],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "STAB-02",
+      "tags": [
+        "stabilization-sprint",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-STAB-03",
+      "title": "Failover state lost on DRISHTI restart",
+      "category": "market_data",
+      "subsystem": "",
+      "robot_affected": "drishti",
+      "date_first_observed": "2026-06-12",
+      "date_resolved": "2026-06-12",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "Failover state lost on DRISHTI restart",
+      "business_impact": "",
+      "technical_impact": "Phase 1 reliability / feed / lifecycle",
+      "trading_impact": "ATO may not pause/resume correctly; feed outages; orphan processes",
+      "root_cause": "WS→REST session lock lived only in app.bot_data",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "core/nifty_ltp_failover.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "Persist failover to batman_state.json key nifty_ltp_failover",
+      "fix_rationale": "Persist failover to batman_state.json key nifty_ltp_failover",
+      "regression_risk": "Re-test on UAT mode + feed failover after changes to listed modules",
+      "validation_performed": [
+        "pytest stabilization subset",
+        "scripts/stabilization_verify.py",
+        "phase1_bot_check"
+      ],
+      "stress_testing": [
+        "3-cycle stabilization_verify"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [],
+      "related_incidents": [],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "STAB-03",
+      "tags": [
+        "stabilization-sprint",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-STAB-04",
+      "title": "WebSocket Previous Close frame treated as fatal error",
+      "category": "market_data",
+      "subsystem": "",
+      "robot_affected": "drishti",
+      "date_first_observed": "2026-06-12",
+      "date_resolved": "2026-06-12",
+      "lifecycle": "closed",
+      "severity": "critical",
+      "priority": "p0",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "WebSocket Previous Close frame treated as fatal error",
+      "business_impact": "",
+      "technical_impact": "Phase 1 reliability / feed / lifecycle",
+      "trading_impact": "ATO may not pause/resume correctly; feed outages; orphan processes",
+      "root_cause": "Dhan v2 control frame without LTP triggered reconnect loop",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "core/dhan_ws_tick.py",
+        "core/nifty_ltp_websocket_feed.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "extract_ltp_from_ws_tick skips non-LTP control frames",
+      "fix_rationale": "extract_ltp_from_ws_tick skips non-LTP control frames",
+      "regression_risk": "Re-test on UAT mode + feed failover after changes to listed modules",
+      "validation_performed": [
+        "pytest stabilization subset",
+        "scripts/stabilization_verify.py",
+        "phase1_bot_check"
+      ],
+      "stress_testing": [
+        "3-cycle stabilization_verify"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [],
+      "related_incidents": [
+        "INC-2026-017"
+      ],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "STAB-04",
+      "tags": [
+        "stabilization-sprint",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-STAB-05",
+      "title": "WebSocket HTTP 429 reconnect storm",
+      "category": "market_data",
+      "subsystem": "",
+      "robot_affected": "drishti",
+      "date_first_observed": "2026-06-12",
+      "date_resolved": "2026-06-12",
+      "lifecycle": "closed",
+      "severity": "critical",
+      "priority": "p0",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "WebSocket HTTP 429 reconnect storm",
+      "business_impact": "",
+      "technical_impact": "Phase 1 reliability / feed / lifecycle",
+      "trading_impact": "ATO may not pause/resume correctly; feed outages; orphan processes",
+      "root_cause": "429 incremented failure counter → false failover",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "core/nifty_ltp_websocket_feed.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "429 cooldown; do not increment consecutive_failures",
+      "fix_rationale": "429 cooldown; do not increment consecutive_failures",
+      "regression_risk": "Re-test on UAT mode + feed failover after changes to listed modules",
+      "validation_performed": [
+        "pytest stabilization subset",
+        "scripts/stabilization_verify.py",
+        "phase1_bot_check"
+      ],
+      "stress_testing": [
+        "3-cycle stabilization_verify"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [],
+      "related_incidents": [
+        "INC-2026-STAB-06"
+      ],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "STAB-05",
+      "tags": [
+        "stabilization-sprint",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-STAB-06",
+      "title": "WS 429 cooldown exceeded stale threshold → false failover",
+      "category": "market_data",
+      "subsystem": "",
+      "robot_affected": "drishti",
+      "date_first_observed": "2026-06-12",
+      "date_resolved": "2026-06-12",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "WS 429 cooldown exceeded stale threshold → false failover",
+      "business_impact": "",
+      "technical_impact": "Phase 1 reliability / feed / lifecycle",
+      "trading_impact": "ATO may not pause/resume correctly; feed outages; orphan processes",
+      "root_cause": "Stale watchdog ignored rate_limit_until during cooldown",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "core/nifty_ltp_feed.py",
+        "core/nifty_ltp_websocket_feed.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "Skip stale alerts during rate-limit cooldown; refresh last_update_at on 429",
+      "fix_rationale": "Skip stale alerts during rate-limit cooldown; refresh last_update_at on 429",
+      "regression_risk": "Re-test on UAT mode + feed failover after changes to listed modules",
+      "validation_performed": [
+        "pytest stabilization subset",
+        "scripts/stabilization_verify.py",
+        "phase1_bot_check"
+      ],
+      "stress_testing": [
+        "3-cycle stabilization_verify"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [],
+      "related_incidents": [
+        "INC-2026-017",
+        "INC-2026-STAB-05"
+      ],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "STAB-06",
+      "tags": [
+        "stabilization-sprint",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-STAB-07",
+      "title": "Feed gating used save-age only, not JWT exp",
+      "category": "broker",
+      "subsystem": "",
+      "robot_affected": "drishti",
+      "date_first_observed": "2026-06-12",
+      "date_resolved": "2026-06-12",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "Feed gating used save-age only, not JWT exp",
+      "business_impact": "",
+      "technical_impact": "Phase 1 reliability / feed / lifecycle",
+      "trading_impact": "ATO may not pause/resume correctly; feed outages; orphan processes",
+      "root_cause": "is_expired() vs effective JWT expiry mismatch",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "core/token_store.py",
+        "bat_telegram/bots/drishti/nifty_feed_integration.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "is_effectively_expired() gates feed start",
+      "fix_rationale": "is_effectively_expired() gates feed start",
+      "regression_risk": "Re-test on UAT mode + feed failover after changes to listed modules",
+      "validation_performed": [
+        "pytest stabilization subset",
+        "scripts/stabilization_verify.py",
+        "phase1_bot_check"
+      ],
+      "stress_testing": [
+        "3-cycle stabilization_verify"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [],
+      "related_incidents": [],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "STAB-07",
+      "tags": [
+        "stabilization-sprint",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-STAB-08",
+      "title": "Startup lock / PID reuse failures",
+      "category": "infrastructure",
+      "subsystem": "",
+      "robot_affected": "",
+      "date_first_observed": "2026-06-12",
+      "date_resolved": "2026-06-12",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "Startup lock / PID reuse failures",
+      "business_impact": "",
+      "technical_impact": "Phase 1 reliability / feed / lifecycle",
+      "trading_impact": "ATO may not pause/resume correctly; feed outages; orphan processes",
+      "root_cause": "Plain PID locks; UAT lock path mismatch",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "core/instance_lock.py",
+        "core/bot_lifecycle.py",
+        "core/bot_supervisor.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "Tier 1+2 lifecycle hardening + reconcile",
+      "fix_rationale": "Tier 1+2 lifecycle hardening + reconcile",
+      "regression_risk": "Re-test on UAT mode + feed failover after changes to listed modules",
+      "validation_performed": [
+        "pytest stabilization subset",
+        "scripts/stabilization_verify.py",
+        "phase1_bot_check"
+      ],
+      "stress_testing": [
+        "3-cycle stabilization_verify"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [],
+      "related_incidents": [],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "STAB-08",
+      "tags": [
+        "stabilization-sprint",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-STAB-09",
+      "title": "Auth errors retried and triggered failover",
+      "category": "broker",
+      "subsystem": "",
+      "robot_affected": "drishti",
+      "date_first_observed": "2026-06-12",
+      "date_resolved": "2026-06-12",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "Auth errors retried and triggered failover",
+      "business_impact": "",
+      "technical_impact": "Phase 1 reliability / feed / lifecycle",
+      "trading_impact": "ATO may not pause/resume correctly; feed outages; orphan processes",
+      "root_cause": "HTTP 401 treated as connection error",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "core/nifty_ltp.py",
+        "core/nifty_ltp_feed.py",
+        "core/nifty_ltp_websocket_feed.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "is_auth_error() + on_auth_failure — no retry, no failover",
+      "fix_rationale": "is_auth_error() + on_auth_failure — no retry, no failover",
+      "regression_risk": "Re-test on UAT mode + feed failover after changes to listed modules",
+      "validation_performed": [
+        "pytest stabilization subset",
+        "scripts/stabilization_verify.py",
+        "phase1_bot_check"
+      ],
+      "stress_testing": [
+        "3-cycle stabilization_verify"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [],
+      "related_incidents": [],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "STAB-09",
+      "tags": [
+        "stabilization-sprint",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-STAB-10",
+      "title": "KAVACH cold-start without JWT",
+      "category": "robot",
+      "subsystem": "",
+      "robot_affected": "kavach",
+      "date_first_observed": "2026-06-12",
+      "date_resolved": "2026-06-12",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "KAVACH cold-start without JWT",
+      "business_impact": "",
+      "technical_impact": "Phase 1 reliability / feed / lifecycle",
+      "trading_impact": "ATO may not pause/resume correctly; feed outages; orphan processes",
+      "root_cause": "token_watch skipped when broker was None at startup",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "core/token_watch.py",
+        "run_kavach.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "Lazy bootstrap via on_token_ready callback",
+      "fix_rationale": "Lazy bootstrap via on_token_ready callback",
+      "regression_risk": "Re-test on UAT mode + feed failover after changes to listed modules",
+      "validation_performed": [
+        "pytest stabilization subset",
+        "scripts/stabilization_verify.py",
+        "phase1_bot_check"
+      ],
+      "stress_testing": [
+        "3-cycle stabilization_verify"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [],
+      "related_incidents": [],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "STAB-10",
+      "tags": [
+        "stabilization-sprint",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-STAB-11",
+      "title": "Supervisor ignored LTP gate failure",
+      "category": "infrastructure",
+      "subsystem": "",
+      "robot_affected": "",
+      "date_first_observed": "2026-06-12",
+      "date_resolved": "2026-06-12",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "Supervisor ignored LTP gate failure",
+      "business_impact": "",
+      "technical_impact": "Phase 1 reliability / feed / lifecycle",
+      "trading_impact": "ATO may not pause/resume correctly; feed outages; orphan processes",
+      "root_cause": "LTP gate logged WARN only during market session",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "core/bot_supervisor.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "Abort Start All when LTP gate fails",
+      "fix_rationale": "Abort Start All when LTP gate fails",
+      "regression_risk": "Re-test on UAT mode + feed failover after changes to listed modules",
+      "validation_performed": [
+        "pytest stabilization subset",
+        "scripts/stabilization_verify.py",
+        "phase1_bot_check"
+      ],
+      "stress_testing": [
+        "3-cycle stabilization_verify"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [],
+      "related_incidents": [],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "STAB-11",
+      "tags": [
+        "stabilization-sprint",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-STAB-12",
+      "title": "health.json not authoritative for RUNNING",
+      "category": "infrastructure",
+      "subsystem": "",
+      "robot_affected": "",
+      "date_first_observed": "2026-06-12",
+      "date_resolved": "2026-06-12",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "health.json not authoritative for RUNNING",
+      "business_impact": "",
+      "technical_impact": "Phase 1 reliability / feed / lifecycle",
+      "trading_impact": "ATO may not pause/resume correctly; feed outages; orphan processes",
+      "root_cause": "classify_bot() ignored health heartbeat file",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "core/bot_health.py",
+        "core/bot_process_status.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "health_confirms_running() upgrades status; stale heartbeat warnings",
+      "fix_rationale": "health_confirms_running() upgrades status; stale heartbeat warnings",
+      "regression_risk": "Re-test on UAT mode + feed failover after changes to listed modules",
+      "validation_performed": [
+        "pytest stabilization subset",
+        "scripts/stabilization_verify.py",
+        "phase1_bot_check"
+      ],
+      "stress_testing": [
+        "3-cycle stabilization_verify"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [],
+      "related_incidents": [],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "STAB-12",
+      "tags": [
+        "stabilization-sprint",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-STAB-13",
+      "title": "Session REST lock with no same-day WS retry",
+      "category": "market_data",
+      "subsystem": "",
+      "robot_affected": "drishti",
+      "date_first_observed": "2026-06-12",
+      "date_resolved": "2026-06-12",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "Session REST lock with no same-day WS retry",
+      "business_impact": "",
+      "technical_impact": "Phase 1 reliability / feed / lifecycle",
+      "trading_impact": "ATO may not pause/resume correctly; feed outages; orphan processes",
+      "root_cause": "session_rest_lock_date blocked WS without retry path",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "core/nifty_ltp_failover.py",
+        "bat_telegram/bots/drishti/nifty_feed_integration.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "try_websocket_retry_after_rest() every 15 min",
+      "fix_rationale": "try_websocket_retry_after_rest() every 15 min",
+      "regression_risk": "Re-test on UAT mode + feed failover after changes to listed modules",
+      "validation_performed": [
+        "pytest stabilization subset",
+        "scripts/stabilization_verify.py",
+        "phase1_bot_check"
+      ],
+      "stress_testing": [
+        "3-cycle stabilization_verify"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [],
+      "related_incidents": [],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "STAB-13",
+      "tags": [
+        "stabilization-sprint",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-STAB-14",
+      "title": "Live Price opened parallel one-shot WebSocket",
+      "category": "market_data",
+      "subsystem": "",
+      "robot_affected": "drishti",
+      "date_first_observed": "2026-06-12",
+      "date_resolved": "2026-06-12",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "Live Price opened parallel one-shot WebSocket",
+      "business_impact": "",
+      "technical_impact": "Phase 1 reliability / feed / lifecycle",
+      "trading_impact": "ATO may not pause/resume correctly; feed outages; orphan processes",
+      "root_cause": "Handler always opened new WS while background feed active",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "bat_telegram/bots/drishti/nifty_feed_integration.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "Prefer fresh cache when background feed healthy",
+      "fix_rationale": "Prefer fresh cache when background feed healthy",
+      "regression_risk": "Re-test on UAT mode + feed failover after changes to listed modules",
+      "validation_performed": [
+        "pytest stabilization subset",
+        "scripts/stabilization_verify.py",
+        "phase1_bot_check"
+      ],
+      "stress_testing": [
+        "3-cycle stabilization_verify"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [],
+      "related_incidents": [],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "STAB-14",
+      "tags": [
+        "stabilization-sprint",
+        "closed"
+      ]
+    },
+    {
+      "incident_id": "INC-2026-STAB-15",
+      "title": "Lock timeout without retry on state writes",
+      "category": "runtime",
+      "subsystem": "",
+      "robot_affected": "",
+      "date_first_observed": "2026-06-12",
+      "date_resolved": "2026-06-12",
+      "lifecycle": "closed",
+      "severity": "high",
+      "priority": "p1",
+      "environment": "uat",
+      "frequency": "intermittent",
+      "symptoms": "Lock timeout without retry on state writes",
+      "business_impact": "",
+      "technical_impact": "Phase 1 reliability / feed / lifecycle",
+      "trading_impact": "ATO may not pause/resume correctly; feed outages; orphan processes",
+      "root_cause": "exclusive_file_lock() single attempt under concurrent writes",
+      "contributing_factors": [],
+      "investigation": "",
+      "files_modules": [
+        "core/process_lock.py",
+        "core/state.py"
+      ],
+      "logs_referenced": [],
+      "fix_implemented": "retries=3 with backoff on TimeoutError; state.save mkdir parent",
+      "fix_rationale": "retries=3 with backoff on TimeoutError; state.save mkdir parent",
+      "regression_risk": "Re-test on UAT mode + feed failover after changes to listed modules",
+      "validation_performed": [
+        "pytest stabilization subset",
+        "scripts/stabilization_verify.py",
+        "phase1_bot_check"
+      ],
+      "stress_testing": [
+        "3-cycle stabilization_verify"
+      ],
+      "validation_cycles": 3,
+      "remaining_risks": [],
+      "related_incidents": [],
+      "runtime_incident_ids": [],
+      "preventive_measures": [],
+      "lessons_learned": [],
+      "future_recommendations": [],
+      "owner": "agent",
+      "last_updated": "",
+      "legacy_stab_id": "STAB-15",
+      "tags": [
+        "stabilization-sprint",
+        "closed"
+      ]
+    }
+  ]
+}

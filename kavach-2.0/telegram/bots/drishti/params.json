@@ -1,0 +1,108 @@
+{
+    "_bot": "DRISHTI (\u0926\u0943\u0937\u094d\u091f\u093f)",
+    "_purpose": "Infrastructure Health + Access Token Management",
+    "_file_role": "Tunable parameters ONLY. Secrets (token, chat_id) live in token.env.",
+    "enabled": true,
+    "market_hours": {
+        "_comment": "Rahul turns Telegram notifications ON at 09:00 and OFF at 15:30. DRISHTI uses this to decide whether to send loud vs silent messages.",
+        "notifications_on_from": "09:00",
+        "notifications_on_until": "15:30",
+        "timezone": "Asia/Kolkata"
+    },
+    "notification_mode": {
+        "_comment": "inside_market=normal (rings immediately). outside_market=silent (delivered but no ring; Rahul sees it when he checks manually). Implemented via Telegram disable_notification=True.",
+        "inside_market": "normal",
+        "outside_market": "silent"
+    },
+    "token_persistence": {
+        "_comment": "DRISHTI saves the token to disk after every hot_reload so VPS restarts reconnect without manual re-entry.",
+        "file": "data/access_token.json",
+        "auto_save_on_update": true
+    },
+    "quiet_hours": {
+        "_comment": "Outbound reminder messages are suppressed outside this window. Bot still ACCEPTS incoming messages 24/7.",
+        "start": "08:00",
+        "end": "23:30",
+        "timezone": "Asia/Kolkata"
+    },
+    "token_reminders": {
+        "_comment": "Scheduled reminder type. Fires only on NSE weekdays. Suppressed when token is still valid (< 24h old).",
+        "times_ist": [
+            "09:00",
+            "15:30",
+            "23:00"
+        ],
+        "only_on_weekdays": true,
+        "skip_nse_holidays": true
+    },
+    "health_check": {
+        "_comment": "Proactive health reports sent during trading window.",
+        "start_time": "08:45",
+        "end_time": "15:45",
+        "check_interval_seconds": 3600,
+        "websocket_jagran_retry_threshold": 5,
+        "morning_greeting": true,
+        "eod_summary": true
+    },
+    "nifty_ltp_feed": {
+        "_comment": "REST background feed \u2014 operator tunes via DRISHTI LTP Feed Setup. Persisted copy in data/nifty_ltp_feed_config.json.",
+        "default_feed_mode": "websocket",
+        "_feed_modes": "websocket = in-process Dhan MarketFeed v2 (default). rest = DRISHTI polls POST /marketfeed/ltp. Auth remains JWT/access token. Failover may switch transport for the session without rewriting this default.",
+        "websocket_startup_grace_seconds": 30,
+        "_auto_failover_comment": "Runtime WS\u2192REST failover when WebSocket crashes (stale OR repeated errors). Does NOT change nifty_ltp_feed_config.json \u2014 operator switches mode manually in LTP Feed Setup. REST stays for session; next trading day retries WebSocket.",
+        "default_poll_interval_seconds": 2,
+        "default_stale_price_alert_seconds": 2,
+        "poll_interval_options": [
+            1,
+            2,
+            3,
+            5
+        ],
+        "stale_price_alert_options": [
+            1,
+            2,
+            3,
+            5
+        ],
+        "fetch_failure_jagran_threshold": 5,
+        "rest_max_attempts": 3,
+        "rest_retry_base_seconds": 1.0,
+        "rest_retry_backoff_multiplier": 2.0,
+        "rate_limit_cooldown_seconds": 30,
+        "log_dir": "logs/bots/drishti/nifty_ltp",
+        "cache_file": "data/nifty_ltp_cache.json"
+    },
+    "retry": {
+        "_comment": "Retry behaviour for health check API calls (broker / LTP fetch).",
+        "max_attempts": 3,
+        "delay_seconds": 5,
+        "backoff_multiplier": 2
+    },
+    "gift_nifty": {
+        "_comment": "GIFT Nifty symbol candidates for Dhan. Tried in order \u2014 first success wins. Falls back to source if all fail.",
+        "symbol_candidates": [
+            "GIFT NIFTY",
+            "NIFTYBEES"
+        ],
+        "fallback_source": "yfinance",
+        "trading_window_start": "06:00",
+        "trading_window_end": "23:45"
+    },
+    "alerts": {
+        "_comment": "Immediate health alert settings. No quiet hours, no suppression.",
+        "broker_failure": true,
+        "nifty_ltp_failure": true,
+        "gift_nifty_failure": true,
+        "module_crash": true,
+        "token_expiry_warning_minutes": 60
+    },
+    "uat_market_replay": {
+        "enabled": false,
+        "force_uat_mode": false,
+        "replay_speed": "fast",
+        "prefer_websocket_logs": false,
+        "loop": true,
+        "min_ticks": 10,
+        "_replay_speed_options": "realtime | fast | ultra \u2014 default fast (3x; 1s stored = ~333ms replay)"
+    }
+}

@@ -1,0 +1,13 @@
+Source,Scenario,Route_To_Source_Chat,Route_To_JAGRAN,Proposed_Severity,Status,Notes,Last_Updated
+DRISHTI,LTP or validation fetch failure after retry exhaustion,Yes,Yes,Critical,CONFIRMED_SEED,Health or validation failed despite retries,2026-05-17
+DRISHTI,Broker disconnected or broker connection failure,Yes,Yes,Critical,CONFIRMED_SEED,Immediate attention incident,2026-05-17
+DRISHTI,Token expired or stale event,Yes,Yes,Critical,CONFIRMED_SEED,Route to both DRISHTI and JAGRAN,2026-05-17
+DRISHTI,Token update or validation failure requiring user attention,Yes,Yes,Critical,CONFIRMED_SEED,Keep raw broker or API error visible,2026-05-17
+DRISHTI,Websocket drop local alert on every drop,Yes,No,Warning,LOCKED_20260517,DRISHTI alerts each drop and retry progress count,2026-05-17
+DRISHTI,Websocket retry exhaustion retry_count >= 5,Yes,Yes,Critical,LOCKED_20260517,Escalate to JAGRAN once retry threshold is reached,2026-05-17
+KAVACH,Margin shortfall,Yes,Yes,Critical,CONFIRMED_SEED,Immediate-action trading risk,2026-05-17
+KAVACH,Order rejection,Yes,Yes,Critical,CONFIRMED_SEED,Immediate-action trading risk,2026-05-17
+KAVACH,Emergency exit failure,Yes,Yes,Critical,CONFIRMED_SEED,Critical failure,2026-05-17
+KAVACH,Archive or completion failure with immediate operational impact,Yes,Yes,Critical,CONFIRMED_SEED,Closing flow failure,2026-05-17
+SANCHALAK,Downstream bot failure during globally authorized run,Yes,Yes,Warning,LOCKED_20260517,SANCHALAK action policy currently alert-only during testing,2026-05-17
+SARANSH,Summary delivery channel failure Telegram or file partial/full fail,Yes,Yes,Warning,LOCKED_20260517,Alert must include what completed and what failed per channel,2026-05-17

@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🦇 Batman v3 — Telegram Simulator</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #17212b;
+            color: #e8e8e8;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden
+        }
+
+        /* ── Status bar ─────────────────────────── */
+        .statusbar {
+            background: #0d1117;
+            border-bottom: 1px solid #2b3a4a;
+            padding: 7px 16px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-shrink: 0;
+            font-size: 12px
+        }
+
+        .statusbar .title {
+            font-weight: 700;
+            font-size: 14px;
+            color: #e8e8e8;
+            margin-right: 8px
+        }
+
+        .sb-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: #8899a6
+        }
+
+        .sb-item .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0
+        }
+
+        .dot-green {
+            background: #3d9171
+        }
+
+        .dot-red {
+            background: #e05252
+        }
+
+        .dot-gray {
+            background: #5a7a9a
+        }
+
+        .sb-spot {
+            font-weight: 700;
+            color: #f0c040;
+            font-size: 13px
+        }
+
+        .sb-pnl {
+            font-weight: 700;
+            font-size: 13px
+        }
+
+        .pnl-pos {
+            color: #51cf66
+        }
+
+        .pnl-neg {
+            color: #e05252
+        }
+
+        .statusbar .right {
+            margin-left: auto;
+            display: flex;
+            gap: 14px;
+            align-items: center
+        }
+
+        /* ── Layout ────────────────────────────── */
+        .main {
+            display: flex;
+            flex: 1;
+            overflow: hidden
+        }
+
+        /* ── Sidebar ────────────────────────────── */
+        .sidebar {
+            width: 220px;
+            background: #1c2733;
+            border-right: 1px solid #2b3a4a;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0
+        }
+
+        .sidebar-hdr {
+            padding: 12px 14px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #5a7a9a;
+            text-transform: uppercase;
+            letter-spacing: .6px;
+            border-bottom: 1px solid #2b3a4a
+        }
+
+        .chat-item {
+            display: flex;
+            align-items: center;
+            padding: 11px 14px;
+            cursor: pointer;
+            border-bottom: 1px solid #1e2d3d;
+            transition: background .15s;
+            gap: 10px
+        }
+
+        .chat-item:hover {
+            background: #243447
+        }
+
+        .chat-item.active {
+            background: #2b5278
+        }
+
+        .av {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0
+        }
+
+        .av-d {
+            background: #1a4a7a
+        }
+
+        .av-k {
+            background: #1a5a38
+        }
+
+        .av-l {
+            background: #4a1a7a
+        }
+
+        .av-s {
+            background: #3b3b22
+        }
+
+        .av-r {
+            background: #1f4b4f
+        }
+
+        .av-j {
+            background: #5a2a2a
+        }
+
+        .chat-meta {
+            flex: 1;
+            min-width: 0
+        }
+
+        .chat-name {
+            font-size: 13px;
+            font-weight: 700
+        }
+
+        .chat-preview {
+            font-size: 11px;
+            color: #8899a6;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 2px
+        }
+
+        .badge {
+            background: #4a76a8;
+            border-radius: 12px;
+            min-width: 18px;
+            height: 18px;
+            font-size: 10px;
+            font-weight: 700;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 0 4px;
+            flex-shrink: 0
+        }
+
+        .badge.show {
+            display: flex
+        }
+
+        /* ── Centre: chat + controls ──────────────── */
+        .centre {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            overflow: hidden
+        }
+
+        /* ── Chat header ─────────────────────────── */
+        .chat-hdr {
+            padding: 11px 18px;
+            background: #1c2733;
+            border-bottom: 1px solid #2b3a4a;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0
+        }
+
+        .chat-hdr .hav {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 17px
+        }
+
+        .chat-hdr .htitle {
+            font-size: 15px;
+            font-weight: 700
+        }
+
+        .chat-hdr .hst {
+            font-size: 11px;
+            color: #3d9171;
+            margin-top: 1px
+        }
+
+        /* ── Messages ─────────────────────────────── */
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            scroll-behavior: smooth
+        }
+
+        .msg {
+            display: flex;
+            flex-direction: column;
+            animation: pop .2s ease
+        }
+
+        .msg.bot {
+            align-items: flex-start;
+            max-width: 82%
+        }
+
+        .msg.user {
+            align-items: flex-end;
+            align-self: flex-end;
+            max-width: 68%
+        }
+
+        @keyframes pop {
+            from {
+                opacity: 0;
+                transform: translateY(6px)
+            }
+
+            to {
+                opacity: 1;
+                transform: none
+            }
+        }
+
+        .bubble {
+            padding: 8px 13px;
+            border-radius: 16px;
+            font-size: 13px;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            word-break: break-word
+        }
+
+        .msg.bot .bubble {
+            background: #1e2e3d;
+            border-radius: 4px 16px 16px 16px
+        }
+
+        .msg.user .bubble {
+            background: #2b5278;
+            border-radius: 16px 16px 16px 4px
+        }
+
+        .bubble.mono {
+            font-family: 'Courier New', monospace;
+            font-size: 11.5px;
+            background: #0d1a26;
+            border-left: 3px solid #4a76a8
+        }
+
+        .msg-ts {
+            font-size: 10px;
+            color: #5a7a9a;
+            margin-top: 2px;
+            padding: 0 3px
+        }
+
+        /* ── Inline keyboard ─────────────────────── */
+        .keyboard {
+            margin-top: 5px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            max-width: 380px
+        }
+
+        .kb-row {
+            display: flex;
+            gap: 3px
+        }
+
+        .kb-btn {
+            flex: 1;
+            background: #243447;
+            border: 1px solid #2b3a4a;
+            border-radius: 9px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: #a8d4f5;
+            cursor: pointer;
+            transition: background .15s;
+            text-align: center;
+            font-family: inherit
+        }
+
+        .kb-btn:hover:not(.done) {
+            background: #2b4060;
+            border-color: #4a6a9a
+        }
+
+        .kb-btn.cancel {
+            color: #ff8080
+        }
+
+        .kb-btn.confirm {
+            color: #51cf66;
+            font-weight: 700
+        }
+
+        .kb-btn.done {
+            opacity: .45;
+            cursor: default
+        }
+
+        /* ── Typing dot ──────────────────────────── */
+        .typing {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 9px 13px;
+            background: #1e2e3d;
+            border-radius: 4px 16px 16px 16px;
+            width: fit-content
+        }
+
+        .dot-t {
+            width: 6px;
+            height: 6px;
+            background: #8899a6;
+            border-radius: 50%;
+            animation: bop .9s infinite
+        }
+
+        .dot-t:nth-child(2) {
+            animation-delay: .18s
+        }
+
+        .dot-t:nth-child(3) {
+            animation-delay: .36s
+        }
+
+        @keyframes bop {
+
+            0%,
+            100% {
+                transform: translateY(0);
+                opacity: .5
+            }
+
+            50% {
+                transform: translateY(-4px);
+                opacity: 1
+            }
+        }
+
+        /* ── Date divider ─────────────────────────── */
+        .divider {
+            text-align: center;
+            font-size: 11px;
+            color: #5a7a9a;
+            margin: 6px 0;
+            position: relative
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            width: 30%;
+            height: 1px;
+            background: #2b3a4a
+        }
+
+        .divider::before {
+            left: 0
+        }
+
+        .divider::after {
+            right: 0
+        }
+
+        /* ── Input bar ────────────────────────────── */
+        .inputbar {
+            background: #1c2733;
+            border-top: 1px solid #2b3a4a;
+            padding: 10px 14px;
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0
+        }
+
+        .inputbar input {
+            flex: 1;
+            background: #17212b;
+            border: 1px solid #2b3a4a;
+            border-radius: 20px;
+            padding: 8px 16px;
+            color: #e8e8e8;
+            font-size: 13px;
+            outline: none;
+            transition: border-color .15s
+        }
+
+        .inputbar input:focus {
+            border-color: #4a76a8
+        }
+
+        .send-btn {
+            background: #4a76a8;
+            color: #fff;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background .15s
+        }
+
+        .send-btn:hover {
+            background: #5a86b8
+        }
+
+        /* ── Right: Sim controls ─────────────────── */
+        .sim-panel {
+            width: 230px;
+            background: #1c2733;
+            border-left: 1px solid #2b3a4a;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            overflow-y: auto
+        }
+
+        .sim-hdr {
+            padding: 12px 14px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #5a7a9a;
+            text-transform: uppercase;
+            letter-spacing: .6px;
+            border-bottom: 1px solid #2b3a4a
+        }
+
+        .sim-section {
+            padding: 12px 14px;
+            border-bottom: 1px solid #1e2d3d
+        }
+
+        .sim-label {
+            font-size: 11px;
+            color: #8899a6;
+            margin-bottom: 8px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .4px
+        }
+
+        .sim-row {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 6px;
+            align-items: center
+        }
+
+        .sim-input {
+            flex: 1;
+            background: #17212b;
+            border: 1px solid #2b3a4a;
+            border-radius: 8px;
+            padding: 6px 10px;
+            color: #e8e8e8;
+            font-size: 12px;
+            outline: none
+        }
+
+        .sim-btn {
+            background: #243447;
+            border: 1px solid #2b3a4a;
+            border-radius: 8px;
+            padding: 6px 10px;
+            color: #a8d4f5;
+            font-size: 11px;
+            cursor: pointer;
+            transition: background .15s;
+            white-space: nowrap;
+            font-family: inherit
+        }
+
+        .sim-btn:hover {
+            background: #2b4060
+        }
+
+        .sim-btn.warn {
+            color: #f0c040
+        }
+
+        .sim-btn.danger {
+            color: #ff8080
+        }
+
+        .sim-btn.success {
+            color: #51cf66
+        }
+
+        .sim-btn.reset {
+            color: #ff9966;
+            width: 100%;
+            text-align: center;
+            padding: 8px
+        }
+
+        .shortcut-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 4px
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Status bar -->
+    <div class="statusbar">
+        <span class="title">🦇 Batman v3</span>
+        <span class="sb-item">
+            <span class="dot" id="dot-broker"></span>
+            <span id="lbl-broker">No token</span>
+        </span>
+        <span class="sb-item">
+            <span class="dot" id="dot-deploy"></span>
+            <span id="lbl-deploy">Not deployed</span>
+        </span>
+        <span class="sb-item">
+            <span class="dot" id="dot-algo"></span>
+            <span id="lbl-algo">Idle</span>
+        </span>
+        <div class="right">
+            <span class="sb-item">NIFTY</span>
+            <span class="sb-spot" id="sb-spot">₹22,713.10</span>
+            <span class="sb-item">P&L</span>
+            <span class="sb-pnl" id="sb-pnl">—</span>
+        </div>
+    </div>
+
+    <!-- Main -->
+    <div class="main">
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-hdr">Bots</div>
+
+            <div class="chat-item active" id="si-drishti" onclick="switchBot('drishti')">
+                <div class="av av-d">🔍</div>
+                <div class="chat-meta">
+                    <div class="chat-name">DRISHTI</div>
+                    <div class="chat-preview" id="prev-d">Initialising…</div>
+                </div>
+                <div class="badge" id="badge-d">1</div>
+            </div>
+
+            <div class="chat-item" id="si-kavach" onclick="switchBot('kavach')">
+                <div class="av av-k">🛡</div>
+                <div class="chat-meta">
+                    <div class="chat-name">KAVACH</div>
+                    <div class="chat-preview" id="prev-k">Run /register to start</div>
+                </div>
+                <div class="badge" id="badge-k">1</div>
+            </div>
+
+            <div class="chat-item" id="si-sanchalak" onclick="switchBot('sanchalak')">
+                <div class="av av-s">🎛</div>
+                <div class="chat-meta">
+                    <div class="chat-name">SANCHALAK</div>
+                    <div class="chat-preview" id="prev-s">Global controls</div>
+                </div>
+                <div class="badge" id="badge-s">1</div>
+            </div>
+
+            <div class="chat-item" id="si-saransh" onclick="switchBot('saransh')">
+                <div class="av av-r">📘</div>
+                <div class="chat-meta">
+                    <div class="chat-name">SARANSH</div>
+                    <div class="chat-preview" id="prev-r">Summary reports</div>
+                </div>
+                <div class="badge" id="badge-r">1</div>
+            </div>
+
+            <div class="chat-item" id="si-jagran" onclick="switchBot('jagran')">
+                <div class="av av-j">🚨</div>
+                <div class="chat-meta">
+                    <div class="chat-name">JAGRAN</div>
+                    <div class="chat-preview" id="prev-j">Incident stream</div>
+                </div>
+                <div class="badge" id="badge-j">1</div>
+            </div>
+
+            <!-- LAKSHMI sidebar item deferred — re-enable when LAKSHMI bot is live -->
+
+            <!-- Quick commands shortcut -->
+            <div style="padding:12px 10px;border-top:1px solid #2b3a4a;margin-top:auto">
+                <div class="sim-label" style="margin-bottom:8px">Quick Commands</div>
+                <div class="shortcut-grid">
+                    <button class="sim-btn" onclick="sendCmd('kavach','/register')">/register</button>
+                    <button class="sim-btn" onclick="sendCmd('kavach','/ato_status')">/ato_status</button>
+                    <button class="sim-btn" onclick="sendCmd('sanchalak','/status_all')">/status_all</button>
+                    <button class="sim-btn" onclick="sendCmd('saransh','/summary')">/summary</button>
+                    <button class="sim-btn" onclick="sendCmd('drishti','/health')">/health</button>
+                    <button class="sim-btn" onclick="sendCmd('jagran','/recent')">/recent</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Centre -->
+        <div class="centre">
+            <!-- Chat header -->
+            <div class="chat-hdr">
+                <div class="hav av-d" id="hdr-av">🔍</div>
+                <div>
+                    <div class="htitle" id="hdr-title">DRISHTI</div>
+                    <div class="hst" id="hdr-st">● online</div>
+                </div>
+            </div>
+
+            <!-- Messages -->
+            <div class="messages" id="messages"></div>
+
+            <!-- Command palette (clickable command chips per bot) -->
+            <div class="cmd-palette" id="cmd-palette"></div>
+
+            <!-- Input -->
+            <div class="inputbar">
+                <input id="inp" placeholder="Message DRISHTI…" onkeydown="onKey(event)" autocomplete="off" />
+                <button class="send-btn" onclick="sendMsg()">Send</button>
+            </div>
+        </div>
+
+        <!-- Sim controls -->
+        <div class="sim-panel">
+            <div class="sim-hdr">Sim Controls</div>
+
+            <!-- Market Simulator link -->
+            <div class="sim-section">
+                <a href="/market" target="_blank" style="display:block;text-align:center;background:#1f3a5c;border:1px solid #1f6feb;
+                          color:#58a6ff;padding:7px;border-radius:6px;font-size:12px;font-weight:600;
+                          text-decoration:none;">
+                    Open Market Simulator &rarr;
+                </a>
+                <div style="font-size:10px;color:#5a7a9a;margin-top:4px;text-align:center">
+                    Simulated clock &middot; live NIFTY gauge &middot; auto ATO check
+                </div>
+            </div>
+
+            <!-- Spot price -->
+            <div class="sim-section">
+                <div class="sim-label">NIFTY Spot</div>
+                <div class="sim-row">
+                    <input class="sim-input" id="spot-inp" type="number" value="22713" step="50" />
+                    <button class="sim-btn" onclick="setSpot()">Set</button>
+                </div>
+                <div style="font-size:10px;color:#5a7a9a">Apr 7 exp: PE 22000 / CE 23200<br>ATO fires: PE ≤21950 / CE
+                    ≥23250</div>
+            </div>
+
+            <!-- ATO scenarios -->
+            <div class="sim-section">
+                <div class="sim-label">ATO Scenarios</div>
+                <div class="sim-row">
+                    <button class="sim-btn warn" style="flex:1" onclick="breach('CE')">🚨 CE Breach</button>
+                    <button class="sim-btn success" style="flex:1" onclick="retrace('CE')">↩ CE Retrace</button>
+                </div>
+                <div class="sim-row">
+                    <button class="sim-btn warn" style="flex:1" onclick="breach('PE')">🚨 PE Breach</button>
+                    <button class="sim-btn success" style="flex:1" onclick="retrace('PE')">↩ PE Retrace</button>
+                </div>
+                <div style="font-size:10px;color:#5a7a9a;margin-top:4px">
+                    CE Breach: sets NIFTY to 23,262<br>
+                    PE Breach: sets NIFTY to 21,938
+                </div>
+            </div>
+
+            <!-- Token sim -->
+            <div class="sim-section">
+                <div class="sim-label">DRISHTI — Token</div>
+                <button class="sim-btn" style="width:100%;margin-bottom:6px" onclick="sendFakeToken()">
+                    📋 Paste sample JWT token
+                </button>
+                <button class="sim-btn" style="width:100%;margin-bottom:6px"
+                    onclick="sendCmd('drishti','/update_token')">
+                    🔄 /update_token — request fresh token
+                </button>
+                <button class="sim-btn danger" style="width:100%;margin-bottom:6px"
+                    onclick="sendCmd('drishti','/deactivate_token')">
+                    🔴 /deactivate_token — revoke & disconnect
+                </button>
+                <div style="font-size:10px;color:#5a7a9a">Simulates Dhan access token management</div>
+            </div>
+
+            <!-- DRISHTI clock & reminder sim -->
+            <div class="sim-section">
+                <div class="sim-label">DRISHTI — Clock &amp; Reminders</div>
+                <div
+                    style="background:#0d1a26;border:1px solid #2b3a4a;border-radius:6px;padding:8px;margin-bottom:8px">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline">
+                        <span id="drishti-simtime"
+                            style="color:#f0c040;font-size:17px;font-weight:700;font-family:monospace">--:-- IST</span>
+                        <span id="drishti-simdate" style="color:#5a7a9a;font-size:10px">---</span>
+                    </div>
+                    <div id="drishti-weekday-badge" style="font-size:10px;margin-top:2px;color:#8899a6">──</div>
+                    <div id="drishti-tokenstate"
+                        style="margin-top:5px;font-size:11px;color:#8899a6;border-top:1px solid #2b3a4a;padding-top:5px">
+                        Token: —</div>
+                </div>
+                <div style="font-size:10px;color:#5a7a9a;margin-bottom:4px">Advance sim time:</div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-bottom:6px">
+                    <button class="sim-btn" onclick="advSimTime(60)">+1h</button>
+                    <button class="sim-btn warn" onclick="advSimTime(1440)">+24h</button>
+                    <button class="sim-btn warn" onclick="advSimTime(1500)" title="Token expires after 24h sim">+25h
+                        🔴</button>
+                </div>
+                <div style="font-size:10px;color:#5a7a9a;margin-bottom:4px">Jump to reminder time:</div>
+                <button class="sim-btn" style="width:100%;margin-bottom:3px;text-align:left"
+                    onclick="jumpToReminderTime('09:00')">&#128345; 09:00 IST — pre-market reminder</button>
+                <button class="sim-btn" style="width:100%;margin-bottom:3px;text-align:left"
+                    onclick="jumpToReminderTime('15:30')">&#128350; 15:30 IST — post-market reminder</button>
+                <button class="sim-btn" style="width:100%;margin-bottom:6px;text-align:left"
+                    onclick="jumpToReminderTime('23:00')">&#128346; 23:00 IST — night check</button>
+                <button class="sim-btn warn" style="width:100%;margin-bottom:3px" onclick="triggerReminder()">&#128276;
+                    Fire TYPE 1 reminder now</button>
+                <button class="sim-btn danger" style="width:100%;margin-bottom:0" onclick="triggerHealthAlert()">❌ Fire
+                    TYPE 2 health alert</button>
+                <div style="font-size:10px;color:#5a7a9a;margin-top:5px">Token expires 24h after delivery (sim clock).
+                    Reminder auto-fires crossing 09:00 / 15:30 / 23:00 on weekdays.</div>
+            </div>
+
+            <!-- Deploy shortcuts -->
+            <div class="sim-section">
+                <div class="sim-label">KAVACH</div>
+                <button class="sim-btn success" style="width:100%;margin-bottom:6px"
+                    onclick="sendCmd('kavach','/register')">
+                    🛡 /register wizard
+                </button>
+                <button class="sim-btn danger" style="width:100%;margin-bottom:6px"
+                    onclick="sendCmd('kavach','/batman_complete')">
+                    ✅ /batman_complete
+                </button>
+                <button class="sim-btn danger" style="width:100%" onclick="sendCmd('kavach','/exit')">
+                    🚨 /exit
+                </button>
+            </div>
+
+            <!-- Reset -->
+            <div class="sim-section">
+                <div class="sim-label">Session</div>
+                <button class="sim-btn reset" onclick="simReset()">↺ Reset full simulation</button>
+                <div style="font-size:10px;color:#5a7a9a;margin-top:6px">
+                    Clears all messages, state, and token. Restarts from scratch.
+                </div>
+            </div>
+
+            <!-- VPS Restart Sim -->
+            <div class="sim-section">
+                <div class="sim-label">VPS Restart</div>
+                <button class="sim-btn warn" style="width:100%" onclick="simProcessRestart()">
+                    🔄 Simulate Process Restart
+                </button>
+                <div style="font-size:10px;color:#5a7a9a;margin-top:6px">
+                    Wipes memory · auto-restores from file · validates broker positions
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ═══════════════════════════════════════════════════════════
+        // State
+        // ═══════════════════════════════════════════════════════════
+        let currentBot = 'drishti';
+        let lastMsgId = 0;
+        let allMsgs = { drishti: [], kavach: [], sanchalak: [], saransh: [], jagran: [] };
+        let unread = { drishti: 0, kavach: 0, sanchalak: 0, saransh: 0, jagran: 0 };
+        let kbDone = {};   // track which keyboard rows are spent
+        const BOT_BADGE_KEY = { drishti: 'd', kavach: 'k', sanchalak: 's', saransh: 'r', jagran: 'j' };
+
+        const BOT_META = {
+            drishti: { emoji: '🔍', av: 'av-d', title: 'DRISHTI', status: '● online', placeholder: 'Message DRISHTI…' },
+            kavach: { emoji: '🛡', av: 'av-k', title: 'KAVACH', status: '● armed', placeholder: 'Message KAVACH…' },
+            sanchalak: { emoji: '🎛', av: 'av-s', title: 'SANCHALAK', status: '● controls', placeholder: 'Message SANCHALAK…' },
+            saransh: { emoji: '📘', av: 'av-r', title: 'SARANSH', status: '● reports', placeholder: 'Message SARANSH…' },
+            jagran: { emoji: '🚨', av: 'av-j', title: 'JAGRAN', status: '● incidents', placeholder: 'Message JAGRAN…' },
+        };
+
+        // Commands available per bot — shown as clickable chips above the input
+        const BOT_COMMANDS = {
+            drishti: [
+                { label: '🔄 /update_token', cmd: '/update_token' },
+                { label: '🔴 /deactivate_token', cmd: '/deactivate_token' },
+                { label: '🔍 /status', cmd: '/status' },
+                { label: '💪 /health', cmd: '/health' },
+                { label: '🟢 /ping', cmd: '/ping' },
+            ],
+            kavach: [
+                { label: '🛡 /register', cmd: '/register' },
+                { label: '⏸ /pause', cmd: '/pause' },
+                { label: '▶ /resume', cmd: '/resume' },
+                { label: '🔍 /ato_status', cmd: '/ato_status' },
+                { label: '🦵 /legs', cmd: '/legs' },
+                { label: '💰 /funds', cmd: '/funds' },
+                { label: '✅ /batman_complete', cmd: '/batman_complete' },
+                { label: '🚨 /exit', cmd: '/exit' },
+            ],
+            sanchalak: [
+                { label: '▶ /start_all', cmd: '/start_all' },
+                { label: '🛑 /stop_all', cmd: '/stop_all' },
+                { label: '⏸ /pause_bot kavach', cmd: '/pause_bot kavach' },
+                { label: '▶ /resume_bot kavach', cmd: '/resume_bot kavach' },
+                { label: '🧪 /set_mode live', cmd: '/set_mode live' },
+                { label: '🧪 /set_mode mock', cmd: '/set_mode mock' },
+                { label: '📡 /status_all', cmd: '/status_all' },
+            ],
+            saransh: [
+                { label: '📘 /summary', cmd: '/summary' },
+                { label: '🌙 /summary_eod', cmd: '/summary_eod' },
+                { label: '📌 /status', cmd: '/status' },
+            ],
+            jagran: [
+                { label: '🚨 /status', cmd: '/status' },
+                { label: '🧾 /recent', cmd: '/recent' },
+            ],
+        };
+
+        function renderPalette(bot) {
+            const el = document.getElementById('cmd-palette');
+            el.innerHTML = '';
+            (BOT_COMMANDS[bot] || []).forEach(({ label, cmd }) => {
+                const chip = document.createElement('button');
+                chip.className = 'cmd-chip';
+                chip.textContent = label;
+                chip.title = cmd;
+                chip.onclick = () => {
+                    fetch('/api/send', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ bot: currentBot, text: cmd }),
+                    });
+                };
+                el.appendChild(chip);
+            });
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // Bot switching
+        // ═══════════════════════════════════════════════════════════
+        function switchBot(bot) {
+            currentBot = bot;
+            unread[bot] = 0;
+            const m = BOT_META[bot];
+            document.getElementById('hdr-av').textContent = m.emoji;
+            document.getElementById('hdr-av').className = `hav ${m.av}`;
+            document.getElementById('hdr-title').textContent = m.title;
+            document.getElementById('hdr-st').textContent = m.status;
+            document.getElementById('inp').placeholder = m.placeholder;
+            ['drishti', 'kavach', 'sanchalak', 'saransh', 'jagran'].forEach(b => {
+                document.getElementById(`si-${b}`).classList.toggle('active', b === bot);
+                document.getElementById(`badge-${BOT_BADGE_KEY[b]}`).classList.remove('show');
+            });
+            renderPalette(bot);
+            renderMessages();
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // Rendering
+        // ═══════════════════════════════════════════════════════════
+        function renderMessages() {
+            const el = document.getElementById('messages');
+            el.innerHTML = '';
+            allMsgs[currentBot].forEach(m => el.appendChild(buildMsg(m)));
+            el.scrollTop = el.scrollHeight;
+        }
+
+        function buildMsg(m) {
+            const wrap = document.createElement('div');
+            wrap.classList.add('msg', m.actor);
+
+            const bubble = document.createElement('div');
+            bubble.classList.add('bubble');
+            if (m.mono) bubble.classList.add('mono');
+            bubble.textContent = m.text;
+            wrap.appendChild(bubble);
+
+            // keyboard
+            if (m.keyboard && m.keyboard.length) {
+                const kb = document.createElement('div');
+                kb.className = 'keyboard';
+                m.keyboard.forEach((row, ri) => {
+                    const rowEl = document.createElement('div');
+                    rowEl.className = 'kb-row';
+                    row.forEach((btn, bi) => {
+                        const b = document.createElement('button');
+                        b.className = 'kb-btn' +
+                            (btn.text.startsWith('❌') ? ' cancel' : '') +
+                            (btn.text.startsWith('✅') ? ' confirm' : '');
+                        b.textContent = btn.text;
+                        const spent = kbDone[m.id];
+                        if (spent) { b.classList.add('done'); b.disabled = true; }
+                        else {
+                            b.onclick = () => clickKb(m.id, m.bot, btn.data, kb);
+                        }
+                        rowEl.appendChild(b);
+                    });
+                    kb.appendChild(rowEl);
+                });
+                wrap.appendChild(kb);
+            }
+
+            const ts = document.createElement('div');
+            ts.className = 'msg-ts';
+            ts.textContent = m.ts;
+            wrap.appendChild(ts);
+            return wrap;
+        }
+
+        function appendMsg(m) {
+            allMsgs[m.bot].push(m);
+            // update sidebar preview
+            const preview = m.text.split('\n')[0].slice(0, 36) + (m.text.length > 36 ? '…' : '');
+            const key = BOT_BADGE_KEY[m.bot];
+            document.getElementById(`prev-${key}`).textContent = (m.actor === 'user' ? 'You: ' : '') + preview;
+
+            if (m.bot === currentBot) {
+                const el = document.getElementById('messages');
+                el.appendChild(buildMsg(m));
+                el.scrollTop = el.scrollHeight;
+            } else {
+                unread[m.bot]++;
+                const badge = document.getElementById(`badge-${BOT_BADGE_KEY[m.bot]}`);
+                badge.textContent = unread[m.bot];
+                badge.classList.add('show');
+            }
+        }
+
+        function clickKb(msgId, bot, data, kbEl) {
+            kbDone[msgId] = true;
+            kbEl.querySelectorAll('.kb-btn').forEach(b => {
+                b.classList.add('done');
+                b.disabled = true;
+            });
+            fetch('/api/keyboard', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bot, data }),
+            });
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // Polling
+        // ═══════════════════════════════════════════════════════════
+        async function poll() {
+            try {
+                const r = await fetch(`/api/messages?after=${lastMsgId}`);
+                const msgs = await r.json();
+                msgs.forEach(m => { lastMsgId = m.id; appendMsg(m); });
+            } catch (e) { }
+            setTimeout(poll, 500);
+        }
+
+        async function pollState() {
+            try {
+                const r = await fetch('/api/state');
+                const s = await r.json();
+                updateStatusBar(s);
+            } catch (e) { }
+            setTimeout(pollState, 2000);
+        }
+
+        function updateStatusBar(s) {
+            // NIFTY spot
+            document.getElementById('sb-spot').textContent = `₹${s.nifty_spot.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            // DRISHTI sim clock panel
+            if (s.sim_time_str) {
+                document.getElementById('drishti-simtime').textContent = s.sim_time_str + ' IST';
+                document.getElementById('drishti-simdate').textContent = s.sim_date_str || '';
+                const wdBadge = document.getElementById('drishti-weekday-badge');
+                if (s.is_weekday_sim) {
+                    const mktMsg = s.is_market_open_sim ? '● Market OPEN' : '○ Market CLOSED';
+                    wdBadge.textContent = mktMsg;
+                    wdBadge.style.color = s.is_market_open_sim ? '#3d9171' : '#8899a6';
+                } else {
+                    wdBadge.textContent = '⛔ Weekend — reminders suppressed';
+                    wdBadge.style.color = '#8899a6';
+                }
+                const tokEl = document.getElementById('drishti-tokenstate');
+                if (!s.has_sim_token) {
+                    tokEl.textContent = '🔴 No token — paste JWT or use “📋 Paste sample JWT”';
+                    tokEl.style.color = '#e05252';
+                } else if (s.token_expired_sim) {
+                    const age = s.token_age_sim_h !== null ? s.token_age_sim_h : '?';
+                    tokEl.textContent = `⚠️ EXPIRED (${age}h sim) — reminder due!`;
+                    tokEl.style.color = '#f0c040';
+                } else {
+                    const age = s.token_age_sim_h || 0;
+                    const left = Math.max(0, 24 - age).toFixed(1);
+                    tokEl.textContent = `✅ Valid — ${age}h old, expires in ${left}h (sim)`;
+                    tokEl.style.color = '#3d9171';
+                }
+            }
+            // P&L
+            const pnl = s.pnl;
+            const pnlEl = document.getElementById('sb-pnl');
+            if (pnl !== null) {
+                const sign = pnl >= 0 ? '+' : '';
+                pnlEl.textContent = `₹${sign}${pnl.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+                pnlEl.className = 'sb-pnl ' + (pnl >= 0 ? 'pnl-pos' : 'pnl-neg');
+            } else {
+                pnlEl.textContent = '—';
+                pnlEl.className = 'sb-pnl';
+            }
+            // dots
+            setDot('broker', s.token_connected);
+            setDot('deploy', s.deployment);
+            document.getElementById('lbl-broker').textContent = s.token_connected
+                ? `Token (${s.has_sim_token ? (s.token_age_sim_h || 0) + 'h sim' : s.token_age_h + 'h'}${s.token_expired_sim ? ' ⚠️' : ''})`
+                : 'No token';
+            document.getElementById('lbl-deploy').textContent = s.deployment ? 'Armed' : 'Not deployed';
+
+            // algo
+            const algoDot = document.getElementById('dot-algo');
+            const algoLbl = document.getElementById('lbl-algo');
+            if (s.algo_running && !s.algo_paused) {
+                algoDot.className = 'dot dot-green';
+                algoLbl.textContent = 'Running';
+            } else if (s.algo_paused) {
+                algoDot.className = 'dot dot-gray';
+                algoLbl.textContent = 'Paused';
+            } else {
+                algoDot.className = 'dot dot-red';
+                algoLbl.textContent = 'Idle';
+            }
+            // spot input sync
+            document.getElementById('spot-inp').value = Math.round(s.nifty_spot);
+        }
+
+        function setDot(id, ok) {
+            document.getElementById(`dot-${id}`).className = `dot ${ok ? 'dot-green' : 'dot-red'}`;
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // Sending
+        // ═══════════════════════════════════════════════════════════
+        function sendMsg() {
+            const inp = document.getElementById('inp');
+            const text = inp.value.trim();
+            if (!text) return;
+            inp.value = '';
+            fetch('/api/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bot: currentBot, text }),
+            });
+        }
+
+        function onKey(e) {
+            if (e.key === 'Enter') sendMsg();
+        }
+
+        function sendCmd(bot, cmd) {
+            if (bot !== currentBot) switchBot(bot);
+            fetch('/api/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bot, text: cmd }),
+            });
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // Sim controls
+        // ═══════════════════════════════════════════════════════════
+        async function setSpot() {
+            const spot = parseFloat(document.getElementById('spot-inp').value);
+            await fetch('/api/sim/setspot', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ spot })
+            });
+        }
+
+        async function breach(side) {
+            const r = await fetch('/api/sim/breach', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ side })
+            });
+            const d = await r.json();
+            if (d.error) alert('No active deployment — Run /register first.');
+        }
+
+        async function retrace(side) {
+            const r = await fetch('/api/sim/retrace', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ side })
+            });
+            const d = await r.json();
+            if (d.error) alert('No active deployment — Run /register first.');
+        }
+
+        async function advSimTime(minutes) {
+            if (currentBot !== 'drishti') switchBot('drishti');
+            await fetch('/api/market/advance', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ minutes })
+            });
+        }
+
+        async function jumpToReminderTime(timeStr) {
+            if (currentBot !== 'drishti') switchBot('drishti');
+            try {
+                const state = await fetch('/api/state').then(r => r.json());
+                const simDate = state.sim_time ? state.sim_time.substring(0, 10) : new Date().toISOString().substring(0, 10);
+                const newDatetime = `${simDate}T${timeStr}`;
+                await fetch('/api/market/settime', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ datetime: newDatetime })
+                });
+            } catch (e) { console.warn('jumpToReminderTime error:', e); }
+        }
+
+        async function triggerReminder() {
+            if (currentBot !== 'drishti') switchBot('drishti');
+            await fetch('/api/sim/trigger_reminder', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        }
+
+        async function triggerHealthAlert() {
+            if (currentBot !== 'drishti') switchBot('drishti');
+            await fetch('/api/sim/health_alert', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        }
+
+        function sendFakeToken() {
+            const token = 'ENTER_DHAN_JWT_TOKEN_HERE.REPLACE_THIS_SEGMENT.REPLACE_THIS_SEGMENT';
+            if (currentBot !== 'drishti') switchBot('drishti');
+            fetch('/api/send', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bot: 'drishti', text: token })
+            });
+        }
+
+        async function simReset() {
+            if (!confirm('Reset full simulation? This clears all messages and state.')) return;
+            allMsgs = { drishti: [], kavach: [], sanchalak: [], saransh: [], jagran: [] };
+            lastMsgId = 0;
+            kbDone = {};
+            unread = { drishti: 0, kavach: 0, sanchalak: 0, saransh: 0, jagran: 0 };
+            document.getElementById('messages').innerHTML = '';
+            switchBot('drishti');
+            await fetch('/api/sim/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        }
+
+        async function simProcessRestart() {
+            allMsgs = { drishti: [], kavach: [], sanchalak: [], saransh: [], jagran: [] };
+            lastMsgId = 0;
+            kbDone = {};
+            unread = { drishti: 0, kavach: 0, sanchalak: 0, saransh: 0, jagran: 0 };
+            document.getElementById('messages').innerHTML = '';
+            switchBot('drishti');
+            await fetch('/api/sim/process_restart', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // Boot
+        // ═══════════════════════════════════════════════════════════
+        renderPalette('drishti');   // populate command chips on load
+        poll();
+        pollState();
+    </script>
+</body>
+
+</html>

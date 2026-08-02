@@ -1,0 +1,64 @@
+{
+    "_comment": "batman_*.json deployment file that KAVACH writes after /deploy wizard completes",
+    "_comment2": "Based on real Apr 7, 2026 positions from Dhan screenshot",
+    "_comment3": "This is the exact schema ATO module reads from data/deployments/",
+    "schema_version": 1,
+    "deployed_date": "2026-04-04",
+    "deployed_at": "2026-04-04T10:23:45+05:30",
+    "confirmed_at": "2026-04-04T10:24:12+05:30",
+    "expiry_weekday": 1,
+    "_expiry_weekday_comment": "0=Mon 1=Tue 2=Wed 3=Thu 4=Fri — used by profit_trailing",
+    "positions": {
+        "pe_buy": {
+            "symbol": "NIFTY07APR22050PE",
+            "strike": 22050,
+            "expiry": "07APR",
+            "qty": 780,
+            "avg_price": 95.19,
+            "instrument_token": "51235",
+            "side": "BUY"
+        },
+        "pe_sell": {
+            "symbol": "NIFTY07APR22000PE",
+            "strike": 22000,
+            "expiry": "07APR",
+            "qty": 1560,
+            "avg_price": 87.00,
+            "instrument_token": "51234",
+            "side": "SELL"
+        },
+        "ce_sell": {
+            "symbol": "NIFTY07APR23200CE",
+            "strike": 23200,
+            "expiry": "07APR",
+            "qty": 1560,
+            "avg_price": 76.00,
+            "instrument_token": "51237",
+            "side": "SELL"
+        },
+        "ce_buy": {
+            "symbol": "NIFTY07APR23150CE",
+            "strike": 23150,
+            "expiry": "07APR",
+            "qty": 780,
+            "avg_price": 88.09,
+            "instrument_token": "51236",
+            "side": "BUY"
+        }
+    },
+    "ato": {
+        "pe_protect_symbol": "NIFTY07APR21950PE",
+        "pe_protect_strike": 21950,
+        "ce_protect_symbol": "NIFTY07APR23250CE",
+        "ce_protect_strike": 23250,
+        "ato_step": 50,
+        "_ato_step_comment": "pe_protect = pe_sell − 50 = 22000 − 50. ce_protect = ce_sell + 50 = 23200 + 50."
+    },
+    "status": "armed",
+    "_risk_summary": {
+        "nifty_spot_at_deploy": 22713.10,
+        "margin_to_pe_breach": 763,
+        "margin_to_ce_breach": 537,
+        "_note": "CE side has less cushion. Monitor if VIX rises."
+    }
+}

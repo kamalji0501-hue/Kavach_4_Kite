@@ -1,0 +1,32 @@
+# rsync exclude patterns for VPS deploy (vps/deploy_to_vps.sh)
+# One pattern per line. Never ship local-only tooling to the trading server.
+
+# ── PNL Summary bot (Zerodha Kite → Telegram) — LOCAL ONLY ──────────────────
+# Project lives under "Batman Algo Files/PNL summary" and must never be deployed.
+PNL summary/
+PNL_summary/
+pnl-summary/
+pnl_summary/
+**/PNL summary/
+**/PNL_summary/
+
+# Distinctive PNL-summary module names (belt-and-suspenders if copied into tree)
+kite_client.py
+get_access_token.py
+
+# ── Standard deploy exclusions ───────────────────────────────────────────────
+.venv/
+__pycache__/
+.git/
+logs_runtime/
+data_runtime/
+logs_uat/
+logs_prod/
+logs_dev/
+logs_ops/
+vps/deploy.env
+*.pyc
+.pytest_cache/
+.ruff_cache/
+credentials_backup_before_share_*/
+**/*.pem

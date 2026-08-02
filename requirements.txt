@@ -1,0 +1,25 @@
+# Batman v3 — Dependencies
+# Python >= 3.10 required
+
+# Broker
+Dhan-Tradehull>=3.2.0          # Dhan broker API wrapper (pin_totp auto-auth)
+dhanhq==2.2.0rc1               # NIFTY LTP websocket feed (Phase 1)
+
+# Telegram
+python-telegram-bot>=20.0      # Async Telegram bot (always-on listener)
+
+# Utilities
+python-dotenv>=1.0.0           # Load .env secrets
+pandas>=2.0.0                  # DataFrame handling (positions, option chain)
+openpyxl>=3.1.0                # Excel writer engine for consolidated analytics snapshots
+# OCR (optional) — rapidocr-onnxruntime has no Python 3.13 wheel yet (ChromeOS/Debian).
+# UAT can use positions.json / chat ingest without OCR. Uncomment on Python 3.10–3.12.
+#rapidocr-onnxruntime>=1.4.4    # Local OCR engine (ONNX runtime)
+#opencv-python-headless>=4.13.0 # Image preprocessing for OCR
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+Pillow>=10.0.0
+pilmoji>=2.0.0

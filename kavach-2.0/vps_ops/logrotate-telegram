@@ -1,0 +1,17 @@
+/home/ubuntu/my_telegram_bot/telegram_bot.log
+/home/ubuntu/my_telegram_bot/telegram_bot.log.* {
+    weekly
+    rotate 4
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+
+/home/ubuntu/vps_ops/logs/*.log {
+    weekly
+    rotate 4
+    compress
+    missingok
+    notifempty
+}

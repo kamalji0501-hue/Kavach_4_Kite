@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batman v3 — System Flowchart</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        :root {
+            --bg: #0b0b18;
+            --card: #111128;
+            --border: #22224a;
+            --gold: #f1c40f;
+            --blue: #2980b9;
+            --green: #27ae60;
+            --red: #c0392b;
+            --orange: #d35400;
+            --purple: #8e44ad;
+            --text: #ecf0f1;
+            --muted: #95a5a6;
+            --navh: 140px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', Tahoma, Geneva, sans-serif;
+            line-height: 1.65;
+        }
+
+        /* ── HEADER ─────────────────────────────────────────────── */
+        header {
+            background: linear-gradient(135deg, #080812 0%, #12124a 100%);
+            border-bottom: 3px solid var(--gold);
+            padding: 22px 48px;
+            position: sticky;
+            top: 0;
+            z-index: 200;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.7);
+        }
+
+        header h1 {
+            font-size: 1.75rem;
+            color: var(--gold);
+            letter-spacing: 3px;
+            text-shadow: 0 0 24px rgba(241, 196, 15, 0.35);
+        }
+
+        header p {
+            color: var(--muted);
+            font-size: 0.85rem;
+            margin-top: 5px;
+            letter-spacing: 1px;
+        }
+
+        /* ── NAV ─────────────────────────────────────────────────── */
+        nav {
+            background: var(--card);
+            border-bottom: 1px solid var(--border);
+            padding: 11px 48px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            position: sticky;
+            top: 78px;
+            z-index: 199;
+        }
+
+        nav a {
+            color: var(--blue);
+            text-decoration: none;
+            font-size: 0.80rem;
+            padding: 4px 13px;
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            transition: all 0.18s;
+            white-space: nowrap;
+        }
+
+        nav a:hover {
+            background: var(--blue);
+            color: #fff;
+            border-color: var(--blue);
+        }
+
+        /* ── MAIN ────────────────────────────────────────────────── */
+        main {
+            max-width: 1500px;
+            margin: 0 auto;
+            padding: 44px 40px;
+        }
+
+        /* ── OVERVIEW CARD ──────────────────────────────────────── */
+        .overview {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--gold);
+            border-radius: 14px;
+            padding: 26px 32px;
+            margin-bottom: 52px;
+        }
+
+        .overview h2 {
+            color: var(--gold);
+            margin-bottom: 10px;
+            font-size: 1.15rem;
+        }
+
+        .overview p {
+            color: var(--muted);
+            font-size: 0.88rem;
+            margin-bottom: 6px;
+        }
+
+        .stats {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 16px;
+        }
+
+        .stat {
+            background: #0e0e28;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 6px 16px;
+            font-size: 0.80rem;
+        }
+
+        .stat strong {
+            color: var(--gold);
+        }
+
+        /* ── LEGEND ──────────────────────────────────────────────── */
+        .legend {
+            display: flex;
+            gap: 18px;
+            flex-wrap: wrap;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px 20px;
+            margin-bottom: 52px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.80rem;
+            color: var(--muted);
+        }
+
+        .dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+
+        .dot-green {
+            background: #2ecc71;
+        }
+
+        .dot-blue {
+            background: #3498db;
+        }
+
+        .dot-yellow {
+            background: #f39c12;
+        }
+
+        .dot-red {
+            background: #e74c3c;
+        }
+
+        .dot-purple {
+            background: #9b59b6;
+        }
+
+        .dot-grey {
+            background: #95a5a6;
+        }
+
+        /* ── SECTIONS ────────────────────────────────────────────── */
+        section {
+            margin-bottom: 64px;
+            scroll-margin-top: var(--navh);
+        }
+
+        section h2 {
+            font-size: 1.30rem;
+            color: var(--gold);
+            border-left: 4px solid var(--gold);
+            padding-left: 16px;
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        section .sub {
+            color: var(--muted);
+            font-size: 0.84rem;
+            margin-bottom: 18px;
+            padding-left: 20px;
+        }
+
+        /* ── BADGES ──────────────────────────────────────────────── */
+        .badge {
+            font-size: 0.68rem;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 12px;
+            white-space: nowrap;
+        }
+
+        .bg {
+            background: rgba(46, 204, 113, 0.15);
+            color: #2ecc71;
+            border: 1px solid rgba(46, 204, 113, 0.4);
+        }
+
+        .bo {
+            background: rgba(211, 84, 0, 0.15);
+            color: #e67e22;
+            border: 1px solid rgba(211, 84, 0, 0.4);
+        }
+
+        .br {
+            background: rgba(192, 57, 43, 0.20);
+            color: #e74c3c;
+            border: 1px solid rgba(192, 57, 43, 0.4);
+        }
+
+        .bb {
+            background: rgba(52, 152, 219, 0.15);
+            color: #3498db;
+            border: 1px solid rgba(52, 152, 219, 0.4);
+        }
+
+        .bp {
+            background: rgba(142, 68, 173, 0.18);
+            color: #9b59b6;
+            border: 1px solid rgba(142, 68, 173, 0.4);
+        }
+
+        /* ── DIAGRAM CARD ─────────────────────────────────────────── */
+        .dcard {
+            background: #fafafa;
+            border-radius: 14px;
+            padding: 34px 28px;
+            overflow-x: auto;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--border);
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            min-height: 120px;
+        }
+
+        /* ── SCENARIO TABLE ───────────────────────────────────────── */
+        .stbl-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 0.82rem;
+        }
+
+        th {
+            background: #1a1a40;
+            color: var(--gold);
+            padding: 9px 14px;
+            text-align: left;
+            border-bottom: 2px solid var(--border);
+            white-space: nowrap;
+        }
+
+        td {
+            padding: 8px 14px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+            vertical-align: top;
+        }
+
+        tr:nth-child(even) td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        td:first-child {
+            color: var(--muted);
+            font-family: monospace;
+            font-size: 0.78rem;
+            white-space: nowrap;
+        }
+
+        .ok {
+            color: #2ecc71;
+            font-weight: bold;
+        }
+
+        .warn {
+            color: #f39c12;
+            font-weight: bold;
+        }
+
+        .fail {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+
+        /* ── FOOTER ──────────────────────────────────────────────── */
+        footer {
+            text-align: center;
+            padding: 28px;
+            color: var(--muted);
+            font-size: 0.80rem;
+            border-top: 1px solid var(--border);
+            margin-top: 24px;
+        }
+
+        footer strong {
+            color: var(--gold);
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- ═══════════════ HEADER ════════════════════════════════════════ -->
+    <header>
+        <h1>🦇 BATMAN v3 — SYSTEM FLOWCHART</h1>
+        <p>NIFTY Weekly Iron Condor &nbsp;·&nbsp; ATO Protection &nbsp;·&nbsp; Profit Trailing &nbsp;·&nbsp; Emergency
+            Exit &nbsp;·&nbsp; Wed&nbsp;→&nbsp;Tue</p>
+    </header>
+
+    <!-- ═══════════════ NAV ═══════════════════════════════════════════ -->
+    <nav>
+        <a href="#lifecycle">① Weekly Lifecycle</a>
+        <a href="#startup">② System Startup</a>
+        <a href="#deploy">③ Deployment</a>
+        <a href="#scheduler">④ Algo Scheduler</a>
+        <a href="#ato-scan">⑤ ATO Startup Scan</a>
+        <a href="#ato-loop">⑥ ATO Main Loop</a>
+        <a href="#trailing">⑦ Profit Trailing</a>
+        <a href="#emergency">⑧ Emergency Exit</a>
+        <a href="#done">⑨ Week Completion</a>
+        <a href="#scenarios">⑩ Key Scenarios</a>
+    </nav>
+
+    <!-- ═══════════════ MAIN ══════════════════════════════════════════ -->
+    <main>
+
+        <!-- OVERVIEW ─────────────────────────────────────────────────── -->
+        <div class="overview">
+            <h2>📊 Batman v3 — End-to-End Design Overview</h2>
+            <p>A fully-automated NIFTY options trading system. The iron condor is <strong>deployed manually</strong> on
+                the Dhan app every Wednesday; Batman monitors, protects, and exits automatically.</p>
+            <p>These diagrams cover every flow implemented in code. Overnight hedge and batman_entry module are
+                <strong>out of scope</strong> (manual on Dhan app).</p>
+            <div class="stats">
+                <div class="stat">Python <strong>3.12</strong></div>
+                <div class="stat">Broker <strong>Dhan-Tradehull v3.2.0</strong></div>
+                <div class="stat">Tests <strong>99 / 99 ✅</strong></div>
+                <div class="stat">Strategy <strong>NIFTY Iron Condor</strong></div>
+                <div class="stat">Entry Day <strong>Wednesday (4 DTE)</strong></div>
+                <div class="stat">Expiry Day <strong>Tuesday (0 DTE)</strong></div>
+                <div class="stat">Sell Distance <strong>300 pts OTM</strong></div>
+                <div class="stat">Lot Size <strong>65 qty</strong></div>
+            </div>
+        </div>
+
+        <!-- COLOUR LEGEND ──────────────────────────────────────────────── -->
+        <div class="legend">
+            <div class="legend-item">
+                <div class="dot dot-green"></div> Start / End (terminator)
+            </div>
+            <div class="legend-item">
+                <div class="dot dot-blue"></div> Process / Action
+            </div>
+            <div class="legend-item">
+                <div class="dot dot-yellow"></div> Decision / Branch
+            </div>
+            <div class="legend-item">
+                <div class="dot dot-red"></div> Error / Failure path
+            </div>
+            <div class="legend-item">
+                <div class="dot dot-purple"></div> Event trigger / source
+            </div>
+            <div class="legend-item">
+                <div class="dot dot-grey"></div> Idle / Blocked / Skip
+            </div>
+        </div>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- 1. WEEKLY LIFECYCLE                                             -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="lifecycle">
+            <h2>1. Master Weekly Lifecycle <span class="badge bb">State Machine</span></h2>
+            <p class="sub">Complete week cycle: IDLE → DEPLOYED → ALGO_RUNNING → EXPIRY_DAY → WEEK_DONE → repeat.</p>
+            <div class="dcard">
+                <div class="mermaid">
+                    stateDiagram-v2
+                    direction LR
+                    [*] --> IDLE : System starts
+
+                    IDLE : IDLE
+                    IDLE : batman_done_for_week = True
+                    IDLE : All algo modules blocked
+                    IDLE : position_monitor + emergency_exit only
+
+                    DEPLOYED : DEPLOYED
+                    DEPLOYED : deployment.confirmed = True
+                    DEPLOYED : ATO in 30s deploy-gate loop
+                    DEPLOYED : Waiting for user to start algo
+
+                    ALGO_RUNNING : ALGO_RUNNING
+                    ALGO_RUNNING : Wed to Mon (1–4 DTE)
+                    ALGO_RUNNING : ATO monitors every 2s
+                    ALGO_RUNNING : position_monitor every 5 min
+
+                    EXPIRY_DAY : EXPIRY_DAY
+                    EXPIRY_DAY : Tuesday = 0 DTE
+                    EXPIRY_DAY : Profit Trailing active (5s)
+                    EXPIRY_DAY : ATO still monitoring
+                    EXPIRY_DAY : NO overnight hedge
+
+                    WEEK_DONE : WEEK_DONE
+                    WEEK_DONE : batman_done_for_week = True
+                    WEEK_DONE : next_entry_date computed
+                    WEEK_DONE : All algo blocked
+
+                    IDLE --> DEPLOYED : /confirm_deploy user selects 4 legs
+                    DEPLOYED --> ALGO_RUNNING : AlgoScheduler user picks start time
+                    ALGO_RUNNING --> EXPIRY_DAY : Date becomes Tuesday
+                    EXPIRY_DAY --> WEEK_DONE : /batman_done OR trailing stop OR hard stop
+                    WEEK_DONE --> DEPLOYED : /confirm_deploy resets week flag
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- 2. SYSTEM STARTUP                                               -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="startup">
+            <h2>2. System Startup Flow <span class="badge bo">python main.py</span></h2>
+            <p class="sub">Initialises broker → state → bots → modules → AlgoScheduler. Then blocks on shutdown_event.
+            </p>
+            <div class="dcard">
+                <div class="mermaid">
+                    flowchart TD
+                    S([🚀 python main.py]):::st --> LC[Load config\nsettings.json + .env\nResolve ENV vars]:::pr
+                    LC --> CV{Config\nvalid?}:::dc
+                    CV -- No --> AX([❌ Exit — config error]):::er
+                    CV -- Yes --> BR[Connect Dhan broker\npin_totp mode\nauto-TOTP via pyotp]:::pr
+                    BR --> BC{Connected?}:::dc
+                    BC -- No --> RT[Retry with exp backoff\nmax 3 attempts]:::pr
+                    RT --> BC
+                    BC -- Yes --> IS[Init StateManager\nLoad batman_state.json\nor create fresh state]:::pr
+                    IS --> IE[Init EventBus\n30+ event types]:::pr
+                    IE --> HB[Start HealthBot\n08:45 morning alert\n15:45 EOD alert\n/health and /ping commands]:::pr
+                    HB --> RM[Register 6 modules\nwith ModuleManager]:::pr
+                    RM --> TB[Start Main Telegram Bot\ndaemon thread]:::pr
+                    TB --> AM[Start always-on modules:\nposition_monitor\nemergency_exit]:::pr
+                    AM --> AS[Create AlgoScheduler\nWire into BotManager]:::pr
+                    AS --> EV[Subscribe Telegram alerts\nto all key events]:::pr
+                    EV --> TK[Token refresh loop\nevery 20 hours]:::pr
+                    TK --> ER[EOD P&L report\nat 15:35 IST daily]:::pr
+                    ER --> BL[⏳ Block on shutdown_event\nwhile not shutdown: sleep 1s]:::pr
+                    BL --> SD{Shutdown\nsignal?}:::dc
+                    SD -- /shutdown or Ctrl+C --> GS[Stop AlgoScheduler\nStop all modules\nStop Telegram bots\nSave
+                    state\nExit]:::pr
+                    GS --> EX([✅ Process exited cleanly]):::st
+
+                    classDef st fill:#2ecc71,stroke:#27ae60,color:#000
+                    classDef pr fill:#2980b9,stroke:#1a5276,color:#fff
+                    classDef dc fill:#f39c12,stroke:#d68910,color:#000
+                    classDef er fill:#e74c3c,stroke:#c0392b,color:#fff
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- 3. DEPLOYMENT CONFIRMATION                                      -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="deploy">
+            <h2>3. Deployment Confirmation — <code>/confirm_deploy</code> <span class="badge bg">Starts the week
+                    cycle</span></h2>
+            <p class="sub">User places iron condor manually on Dhan app. This flow loads those positions into Batman
+                state so monitoring can begin.</p>
+            <div class="dcard">
+                <div class="mermaid">
+                    flowchart TD
+                    A([📱 User sends /confirm_deploy]):::st --> B{Authorized\nchat_id?}:::dc
+                    B -- No --> C([Ignore]):::sk
+                    B -- Yes --> D{batman_done\n_for_week = True?}:::dc
+                    D -- Yes --> E([❌ Week done\nWait for next Wednesday]):::er
+                    D -- No --> F[Fetch ALL open positions\nfrom Dhan broker]:::pr
+                    F --> G{Broker\nresponded?}:::dc
+                    G -- Error --> H([❌ Broker error — try again]):::er
+                    G -- OK empty --> I([❌ No positions found\nDeploy iron condor on Dhan first]):::er
+                    G -- OK has positions --> J[Show toggle keyboard\none button per broker position\ncheckmark toggles
+                    on/off]:::pr
+                    J --> K[User selects 4 batman legs:\nCE sell · CE buy\nPE sell · PE buy]:::pr
+                    K --> L{Exactly 4\nlegs selected?}:::dc
+                    L -- Fewer than 4 → keep toggling --> K
+                    L -- Yes --> M[Show ✅ Confirm Selection button]:::pr
+                    M --> N[Classify each leg offline:\n_parse_symbol → prefix + strike + CE/PE\n_classify_legs → sell
+                    vs buy by qty sign\n_to_state_leg → broker pos → state format]:::pr
+                    N --> O[Show classified summary:\nCE sell @ 25500 qty 130\nCE buy @ 25450 qty 65\nPE sell @ 24900
+                    qty 130\nPE buy @ 24950 qty 65]:::pr
+                    O --> P[Show ✅ Load These Positions button]:::pr
+                    P --> Q[Update state:\npositions.ce_sell / ce_buy / pe_sell / pe_buy\nato.ce_protect_symbol =
+                    ce_sell_strike + 50\nato.pe_protect_symbol = pe_sell_strike - 50\ndeployment.confirmed =
+                    True\npositions_confirmed_date = today]:::pr
+                    Q --> R[Reset batman_done_for_week → False if set]:::pr
+                    R --> PB[Publish DEPLOYMENT_CONFIRMED event]:::pr
+                    PB --> AL[📱 Batman deployed!\nCE sell 25500 — PE sell 24900\nATO monitoring starting...]:::pr
+                    AL --> GL([ATO module exits 30s deploy-gate loop\nBegins Startup Scan → Flow 5]):::st
+
+                    classDef st fill:#2ecc71,stroke:#27ae60,color:#000
+                    classDef pr fill:#2980b9,stroke:#1a5276,color:#fff
+                    classDef dc fill:#f39c12,stroke:#d68910,color:#000
+                    classDef er fill:#e74c3c,stroke:#c0392b,color:#fff
+                    classDef sk fill:#7f8c8d,stroke:#616a6b,color:#fff
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- 4. ALGO SCHEDULER                                               -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="scheduler">
+            <h2>4. Daily Algo Scheduler Flow <span class="badge bo">Ticks every 30 s — 09:00 IST prompt</span></h2>
+            <p class="sub">Two gates guard every tick. When clear: prompts user for start time, auto-starts modules,
+                auto-stops at 15:30.</p>
+            <div class="dcard">
+                <div class="mermaid">
+                    flowchart TD
+                    A([AlgoScheduler._tick\nevery 30 seconds]):::st --> G1{Gate 1:\nbatman_done\n_for_week?}:::dc
+                    G1 -- Yes → week done --> SK1([⏸ Idle — week complete\nWaiting for next /confirm_deploy]):::sk
+                    G1 -- No --> G2{Gate 2:\ndeployment\n.confirmed?}:::dc
+                    G2 -- No → not deployed --> SK2([⏸ Idle — no positions\nWaiting for /confirm_deploy]):::sk
+                    G2 -- Yes → both gates clear --> T09{09:00 IST\nreached today?}:::dc
+                    T09 -- Not yet --> A
+                    T09 -- Yes first time --> PK[📱 Send time-picker keyboard\nWhat time to start algo today?\n09:20 /
+                    09:25 / 09:30 / 09:35 / 09:40\n09:45 / 10:00 / 10:15 / 10:30 / 11:00]:::pr
+                    PK --> UR{User picks\na slot?}:::dc
+                    UR -- No response within 5 min --> TM[📱 No time selected\nAlgo not started today]:::pr
+                    TM --> SK3([⏸ Wait for next day]):::sk
+                    UR -- Time selected e.g. 09:30 --> ST[Store chosen_start_time = 09:30\n📱 Starting algo at
+                    09:30]:::pr
+                    ST --> WT{chosen_start_time\nreached?}:::dc
+                    WT -- Not yet --> A
+                    WT -- Yes --> MK{Market open?\nNSE holiday calendar\n09:15–15:30 window}:::dc
+                    MK -- No holiday or weekend --> HX[📱 Market closed today\nAlgo start skipped]:::pr
+                    HX --> SK3
+                    MK -- Yes --> SM[Start algo modules:\nato_protection ✅\nprofit_trailing ✅\n📱 Algo started]:::pr
+                    SM --> RN[⏳ Modules running independently\nATO every 2s · Trailing every 5s]:::pr
+                    RN --> E15{15:30 IST\nreached?}:::dc
+                    E15 -- No → keep running --> RN
+                    E15 -- Yes --> STP[Stop all algo modules\n📱 Algo stopped at market close]:::pr
+                    STP --> EOD[EOD P&L report sent at 15:35]:::pr
+                    EOD --> SK3
+
+                    classDef st fill:#2ecc71,stroke:#27ae60,color:#000
+                    classDef pr fill:#2980b9,stroke:#1a5276,color:#fff
+                    classDef dc fill:#f39c12,stroke:#d68910,color:#000
+                    classDef sk fill:#7f8c8d,stroke:#616a6b,color:#fff
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- 5. ATO STARTUP SCAN                                             -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="ato-scan">
+            <h2>5. ATO Protection — Startup Scan <span class="badge bo">Runs ONCE at module start</span></h2>
+            <p class="sub">Before the main loop runs, this scan handles overnight gap events where the market opened
+                outside sell strikes before the algo started (09:15–09:20 window). CE and PE evaluated independently.
+            </p>
+            <div class="dcard">
+                <div class="mermaid">
+                    flowchart TD
+                    A([ATOProtection._startup_scan]):::st --> EN{startup_scan\n_enabled in config?}:::dc
+                    EN -- No --> SK([⏭ Skip → enter main loop]):::sk
+                    EN -- Yes --> SP[Fetch NIFTY spot price]:::pr
+
+                    SP --> CS{Stale-state check:\nce_triggered = True in state\nBUT no CE ATO pos at broker?}:::dc
+                    CS -- Yes stale → crash survivor --> CR[Reset: ce_triggered = False\nce_ato_active = False\nLog:
+                    stale CE state cleaned up]:::pr
+                    CS -- No clean --> CB
+                    CR --> CB
+
+                    CB{spot >= ce_sell_strike?}:::dc
+                    CB -- No breach → safe --> COK([CE side: OK — no action needed]):::ok
+                    CB -- Yes gap breach! --> CK[Check broker positions:\nany holding at ce_protect_symbol?]:::pr
+                    CK --> CF{CE broker\npos qty > 0?}:::dc
+                    CF -- Yes user pre-placed ATO --> CA[ADOPT:\nce_triggered = True\nce_ato_active = True\nNO new order
+                    — reuse existing]:::pr
+                    CF -- No nothing placed yet --> CP[AUTO-PLACE:\ncall _place_ce_protection\nnormal order +
+                    confirmation flow]:::pr
+                    CA --> CQ{Adopted qty =\nexpected C/E buy qty?}:::dc
+                    CQ -- Yes --> CM[📱 CE ATO adopted from broker\nRetracement exit will handle close]:::pr
+                    CQ -- No mismatch --> CMM[Adopt anyway — never double-place\nPublish ATO_STARTUP_QTY_MISMATCH\n📱 ⚠️
+                    CE ATO qty mismatch!]:::wr
+                    CM --> PE
+                    CMM --> PE
+                    CP --> PE
+
+                    PE([─── PE side: same logic ───]):::lbl
+                    PE --> PS{Stale-state check:\npe_triggered = True\nBUT no PE ATO pos at broker?}:::dc
+                    PS -- Yes stale --> PR[Reset: pe_triggered = False\npe_ato_active = False]:::pr
+                    PS -- No --> PB
+                    PR --> PB
+
+                    PB{spot <= pe_sell_strike?}:::dc PB -- No breach → safe --> POK([PE side: OK — no action
+                        needed]):::ok
+                        PB -- Yes gap breach! --> PK[Check broker positions:\nany holding at pe_protect_symbol?]:::pr
+                        PK --> PF{PE broker\npos qty > 0?}:::dc
+                        PF -- Yes --> PA[ADOPT: pe_triggered = True\npe_ato_active = True\nNO new order]:::pr
+                        PF -- No --> PP[AUTO-PLACE:\ncall _place_pe_protection]:::pr
+                        PA --> DONE
+                        PP --> DONE
+
+                        DONE[Publish ATO_STARTUP_SCAN_DONE\n📱 Startup scan complete]:::pr
+                        DONE --> ML([→ Enter main monitoring loop — Flow 6]):::st
+
+                        classDef st fill:#2ecc71,stroke:#27ae60,color:#000
+                        classDef pr fill:#2980b9,stroke:#1a5276,color:#fff
+                        classDef dc fill:#f39c12,stroke:#d68910,color:#000
+                        classDef ok fill:#1e8449,stroke:#145a32,color:#fff
+                        classDef wr fill:#8e44ad,stroke:#6c3483,color:#fff
+                        classDef sk fill:#7f8c8d,stroke:#616a6b,color:#fff
+                        classDef lbl fill:#ecf0f1,stroke:#bdc3c7,color:#555
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- 6. ATO MAIN LOOP                                                -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="ato-loop">
+            <h2>6. ATO Protection — Main Monitoring Loop <span class="badge bo">Every 2 seconds during market
+                    hours</span></h2>
+            <p class="sub">Fires ATO buy on breach, exits on retrace. CE and PE handled independently each tick.
+                Max-cycles cap optional. Idempotency guard prevents duplicate orders.</p>
+            <div class="dcard">
+                <div class="mermaid">
+                    flowchart TD
+                    TK([Tick — every 2 seconds]):::st --> SR{Stop\nrequested?}:::dc
+                    SR -- Yes --> STOP([Module stopped]):::st
+                    SR -- No --> MH{Market hours?\n09:15 – 15:30}:::dc
+                    MH -- No --> SLP1[Sleep until market opens]:::pr
+                    SLP1 --> TK
+
+                    MH -- Yes --> SP[Fetch NIFTY spot price]:::pr
+                    SP --> CEA{CE ATO\nalready active?}:::dc
+
+                    CEA -- No check for breach --> CEB{spot >= ce_sell_strike?}:::dc
+                    CEB -- No --> PECBR
+                    CEB -- Yes breach! --> CMX{ce_cycles < max_cycles\nOR max_cycles=0 unlimited?}:::dc CMX -- No limit
+                        reached --> CWN[Publish ATO_MAX_CYCLES_REACHED once\n📱 ⛔ CE ATO max cycles — protection
+                        disabled]:::wr
+                        CWN --> PECBR
+                        CMX -- Yes within limit --> CID{Broker already has\nCE ATO position?\nIdempotency guard}:::dc
+                        CID -- Yes state drift fix --> CSF[Update state flags only\nNo new order placed]:::pr
+                        CID -- No --> CPL[Place BUY order\nce_protect_symbol\nN lots at market]:::pr
+                        CPL --> CCF{Order confirmed\nTRADED?}:::dc
+                        CCF -- No --> CEF[Log error\n📱 ⚠️ CE ATO order failed]:::er
+                        CCF -- Yes --> CUP[ce_triggered = True\nce_ato_active = True\nce_order_id saved\nce_cycles +=
+                        1\nPublish ATO_CE_TRIGGERED\n📱 🔴 CE ATO triggered! cycle N]:::pr
+                        CSF --> PECBR
+                        CEF --> PECBR
+                        CUP --> PECBR
+
+                        CEA -- Yes already active check retrace --> CRT{spot <= ce_sell_strike\n- retrace_points?}:::dc
+                            CRT -- No market still above --> PECBR
+                            CRT -- Yes pulled back --> CEX[Place SELL order\nce_protect_symbol N lots]:::pr
+                            CEX --> CEXC{Confirmed?}:::dc
+                            CEXC -- No --> CEXF[Log error\n📱 ⚠️ CE ATO exit failed]:::er
+                            CEXC -- Yes --> CERS[ce_triggered = False\nce_ato_active = False\nce_order_id =
+                            None\nPublish ATO_CE_EXITED\n📱 ✅ CE ATO exited — retrace complete]:::pr
+                            CEXF --> PECBR
+                            CERS --> PECBR
+
+                            PECBR{PE ATO\nalready active?}:::dc
+                            PECBR -- No check for breach --> PEB{spot <= pe_sell_strike?}:::dc PEB -- No --> SLP[Sleep
+                                2s]:::pr
+                                PEB -- Yes breach! --> PMX{pe_cycles < max_cycles\nOR max_cycles=0?}:::dc PMX -- No -->
+                                    PWN[Publish ATO_MAX_CYCLES_REACHED once\n📱 ⛔ PE ATO max cycles — disabled]:::wr
+                                    PWN --> SLP
+                                    PMX -- Yes --> PID{Broker already has\nPE ATO position?}:::dc
+                                    PID -- Yes --> PSF[State fix only — no order]:::pr
+                                    PID -- No --> PPL[Place BUY order\npe_protect_symbol N lots]:::pr
+                                    PPL --> PCF{Confirmed?}:::dc
+                                    PCF -- No --> PEF[Log error\n📱 ⚠️ PE ATO order failed]:::er
+                                    PCF -- Yes --> PUP[pe_triggered = True\npe_ato_active = True\npe_cycles +=
+                                    1\nPublish ATO_PE_TRIGGERED\n📱 🔴 PE ATO triggered!]:::pr
+                                    PSF --> SLP
+                                    PEF --> SLP
+                                    PUP --> SLP
+
+                                    PECBR -- Yes active check retrace --> PRT{spot >= pe_sell_strike\n+
+                                    retrace_points?}:::dc
+                                    PRT -- No --> SLP
+                                    PRT -- Yes pulled back --> PEX[Place SELL order\npe_protect_symbol N lots]:::pr
+                                    PEX --> PEXC{Confirmed?}:::dc
+                                    PEXC -- No --> PEXF[Log error\n📱 ⚠️ PE ATO exit failed]:::er
+                                    PEXC -- Yes --> PERS[pe_triggered = False\npe_ato_active = False\nPublish
+                                    ATO_PE_EXITED\n📱 ✅ PE ATO exited — retrace complete]:::pr
+                                    PEXF --> SLP
+                                    PERS --> SLP
+
+                                    SLP --> TK
+
+                                    classDef st fill:#2ecc71,stroke:#27ae60,color:#000
+                                    classDef pr fill:#2980b9,stroke:#1a5276,color:#fff
+                                    classDef dc fill:#f39c12,stroke:#d68910,color:#000
+                                    classDef er fill:#e74c3c,stroke:#c0392b,color:#fff
+                                    classDef wr fill:#8e44ad,stroke:#6c3483,color:#fff
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- 7. PROFIT TRAILING                                              -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="trailing">
+            <h2>7. Profit Trailing Flow <span class="badge bo">Tuesday 0 DTE only — every 5 seconds</span></h2>
+            <p class="sub">Hard stop forces emergency exit at −₹8,000. Trailing activates at +₹12,000 and exits when P&L
+                drops ₹2,000 from peak.</p>
+            <div class="dcard">
+                <div class="mermaid">
+                    flowchart TD
+                    A([ProfitTrailing._run starts]):::st --> DY{Today is\nTuesday 0 DTE?}:::dc
+                    DY -- No → not expiry day --> WD[Sleep 60s — re-check]:::pr
+                    WD --> DY
+                    DY -- Yes --> MH{Market hours?\n09:15 – 15:30}:::dc
+                    MH -- No --> WM[Sleep 30s]:::pr
+                    WM --> MH
+                    MH -- Yes --> PL[Fetch live total P&L\nfrom broker]:::pr
+
+                    PL --> HS{PnL <= -8000?\nHard Stop threshold}:::dc HS -- Yes --> HX[🚨 Publish HARD_STOP_HIT\nCall
+                        emergency_exit.execute_exit\n📱 HARD STOP HIT!\nP&L = -8000 — all positions closing]:::er
+                        HX --> STOP([Module stops — emergency exit runs]):::st
+
+                        HS -- No --> TA{trailing\n.active?}:::dc
+
+                        TA -- No check activation --> AC{PnL >= +12000?\nActivation threshold}:::dc
+                        AC -- No → not activated yet --> SLP[Sleep 5s]:::pr
+                        AC -- Yes --> SET[Set trailing.active = True\npeak_profit = current PnL\ntrailing_stop = peak -
+                        2000\n📱 🎯 Trailing ACTIVATED!\nPeak = +12000 / Stop = +10000]:::pr
+                        SET --> SLP
+
+                        TA -- Yes active tracking --> NP{PnL > trailing\n.peak_profit?}:::dc
+                        NP -- Yes new high → ratchet up --> UP[peak_profit = PnL\ntrailing_stop = PnL - 2000\n📱 📈 New
+                        peak! Updated stop]:::pr
+                        UP --> SLP
+                        NP -- No flat or declining --> CS{PnL <= trailing_stop?}:::dc CS -- No still above stop --> SLP
+                            CS -- Yes stop hit --> TX[🎯 Publish TRAILING_STOP_HIT\nCall emergency_exit.execute_exit\n📱
+                            ✅ Trailing stop hit!\nExiting at profit +X]:::pr
+                            TX --> STOP2([Module stops — exit runs]):::st
+
+                            SLP --> A
+
+                            classDef st fill:#2ecc71,stroke:#27ae60,color:#000
+                            classDef pr fill:#2980b9,stroke:#1a5276,color:#fff
+                            classDef dc fill:#f39c12,stroke:#d68910,color:#000
+                            classDef er fill:#e74c3c,stroke:#c0392b,color:#fff
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- 8. EMERGENCY EXIT                                               -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="emergency">
+            <h2>8. Emergency Exit Flow <span class="badge br">⚠️ The ONLY module that closes positions</span></h2>
+            <p class="sub">All exit paths converge here — Telegram command, watchdog, hard stop, trailing stop. Resets
+                all state after closure.</p>
+            <div class="dcard">
+                <div class="mermaid">
+                    flowchart TD
+                    T1([📱 /exit Telegram command]):::trg --> CF{Show confirmation:\n⚠️ Close ALL positions?}:::dc
+                    CF -- User cancels --> CX([Cancelled — no action]):::sk
+                    CF -- User confirms --> EX
+
+                    T2([EMERGENCY_EXIT event fired]):::trg --> EX
+                    T3([Watchdog: live PnL <= hard_stop_loss]):::trg --> EX
+                        T4([ProfitTrailing: HARD_STOP_HIT]):::trg --> EX
+                        T5([ProfitTrailing: TRAILING_STOP_HIT]):::trg --> EX
+
+                        EX[execute_exit called with reason]:::pr --> SM[Stop all algo modules:\nato_protection ·
+                        profit_trailing\nbatman_entry · overnight_hedge]:::pr
+                        SM --> CO[Cancel ALL open orders\ntsl.cancel_all_intraday]:::pr
+                        CO --> CL[Close ALL broker positions:\nMarket sell every holding\nincludes iron condor
+                        legs\nincludes ATO protect legs\nincludes hedge legs]:::pr
+                        CL --> OK{All positions\nclosed?\nRetry up to 3x}:::dc
+                        OK -- Still open → retry --> CL
+                        OK -- Yes all closed --> RS[Reset ALL state:\npositions → cleared\nato: ce_triggered =
+                        False\nato: pe_triggered = False\nato: ce_ato_active = False\nato: pe_ato_active = False\nato:
+                        ce_order_id = None\nato: pe_order_id = None\ntrailing: active = False peak =
+                        0\ndeployment.confirmed = False]:::pr
+                        RS --> PB[Publish ALL_POSITIONS_CLOSED\n📱 🚨 EMERGENCY EXIT COMPLETE\nReason: given reason\nAll
+                        positions successfully closed]:::pr
+                        PB --> SF([System in SAFE IDLE state\nposition_monitor and emergency_exit only]):::st
+
+                        classDef st fill:#2ecc71,stroke:#27ae60,color:#000
+                        classDef pr fill:#2980b9,stroke:#1a5276,color:#fff
+                        classDef dc fill:#f39c12,stroke:#d68910,color:#000
+                        classDef trg fill:#8e44ad,stroke:#6c3483,color:#fff
+                        classDef sk fill:#7f8c8d,stroke:#616a6b,color:#fff
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- 9. WEEK COMPLETION                                              -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="done">
+            <h2>9. Week Completion — <code>/batman_done</code> <span class="badge bg">Closes the cycle</span></h2>
+            <p class="sub">After Tuesday expiry, marks the week complete. AlgoScheduler and ATO gate on this flag — both
+                idle until the next /confirm_deploy.</p>
+            <div class="dcard">
+                <div class="mermaid">
+                    flowchart TD
+                    A([📱 User sends /batman_done]):::st --> AU{Authorized\nchat_id?}:::dc
+                    AU -- No --> IG([Ignore]):::sk
+                    AU -- Yes --> KB[Show confirmation keyboard:\nMark week as done?\nBatman will idle until next
+                    Wednesday]:::pr
+                    KB --> UC{User confirms?}:::dc
+                    UC -- No --> CC([Cancelled]):::sk
+                    UC -- Yes --> SA[Stop all algo modules\nscheduler.stop_algo\nReturns count stopped]:::pr
+                    SA --> ND[Calculate next entry date:\nnext Wednesday via utils.next_entry_date\nskips NSE holidays
+                    if needed]:::pr
+                    ND --> US[Update state:\ndeployment.batman_done_for_week = True\ndeployment.confirmed =
+                    False\ndeployment.next_entry_date = YYYY-MM-DD]:::pr
+                    US --> PB[Publish BATMAN_DONE_FOR_WEEK event]:::pr
+                    PB --> AL[📱 ✅ Week marked done!\nNext entry: Wed YYYY-MM-DD\nSend /confirm_deploy to start new
+                    cycle]:::pr
+                    AL --> ID[System enters IDLE:\nAlgoScheduler gates on batman_done_for_week\nATO module gates on
+                    batman_done_for_week\nOnly position_monitor + emergency_exit run]:::pr
+                    ID --> NW{User sends\n/confirm_deploy\nnext Wednesday?}:::dc
+                    NW -- Not yet → keep idling --> ID
+                    NW -- Yes new cycle begins --> NC([← Go to Flow 3: Deployment Confirmation\nbatman_done_for_week
+                    reset to False]):::st
+
+                    classDef st fill:#2ecc71,stroke:#27ae60,color:#000
+                    classDef pr fill:#2980b9,stroke:#1a5276,color:#fff
+                    classDef dc fill:#f39c12,stroke:#d68910,color:#000
+                    classDef sk fill:#7f8c8d,stroke:#616a6b,color:#fff
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- 10. KEY SCENARIOS                                               -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="scenarios">
+            <h2>10. Key Scenarios Reference <span class="badge bb">Edge cases &amp; expected outcomes</span></h2>
+            <p class="sub">Critical scenarios that the code handles. Every case is covered by the test suite (99/99
+                passing).</p>
+
+            <h3 style="color:var(--gold);margin:24px 0 10px;font-size:1rem;">🔵 Category A — Deployment Scenarios</h3>
+            <div class="stbl-wrap">
+                <table>
+                    <tr>
+                        <th>#</th>
+                        <th>Scenario</th>
+                        <th>Expected Behaviour</th>
+                        <th>State After</th>
+                    </tr>
+                    <tr>
+                        <td>A1</td>
+                        <td>System starts fresh — no state file</td>
+                        <td>StateManager creates default state, all flags False</td>
+                        <td class="ok">IDLE</td>
+                    </tr>
+                    <tr>
+                        <td>A2</td>
+                        <td>/confirm_deploy before placing positions on Dhan</td>
+                        <td class="fail">Bot: "No open positions found"</td>
+                        <td>IDLE</td>
+                    </tr>
+                    <tr>
+                        <td>A3</td>
+                        <td>/confirm_deploy with fewer than 4 legs toggled</td>
+                        <td>"Confirm Selection" button never appears</td>
+                        <td>IDLE</td>
+                    </tr>
+                    <tr>
+                        <td>A4</td>
+                        <td>/confirm_deploy sent while batman_done_for_week = True</td>
+                        <td class="fail">Bot: "Week done — wait for next Wednesday"</td>
+                        <td>IDLE</td>
+                    </tr>
+                    <tr>
+                        <td>A5</td>
+                        <td>/confirm_deploy sent on a non-Wednesday (e.g. Monday)</td>
+                        <td class="ok">Allowed — no day restriction on confirmation</td>
+                        <td>DEPLOYED</td>
+                    </tr>
+                </table>
+            </div>
+
+            <h3 style="color:var(--gold);margin:24px 0 10px;font-size:1rem;">🟡 Category B — Algo Scheduler Scenarios
+            </h3>
+            <div class="stbl-wrap">
+                <table>
+                    <tr>
+                        <th>#</th>
+                        <th>Scenario</th>
+                        <th>Expected Behaviour</th>
+                        <th>State After</th>
+                    </tr>
+                    <tr>
+                        <td>B1</td>
+                        <td>09:00 prompt fires but deployment not confirmed</td>
+                        <td>Scheduler: "No positions confirmed — run /confirm_deploy first"</td>
+                        <td>IDLE</td>
+                    </tr>
+                    <tr>
+                        <td>B2</td>
+                        <td>09:00 prompt fires, user does not respond within timeout</td>
+                        <td class="warn">No algo start today — Telegram alert sent</td>
+                        <td>DEPLOYED</td>
+                    </tr>
+                    <tr>
+                        <td>B3</td>
+                        <td>System crashes at 09:25, restarts before 09:30</td>
+                        <td>AlgoScheduler re-fires prompt — user picks time again</td>
+                        <td>DEPLOYED</td>
+                    </tr>
+                    <tr>
+                        <td>B4</td>
+                        <td>User picks 09:30, but today is an NSE holiday</td>
+                        <td>Scheduler detects holiday — skips start, logs it</td>
+                        <td>DEPLOYED</td>
+                    </tr>
+                    <tr>
+                        <td>B5</td>
+                        <td>/resume_algo called outside 09:15–15:30 window</td>
+                        <td class="fail">Blocked — "Cannot resume outside market hours"</td>
+                        <td>Unchanged</td>
+                    </tr>
+                </table>
+            </div>
+
+            <h3 style="color:var(--gold);margin:24px 0 10px;font-size:1rem;">🟠 Category C — ATO Monitoring Scenarios
+            </h3>
+            <div class="stbl-wrap">
+                <table>
+                    <tr>
+                        <th>#</th>
+                        <th>Scenario</th>
+                        <th>Expected Behaviour</th>
+                        <th>State After</th>
+                    </tr>
+                    <tr>
+                        <td>C1</td>
+                        <td>Spot breaches CE sell strike at 09:21 (no gap open)</td>
+                        <td>Startup scan: no breach at start — main loop fires ATO first tick</td>
+                        <td class="warn">ce_triggered = True</td>
+                    </tr>
+                    <tr>
+                        <td>C2</td>
+                        <td>Gap above CE sell at 09:15; user manually buys ATO before 09:20</td>
+                        <td class="ok">Startup scan: detects breach + broker pos → ADOPT (no new order)</td>
+                        <td>ce_triggered = True (adopted)</td>
+                    </tr>
+                    <tr>
+                        <td>C3</td>
+                        <td>Gap above CE sell at 09:15; user does NOT place ATO</td>
+                        <td>Startup scan: breach + no broker pos → AUTO-PLACE</td>
+                        <td>ce_triggered = True (placed)</td>
+                    </tr>
+                    <tr>
+                        <td>C4</td>
+                        <td>Crash mid-session; ce_triggered=True in state; restart; position exists at broker</td>
+                        <td class="ok">Startup scan: stale state + broker has pos → adopt, no double order</td>
+                        <td>ce_triggered = True (clean)</td>
+                    </tr>
+                    <tr>
+                        <td>C5</td>
+                        <td>Crash mid-session; ce_triggered=True in state; ATO already manually exited on broker</td>
+                        <td>Startup scan: stale state + NO broker pos → reset ce_triggered=False</td>
+                        <td>ce_triggered = False (cleaned)</td>
+                    </tr>
+                    <tr>
+                        <td>C6</td>
+                        <td>ATO fires, retraces 3 times in one session</td>
+                        <td class="ok">3 full breach→place→retrace→exit cycles; ce_cycles = 3</td>
+                        <td>ce_cycles = 3</td>
+                    </tr>
+                    <tr>
+                        <td>C7</td>
+                        <td>max_cycles_per_session = 2; third breach occurs</td>
+                        <td class="warn">ATO silently skipped; MAX_CYCLES_REACHED fired once; Telegram warned once</td>
+                        <td>ce_cycles = 2, warned</td>
+                    </tr>
+                    <tr>
+                        <td>C8</td>
+                        <td>Both CE and PE breach simultaneously (sharp spike)</td>
+                        <td class="warn">Both sides fire independently in same tick — both ATO legs placed</td>
+                        <td>Both triggered = True</td>
+                    </tr>
+                    <tr>
+                        <td>C9</td>
+                        <td>ATO order placed, confirmation times out; on retry broker shows position exists</td>
+                        <td>Idempotency guard: state flags updated, no second order placed</td>
+                        <td>ce_triggered = True</td>
+                    </tr>
+                    <tr>
+                        <td>C10</td>
+                        <td>/ato changes retrace_points while ATO is active</td>
+                        <td>New value takes effect on next tick immediately</td>
+                        <td>retrace_points updated</td>
+                    </tr>
+                </table>
+            </div>
+
+            <h3 style="color:var(--gold);margin:24px 0 10px;font-size:1rem;">🔴 Category D — Profit Trailing Scenarios
+            </h3>
+            <div class="stbl-wrap">
+                <table>
+                    <tr>
+                        <th>#</th>
+                        <th>Scenario</th>
+                        <th>Expected Behaviour</th>
+                        <th>State After</th>
+                    </tr>
+                    <tr>
+                        <td>D1</td>
+                        <td>P&L reaches +12,000 for first time at 11:30</td>
+                        <td class="ok">trailing.active=True, peak=12000, stop=10000</td>
+                        <td>Trailing active</td>
+                    </tr>
+                    <tr>
+                        <td>D2</td>
+                        <td>After activation, P&L rises to +15,000</td>
+                        <td class="ok">Peak ratchets: peak=15000, stop=13000</td>
+                        <td>Trailing active</td>
+                    </tr>
+                    <tr>
+                        <td>D3</td>
+                        <td>P&L drops from peak +15,000 to exactly +13,000</td>
+                        <td class="warn">trailing_stop hit → emergency exit; TRAILING_STOP_HIT published</td>
+                        <td>All closed</td>
+                    </tr>
+                    <tr>
+                        <td>D4</td>
+                        <td>P&L drops to −8,000 before trailing activates</td>
+                        <td class="fail">HARD_STOP_HIT → emergency exit fires immediately</td>
+                        <td>All closed</td>
+                    </tr>
+                    <tr>
+                        <td>D5</td>
+                        <td>P&L reaches +11,999 all day — never hits activation</td>
+                        <td>Module polls all day; no trailing; no exit — profitable day</td>
+                        <td>Trailing not active</td>
+                    </tr>
+                </table>
+            </div>
+
+            <h3 style="color:var(--gold);margin:24px 0 10px;font-size:1rem;">🟣 Category F — Emergency Exit Scenarios
+            </h3>
+            <div class="stbl-wrap">
+                <table>
+                    <tr>
+                        <th>#</th>
+                        <th>Scenario</th>
+                        <th>Expected Behaviour</th>
+                        <th>State After</th>
+                    </tr>
+                    <tr>
+                        <td>F1</td>
+                        <td>/exit command — user confirms</td>
+                        <td class="ok">All positions closed; full state reset; safe idle</td>
+                        <td>IDLE</td>
+                    </tr>
+                    <tr>
+                        <td>F2</td>
+                        <td>/exit command — user cancels</td>
+                        <td>Nothing happens — confirmation keyboard dismissed</td>
+                        <td>Unchanged</td>
+                    </tr>
+                    <tr>
+                        <td>F3</td>
+                        <td>Watchdog fires at −8,000 P&L</td>
+                        <td class="fail">All positions closed automatically — no Telegram confirmation on watchdog</td>
+                        <td>IDLE</td>
+                    </tr>
+                    <tr>
+                        <td>F4</td>
+                        <td>Emergency exit while CE ATO is active (ce_triggered=True)</td>
+                        <td class="ok">Physical ATO leg closed by close_all; state flags reset to False</td>
+                        <td>IDLE</td>
+                    </tr>
+                    <tr>
+                        <td>F5</td>
+                        <td>Emergency exit while profit trailing is active</td>
+                        <td class="ok">Trailing module stopped; all positions (incl. ATO) closed</td>
+                        <td>IDLE</td>
+                    </tr>
+                </table>
+            </div>
+        </section>
+
+
+    </main>
+
+    <!-- ═══════════════ FOOTER ════════════════════════════════════════ -->
+    <footer>
+        <strong>🦇 Batman v3</strong> &nbsp;·&nbsp;
+        NIFTY Weekly Iron Condor (Wed → Tue) &nbsp;·&nbsp;
+        Python 3.12 &nbsp;·&nbsp;
+        Dhan-Tradehull v3.2.0 &nbsp;·&nbsp;
+        python-telegram-bot v20+ &nbsp;·&nbsp;
+        99 / 99 Tests ✅ &nbsp;·&nbsp;
+        Generated: 2026-03-18
+    </footer>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: {
+                useMaxWidth: false,
+                htmlLabels: true,
+                curve: 'basis',
+                padding: 24
+            },
+            stateDiagram: {
+                useMaxWidth: false
+            },
+            securityLevel: 'loose'
+        });
+    </script>
+</body>
+
+</html>

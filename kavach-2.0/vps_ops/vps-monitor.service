@@ -1,0 +1,20 @@
+[Unit]
+Description=VPS Service Monitor (retry + crash recovery)
+After=network-online.target my_telegram_bot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/vps_ops
+Environment=TELEGRAM_ENV_PATH=/home/ubuntu/my_telegram_bot/.env
+Environment=WATCHED_SERVICES=my_telegram_bot.service
+Environment=MONITOR_MAX_RETRIES=5
+Environment=MONITOR_RETRY_BASE_SEC=3
+Environment=MONITOR_CHECK_INTERVAL=15
+ExecStart=/home/ubuntu/vps_ops/venv/bin/python /home/ubuntu/vps_ops/service_monitor.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

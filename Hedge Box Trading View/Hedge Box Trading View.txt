@@ -1,0 +1,181 @@
+//@version=6
+
+indicator(title="Batman Box - Final with Labels", overlay=true)
+
+ 
+
+// --- INPUTS: SETTINGS ---
+
+midPrice   = input.float(26000.0, "Center Midline Price", step=10)
+
+range1     = input.int(300, "Range Height")
+
+offset     = input.int(-75, "Triangle Point Height")
+
+ 
+
+// --- INPUTS: COLORS ---
+
+colorTri    = input.color(color.new(color.green, 70), "Triangle Fill Color")
+
+colorTriLine = input.color(color.green, "Triangle Border Color")
+
+colorStep1  = input.color(color.new(color.orange, 70), "Layer 1 (Orange) Fill")
+
+colorStep2  = input.color(color.new(color.blue, 70), "Layer 2 (Blue) Fill")
+
+colorStep3  = input.color(color.new(color.yellow, 70), "Layer 3 (Yellow) Fill")
+
+colorFrame  = input.color(color.gray, "Outer Frame Color")
+
+colorMid    = input.color(#4a2ea8, "Midline Color")
+
+colorGrid   = input.color(color.new(#01010d, 14), "Vertical Grid Color")
+
+ 
+
+// --- INPUTS: LABEL PREFERENCES ---
+
+lblColor    = input.color(color.white, "SELLING Text Color")
+
+lblBgColor  = input.color(color.new(color.black, 20), "SELLING Background Color")
+
+lblSize     = input.string(size.normal, "SELLING Size", options=[size.tiny, size.small, size.normal, size.large, size.huge])
+
+lblStyle    = input.string(label.style_label_right, "SELLING Style", options=[label.style_label_right, label.style_none])
+
+ 
+
+ 
+
+//
+
+ 
+
+lblColor1    = input.color(color.white, "BUYING Text Color")
+
+lblBgColor1  = input.color(color.new(color.black, 20), "BUYING Background Color")
+
+lblSize1     = input.string(size.normal, "BUYING Size", options=[size.tiny, size.small, size.normal, size.large, size.huge])
+
+lblStyle1    = input.string(label.style_label_right, "BUYING Style", options=[label.style_label_right, label.style_none])
+
+// --- INPUTS: DATES (09:15 IST) ---
+
+D1 = input.time(timestamp("2026-02-23T09:15:00+05:30"), "Day 1 Start")
+
+D2 = input.time(timestamp("2026-02-24T09:15:00+05:30"), "Day 2 Start")
+
+D3 = input.time(timestamp("2026-02-25T09:15:00+05:30"), "Day 3 Start")
+
+D4 = input.time(timestamp("2026-02-26T09:15:00+05:30"), "Day 4 Start")
+
+D5 = input.time(timestamp("2026-02-27T09:15:00+05:30"), "Day 5 (End of Stairs)")
+
+D6 = input.time(timestamp("2026-03-02T09:15:00+05:30"), "Last Date")
+
+ 
+
+// --- CALCULATIONS ---
+
+topPrice = midPrice + range1
+
+botPrice = midPrice - range1
+
+ 
+
+// --- DRAWING FUNCTION ---
+
+drawStep(startT, endT, uLevel, lLevel, showS1, showS2, showS3, mainTop, mainBot, triOff, cTri, cTriL, cS1, cS2, cS3) =>
+
+    u1 = line.new(startT, uLevel, endT, uLevel, xloc.bar_time, color=cTriL)
+
+    u2 = line.new(startT, uLevel, endT, uLevel + triOff, xloc.bar_time, color=cTriL)
+
+    line.new(endT, uLevel, endT, uLevel + triOff, xloc.bar_time, color=cTriL)
+
+    linefill.new(u1, u2, cTri)
+
+    l1 = line.new(startT, lLevel, endT, lLevel, xloc.bar_time, color=cTriL)
+
+    l2 = line.new(startT, lLevel, endT, lLevel - triOff, xloc.bar_time, color=cTriL)
+
+    line.new(endT, lLevel, endT, lLevel - triOff, xloc.bar_time, color=cTriL)
+
+    linefill.new(l1, l2, cTri)
+
+    
+
+    if showS1
+
+        box.new(left=startT, top=uLevel + 75, right=endT, bottom=uLevel, xloc=xloc.bar_time, bgcolor=cS1, border_color=color.new(cS1, 30))
+
+        box.new(left=startT, top=lLevel, right=endT, bottom=lLevel - 75, xloc=xloc.bar_time, bgcolor=cS1, border_color=color.new(cS1, 30))
+
+    if showS2
+
+        box.new(left=startT, top=uLevel + 150, right=endT, bottom=uLevel + 75, xloc=xloc.bar_time, bgcolor=cS2, border_color=color.new(cS2, 30))
+
+        box.new(left=startT, top=lLevel - 75, right=endT, bottom=lLevel - 150, xloc=xloc.bar_time, bgcolor=cS2, border_color=color.new(cS2, 30))
+
+    if showS3
+
+        box.new(left=startT, top=mainTop, right=endT, bottom=uLevel + 150, xloc=xloc.bar_time, bgcolor=cS3, border_color=color.new(cS3, 30))
+
+        box.new(left=startT, top=lLevel - 150, right=endT, bottom=mainBot, xloc=xloc.bar_time, bgcolor=cS3, border_color=color.new(cS3, 30))
+
+ 
+
+// --- EXECUTION ---
+
+if barstate.islast
+
+    drawStep(D1, D2, topPrice, botPrice, false, false, false, topPrice, botPrice, offset, colorTri, colorTriLine, colorStep1, colorStep2, colorStep3)
+
+    drawStep(D2, D3, topPrice - 75, botPrice + 75, true, false, false, topPrice, botPrice, offset, colorTri, colorTriLine, colorStep1, colorStep2, colorStep3)
+
+    drawStep(D3, D4, topPrice - 150, botPrice + 150, true, true, false, topPrice, botPrice, offset, colorTri, colorTriLine, colorStep1, colorStep2, colorStep3)
+
+    drawStep(D4, D5, topPrice - 225, botPrice + 225, true, true, true, topPrice, botPrice, offset, colorTri, colorTriLine, colorStep1, colorStep2, colorStep3)
+
+ 
+
+    // --- MAIN FRAME & LABELS ---
+
+    line.new(D1, topPrice, D6, topPrice, xloc.bar_time, color=colorFrame)
+
+    line.new(D1, botPrice, D6, botPrice, xloc.bar_time, color=colorFrame)
+
+    line.new(D1, midPrice, D6, midPrice, xloc.bar_time, color=colorMid, width=2)
+
+ 
+
+    // Top Price Label
+
+    label.new(x=D1, y=topPrice, text="CALL SELL: " + str.tostring(topPrice), xloc=xloc.bar_time, color=lblBgColor, textcolor=lblColor, size=lblSize, style=lblStyle)
+
+    // Bottom Price Label
+
+    label.new(x=D1, y=botPrice, text="PUT SELL: " + str.tostring(botPrice), xloc=xloc.bar_time, color=lblBgColor, textcolor=lblColor, size=lblSize, style=lblStyle)
+
+    // Midline Label
+
+    label.new(x=D1, y=midPrice, text="MID STRIKE: " + str.tostring(midPrice), xloc=xloc.bar_time, color=lblBgColor, textcolor=lblColor, size=lblSize, style=lblStyle)
+
+    // call buy
+
+    label.new(x=D1, y=topPrice-50, text="CALL BUY: " + str.tostring(topPrice-50), xloc=xloc.bar_time, color=lblBgColor1, textcolor=lblColor1, size=lblSize1, style=lblStyle1)
+
+    // PUT BUY
+
+    label.new(x=D1, y=botPrice+50, text="PUT BUY: " + str.tostring(botPrice+50), xloc=xloc.bar_time, color=lblBgColor1, textcolor=lblColor1, size=lblSize1, style=lblStyle1)    
+
+ 
+
+// Vertical Grid
+
+    grid_times = array.from(D1, D2, D3, D4, D5, D6)
+
+    for t in grid_times
+
+        line.new(t, topPrice, t, botPrice, xloc.bar_time, color=colorGrid)

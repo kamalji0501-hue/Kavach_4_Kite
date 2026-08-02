@@ -1,0 +1,31 @@
+# Batman Phase-1 — DRISHTI (Nifty feed + Telegram)
+# Paths are rewritten by vps/install_systemd.sh (__BATMAN_ROOT__, __BATMAN_USER__, __PYTHON__)
+
+[Unit]
+Description=Batman Phase-1 DRISHTI (Nifty LTP + Telegram)
+After=network-online.target
+Wants=network-online.target
+PartOf=batman-phase1.target
+
+[Service]
+Type=simple
+User=__BATMAN_USER__
+Group=__BATMAN_USER__
+WorkingDirectory=__BATMAN_ROOT__
+Environment=BATMAN_LAUNCHED_VIA_BAT=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart="__PYTHON__" "__BATMAN_ROOT__/run_drishti.py"
+Restart=always
+RestartSec=10
+TimeoutStopSec=45
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=batman-drishti
+
+# Soft hardening (keep network + home for secrets/logs)
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=batman-phase1.target

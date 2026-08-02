@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DRISHTI Bot - Flow Diagrams | Batman v3</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'default', flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' } });
+    </script>
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            padding: 36px 28px;
+            max-width: 1120px;
+            margin: 0 auto;
+            line-height: 1.6
+        }
+
+        header {
+            border-bottom: 2px solid #30363d;
+            padding-bottom: 22px;
+            margin-bottom: 36px
+        }
+
+        header h1 {
+            font-size: 2rem;
+            color: #58a6ff;
+            margin-bottom: 6px
+        }
+
+        .tag {
+            display: inline-block;
+            background: #1f6feb33;
+            color: #58a6ff;
+            border: 1px solid #1f6feb66;
+            border-radius: 20px;
+            padding: 2px 14px;
+            font-size: .85rem;
+            font-weight: 500;
+            margin-left: 10px;
+            vertical-align: middle
+        }
+
+        header p {
+            color: #8b949e;
+            font-size: .9rem;
+            margin-top: 6px
+        }
+
+        code {
+            color: #79c0ff;
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 4px;
+            padding: 1px 6px;
+            font-size: .85em
+        }
+
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 32px
+        }
+
+        .card-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            margin-bottom: 14px
+        }
+
+        .num {
+            background: #1f6feb;
+            color: #fff;
+            border-radius: 50%;
+            min-width: 32px;
+            height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: .95rem;
+            font-weight: 700;
+            flex-shrink: 0;
+            margin-top: 2px
+        }
+
+        .card-title {
+            flex: 1
+        }
+
+        .card-title h2 {
+            font-size: 1.15rem;
+            color: #e6edf3;
+            margin-bottom: 4px
+        }
+
+        .card-title p {
+            color: #8b949e;
+            font-size: .87rem
+        }
+
+        .divider {
+            border: none;
+            border-top: 1px solid #21262d;
+            margin: 18px 0 22px
+        }
+
+        .mermaid-wrap {
+            background: #ffffff;
+            border-radius: 8px;
+            padding: 24px 16px;
+            overflow-x: auto
+        }
+
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 22px;
+            margin-top: 18px;
+            padding-top: 14px;
+            border-top: 1px solid #21262d
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: .82rem;
+            color: #8b949e
+        }
+
+        .legend-item span.dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0
+        }
+
+        .dot-green {
+            background: #2ea043
+        }
+
+        .dot-red {
+            background: #f85149
+        }
+
+        .dot-blue {
+            background: #58a6ff
+        }
+
+        .dot-yellow {
+            background: #e3b341
+        }
+
+        .dot-grey {
+            background: #484f58
+        }
+
+        footer {
+            text-align: center;
+            color: #484f58;
+            font-size: .8rem;
+            margin-top: 44px;
+            padding-top: 20px;
+            border-top: 1px solid #21262d
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>DRISHTI Bot <span class="tag">दृष्टि</span></h1>
+        <p>Batman v3 &nbsp;&middot;&nbsp; Infrastructure Health + Access Token Management &nbsp;&middot;&nbsp; Design
+            locked: 2026-03-20</p>
+        <p style="margin-top:8px">Bot folder: <code>telegram/bots/drishti/</code> &nbsp;|&nbsp; Design doc:
+            <code>telegram/design/architecture.md</code></p>
+    </header>
+
+
+    <!-- ================================================================ -->
+    <!-- DIAGRAM 1 — SYSTEM OVERVIEW                                       -->
+    <!-- ================================================================ -->
+    <div class="card">
+        <div class="card-header">
+            <span class="num">1</span>
+            <div class="card-title">
+                <h2>System Overview</h2>
+                <p>DRISHTI starts three parallel processes on bot startup. Each process has a single, well-defined
+                    responsibility that never overlaps with the others.</p>
+            </div>
+        </div>
+        <hr class="divider" />
+        <div class="mermaid-wrap">
+            <div class="mermaid">
+                flowchart LR
+                START(["DRISHTI Bot Startup"]) --> LOAD["Load config"]
+                LOAD --> P1["Reminder Scheduler\n09:00 / 15:30 / 23:00"]
+                LOAD --> P2["Market Hours Monitor\n09:15 to 15:30 IST"]
+                LOAD --> P3["Telegram Listener\n24/7 always on"]
+                P1 -.->|"Token reminder\nYes / No"| USR(["User"])
+                P2 -.->|"Connection drop\nalert - immediate"| USR
+                P3 -.->|"health / ping response"| USR
+                USR -.->|"Yes / No / token string"| P3
+            </div>
+        </div>
+        <div class="legend">
+            <div class="legend-item"><span class="dot dot-blue"></span>Solid arrow = data / control flow</div>
+            <div class="legend-item"><span class="dot dot-grey"></span>Dotted arrow = Telegram message (async)</div>
+        </div>
+    </div>
+
+
+    <!-- ================================================================ -->
+    <!-- DIAGRAM 2 — TOKEN REMINDER + VALIDATION FLOW                      -->
+    <!-- ================================================================ -->
+    <div class="card">
+        <div class="card-header">
+            <span class="num">2</span>
+            <div class="card-title">
+                <h2>Token Reminder &amp; Validation Flow</h2>
+                <p>Core DRISHTI flow. Runs at every scheduled slot (09:00 / 15:30 / 23:00 IST). Checks if reminder
+                    should fire, asks user via interactive Yes/No, collects token, validates it using live LTP, and
+                    resets the scheduler. Repeats until token is updated.</p>
+            </div>
+        </div>
+        <hr class="divider" />
+        <div class="mermaid-wrap">
+            <div class="mermaid">
+                flowchart TD
+                RS(["Slot fires: 09:00 / 15:30 / 23:00"])
+                RS --> WD{"NSE weekday\nand non-holiday?"}
+                WD -- No --> SK1["Skip - wait for next slot"]
+                SK1 -.-> RS
+                WD -- Yes --> TV{"Token valid?\nUpdated under 24h?"}
+                TV -- Yes --> SK2["Suppress - token still fresh"]
+                SK2 -.-> RS
+                TV -- No --> QH{"Within quiet hours?\n08:00 to 23:30 IST"}
+                QH -- No --> SK3["Quiet hours - skip this slot"]
+                SK3 -.-> RS
+                QH -- Yes --> MSG["Send reminder via Telegram\nToken not updated\nYES: Update Now NO: Remind Later"]
+                MSG --> RESP{"User response\nwithin 30 seconds?"}
+                RESP -- "No or Timeout" --> DEC["Log: user declined\nWait for next slot"]
+                DEC -.-> RS
+                RESP -- "Yes" --> ASK["Ask user to send\nDhan access token"]
+                ASK --> RECV(["Token string received\nfrom user"])
+                RECV --> STORE["Store token\nRecord IST timestamp"]
+                STORE --> HOT["Hot-reload broker config\nNo restart required"]
+                HOT --> MO{"Market open?\n09:15 to 15:30 IST"}
+                MO -- Yes --> FNIFTY["Fetch NIFTY LTP\nvia Dhan broker API"]
+                MO -- No --> GW{"GIFT Nifty window?\n06:00 to 23:45 IST"}
+                GW -- Yes --> FGIFT["Fetch GIFT Nifty LTP\nDhan or yfinance fallback"]
+                GW -- No --> NOWIN["Both windows closed\nSkip LTP validation"]
+                NOWIN --> SKIP_OK(["Token accepted\nValidation skipped\nMarket closed"])
+                SKIP_OK --> RESET["Reset scheduler\nNext reminder from expiry"]
+                RESET -.-> RS
+                FNIFTY --> NR{"NIFTY LTP\nfetch success?"}
+                NR -- No --> NRET["Retry 3x\n5s delay, x2 backoff"]
+                NRET --> NR
+                NR -- "All failed" --> FAIL(["Validation FAILED\nError: reason\nPlease resend token"])
+                NR -- Yes --> NCONF(["Token VALIDATED\nNIFTY LTP: value\nExpires: time IST"])
+                NCONF --> RESET
+                FGIFT --> GR{"GIFT Nifty\nfetch success?"}
+                GR -- No --> GRET["Retry 3x\n5s delay, x2 backoff"]
+                GRET --> GR
+                GR -- "All failed" --> FAIL
+                GR -- Yes --> GCONF(["Token VALIDATED\nGIFT Nifty: value\nExpires: time IST"])
+                GCONF --> RESET
+            </div>
+        </div>
+        <div class="legend">
+            <div class="legend-item"><span class="dot dot-green"></span>Confirmation sent to user</div>
+            <div class="legend-item"><span class="dot dot-red"></span>Error / validation failed</div>
+            <div class="legend-item"><span class="dot dot-yellow"></span>Warning / reminder</div>
+            <div class="legend-item"><span class="dot dot-grey"></span>Dotted loop = returns to scheduler for next slot
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ================================================================ -->
+    <!-- DIAGRAM 3 — MARKET HOURS MONITOR + TELEGRAM COMMANDS              -->
+    <!-- ================================================================ -->
+    <div class="card">
+        <div class="card-header">
+            <span class="num">3</span>
+            <div class="card-title">
+                <h2>Market Hours Monitor &amp; Telegram Commands</h2>
+                <p>Left: Background loop active only during NSE trading hours — fires an immediate, non-suppressible
+                    alert if the connection drops. Right: Telegram commands available 24/7 regardless of trading hours.
+                </p>
+            </div>
+        </div>
+        <hr class="divider" />
+        <div class="mermaid-wrap">
+            <div class="mermaid">
+                flowchart TD
+                subgraph MON["MARKET HOURS MONITOR - background loop"]
+                direction TB
+                MM(["Monitor loop\nstarts with bot"]) --> CHK{"NSE trading day?\n09:15 to 15:30 IST"}
+                CHK -- No --> SLP["Sleep 60s\nNot trading hours"]
+                SLP --> CHK
+                CHK -- Yes --> FETCH["Fetch NIFTY LTP\nEvery 3600s by default"]
+                FETCH --> OK{"Fetch\nsuccess?"}
+                OK -- Yes --> LOG["Log: connection healthy"]
+                LOG --> WAIT["Sleep interval"]
+                WAIT --> FETCH
+                OK -- No --> RETRY["Retry 3x\n5s delay, x2 backoff"]
+                RETRY --> ROK{"Success\non retry?"}
+                ROK -- Yes --> LOG
+                ROK -- No --> ALT(["IMMEDIATE ALERT\nNIFTY LTP fetch failed\nError: reason\nNo quiet hours - fires
+                now"])
+                ALT --> WAIT
+                end
+                subgraph CMD["TELEGRAM COMMANDS - 24/7 always on"]
+                direction TB
+                TC(["Incoming Telegram\nmessage"]) --> TYPE{"Message\ntype?"}
+                TYPE -- "/health" --> HC["Fetch NIFTY LTP\nFetch GIFT Nifty\nCheck token age"]
+                HC --> HR(["Health report\nToken status + time remaining\nNIFTY LTP value\nGIFT Nifty value\nBot
+                uptime"])
+                TYPE -- "/ping" --> PR(["DRISHTI alive\ntimestamp IST"])
+                TYPE -- "Token string" --> TVF(["Go to Token\nValidation Flow\nsee Diagram 2"])
+                TYPE -- "Yes button" --> YB(["Please send your\nDhan access token"])
+                TYPE -- "No button" --> NB(["Noted\nWill remind at\nnext slot"])
+                TYPE -- "Other" --> UNK(["Unknown command\nignored"])
+                end
+            </div>
+        </div>
+        <div class="legend">
+            <div class="legend-item"><span class="dot dot-red"></span>Immediate alert - no quiet hours, no suppression,
+                fires instantly</div>
+            <div class="legend-item"><span class="dot dot-blue"></span>/health and /ping work 24/7 regardless of trading
+                hours or token status</div>
+            <div class="legend-item"><span class="dot dot-green"></span>Token string sent directly skips the reminder
+                and goes straight to validation</div>
+        </div>
+    </div>
+
+
+    <footer>
+        Batman v3 &nbsp;&middot;&nbsp; DRISHTI Bot (&#x926;&#x943;&#x937;&#x94D;&#x91F;&#x93F;) &nbsp;&middot;&nbsp;
+        Design locked: 2026-03-20 &nbsp;&middot;&nbsp; Status: Design complete
+    </footer>
+
+</body>
+
+</html>

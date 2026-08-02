@@ -1,0 +1,15 @@
+﻿# Cursor AI indexing — exclude noise
+.venv/
+**/__pycache__/
+**/.pytest_cache/
+logs/
+data/
+Prod Data/
+Screenshots from FT Complete Code/
+screenshots/
+image/
+Dhan/
+*.log
+.git/
+**/*.pyc
+**/.slingshot/

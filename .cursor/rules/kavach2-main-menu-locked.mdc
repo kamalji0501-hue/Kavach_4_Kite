@@ -1,0 +1,33 @@
+---
+description: Lock KAVACH 2.0 main Telegram menu layout — never change unless operator asks
+globs: "**/bat_telegram/bots/kavach2/**/*.py"
+alwaysApply: true
+---
+
+# Locked: KAVACH 2.0 main menu UI
+
+Operator locked the KAVACH 2.0 home keyboard (2026-07-23). **Do not change** `_main_menu_keyboard()` in `bat_telegram/bots/kavach2/bot.py` unless the user **explicitly** asks to change the menu UI.
+
+## Locked layout (exact)
+
+```
+🛡️ Kavach Status | 🎯 ATO Status
+📊 ATO           | 🎚️ Buffer Manager
+🧩 Core Legs     | 🌐 Environment
+⏸️ Pause         | ▶️ Resume
+🦇 Register Batman
+✅ Complete Batman
+```
+
+## Forbidden without explicit operator request
+
+- Dynamic Resume label (`Waiting for feed`)
+- Extra row: `Manual handling` / `Auto resume`
+- Renaming, reordering, adding, or removing main-menu buttons
+- “UI polish” or emoji-only refactors of this keyboard from incidental prompts
+
+## Allowed
+
+- Keep callback handlers for `resume_blocked` / `recovery_*` (legacy messages)
+- Change non-menu behavior (orders, ATO logic, feeds) without touching this keyboard
+- Change the menu **only** when the user clearly says to change KAVACH menu / buttons / layout

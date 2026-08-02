@@ -1,0 +1,169 @@
+{
+  "schema_version": "shadow_p0_v1",
+  "fixture": "backtest_engine\\fixtures\\sensibull\\jun9_2026_sensibull.json",
+  "expiry_date": "2026-06-09",
+  "spot_at_capture": 23483.55,
+  "lot_size": 65,
+  "jwt_validated": true,
+  "positions_roles": {
+    "ce_buy": {
+      "symbol": "NIFTY-Jun2026-23750-CE",
+      "strike": 23750,
+      "expiry": "Jun2026",
+      "qty": 65,
+      "avg_price": 108.35,
+      "instrument_token": "42316",
+      "side": "BUY"
+    },
+    "ce_sell": {
+      "symbol": "NIFTY-Jun2026-23800-CE",
+      "strike": 23800,
+      "expiry": "Jun2026",
+      "qty": 130,
+      "avg_price": 90.95,
+      "instrument_token": "42318",
+      "side": "SELL"
+    },
+    "pe_buy": {
+      "symbol": "NIFTY-Jun2026-23250-PE",
+      "strike": 23250,
+      "expiry": "Jun2026",
+      "qty": 65,
+      "avg_price": 64.0,
+      "instrument_token": "42287",
+      "side": "BUY"
+    },
+    "pe_sell": {
+      "symbol": "NIFTY-Jun2026-23200-PE",
+      "strike": 23200,
+      "expiry": "Jun2026",
+      "qty": 130,
+      "avg_price": 53.85,
+      "instrument_token": "42285",
+      "side": "SELL"
+    }
+  },
+  "resolved_instruments": {
+    "ce_buy": {
+      "strike": 23750,
+      "option_type": "CE",
+      "expiry_date": "2026-06-09",
+      "trading_symbol": "NIFTY-Jun2026-23750-CE",
+      "security_id": "42316",
+      "lot_size": 65,
+      "source": "instrument_master"
+    },
+    "ce_sell": {
+      "strike": 23800,
+      "option_type": "CE",
+      "expiry_date": "2026-06-09",
+      "trading_symbol": "NIFTY-Jun2026-23800-CE",
+      "security_id": "42318",
+      "lot_size": 65,
+      "source": "instrument_master"
+    },
+    "pe_buy": {
+      "strike": 23250,
+      "option_type": "PE",
+      "expiry_date": "2026-06-09",
+      "trading_symbol": "NIFTY-Jun2026-23250-PE",
+      "security_id": "42287",
+      "lot_size": 65,
+      "source": "instrument_master"
+    },
+    "pe_sell": {
+      "strike": 23200,
+      "option_type": "PE",
+      "expiry_date": "2026-06-09",
+      "trading_symbol": "NIFTY-Jun2026-23200-PE",
+      "security_id": "42285",
+      "lot_size": 65,
+      "source": "instrument_master"
+    }
+  },
+  "ato": {
+    "ato_step": 50,
+    "pe_protect_symbol": "NIFTY-Jun2026-23150-PE",
+    "pe_protect_strike": 23150,
+    "pe_protect_security_id": "42279",
+    "ce_protect_symbol": "NIFTY-Jun2026-23850-CE",
+    "ce_protect_strike": 23850,
+    "ce_protect_security_id": "42324",
+    "pe_trigger_spot": 23200,
+    "ce_trigger_spot": 23800
+  },
+  "ratio_checks": {
+    "pe_ok": true,
+    "pe_msg": "",
+    "ce_ok": true,
+    "ce_msg": ""
+  },
+  "option_chain_cross_check": {
+    "attempted": true,
+    "matched_expiry_index": null,
+    "chain_available": false,
+    "notes": [
+      "expiry_index=0: empty chain",
+      "expiry_index=1: empty chain",
+      "expiry_index=2: empty chain",
+      "expiry_index=3: empty chain",
+      "expiry_index=4: empty chain",
+      "expiry_index=5: empty chain",
+      "expiry_index=6: empty chain",
+      "expiry_index=7: empty chain",
+      "Option chain API returned no rows \u2014 instrument master remains authoritative."
+    ],
+    "per_strike": {}
+  },
+  "broker_positions_preview": [
+    {
+      "tradingSymbol": "NIFTY-Jun2026-23750-CE",
+      "netQty": 65,
+      "avgPrice": 108.35,
+      "costPrice": 108.35,
+      "drvStrikePrice": 23750.0,
+      "drvExpiryDate": "2026-06-09",
+      "drvOptionType": "CE",
+      "securityId": "42316",
+      "exchangeSegment": "NSE_FNO",
+      "productType": "MARGIN"
+    },
+    {
+      "tradingSymbol": "NIFTY-Jun2026-23800-CE",
+      "netQty": -130,
+      "avgPrice": 90.95,
+      "costPrice": 90.95,
+      "drvStrikePrice": 23800.0,
+      "drvExpiryDate": "2026-06-09",
+      "drvOptionType": "CE",
+      "securityId": "42318",
+      "exchangeSegment": "NSE_FNO",
+      "productType": "MARGIN"
+    },
+    {
+      "tradingSymbol": "NIFTY-Jun2026-23250-PE",
+      "netQty": 65,
+      "avgPrice": 64.0,
+      "costPrice": 64.0,
+      "drvStrikePrice": 23250.0,
+      "drvExpiryDate": "2026-06-09",
+      "drvOptionType": "PE",
+      "securityId": "42287",
+      "exchangeSegment": "NSE_FNO",
+      "productType": "MARGIN"
+    },
+    {
+      "tradingSymbol": "NIFTY-Jun2026-23200-PE",
+      "netQty": -130,
+      "avgPrice": 53.85,
+      "costPrice": 53.85,
+      "drvStrikePrice": 23200.0,
+      "drvExpiryDate": "2026-06-09",
+      "drvOptionType": "PE",
+      "securityId": "42285",
+      "exchangeSegment": "NSE_FNO",
+      "productType": "MARGIN"
+    }
+  ],
+  "production_filter_count": 4
+}

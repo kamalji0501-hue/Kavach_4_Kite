@@ -1,0 +1,5 @@
+{"ts": "2026-04-04T10:21:00+05:30", "event": "wizard_started", "by": "rahul"}
+{"ts": "2026-04-04T10:21:01+05:30", "event": "archive_moved", "files": []}
+{"ts": "2026-04-04T10:23:58+05:30", "event": "positions_selected", "pe_buy": "NIFTY07APR22050PE", "pe_sell": "NIFTY07APR22000PE", "ce_sell": "NIFTY07APR23200CE", "ce_buy": "NIFTY07APR23150CE"}
+{"ts": "2026-04-04T10:24:12+05:30", "event": "confirmed", "file": "batman_2026-04-04_10-23.json"}
+{"ts": "2026-04-07T15:30:00+05:30", "event": "batman_complete", "by": "rahul"}

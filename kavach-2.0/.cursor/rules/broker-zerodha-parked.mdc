@@ -1,0 +1,25 @@
+---
+description: Parked Dhan/Zerodha broker decision — resume only when user explicitly commands
+alwaysApply: true
+---
+
+# Parked: Zerodha / multi-broker work
+
+User parked a broker-migration discussion (2026-07-15). **Do not implement** until they explicitly command it.
+
+## Read first
+
+`context/BROKER_MULTI_ZERODHA_PARKED.md`
+
+## Current fact
+
+Live stack is **Dhan-only**. No Zerodha/Kite code. `broker_factory` is Shadow vs Dhan, not multi-vendor.
+
+## When they resume
+
+They will choose:
+
+- **Option A:** Keep Dhan + add Zerodha with selector (~12–20h agent coding)
+- **Option B:** Switch entirely to Zerodha (~10–16h agent coding)
+
+Wait for an explicit implement command before changing broker code.

@@ -1,0 +1,43 @@
+{
+  "source": "sensibull",
+  "underlying": "NIFTY",
+  "spot_at_capture": 23483.55,
+  "expiry_label": "09 Jun 2026",
+  "expiry_date": "2026-06-09",
+  "captured_at": "2026-06-02T00:00:00+05:30",
+  "notes": "Sensibull strategy builder screenshot — legs not on Dhan; used for shadow book bootstrap.",
+  "legs": [
+    {
+      "role_hint": "ce_buy",
+      "strike": 23750,
+      "type": "CE",
+      "side": "BUY",
+      "lots": 1,
+      "avg_price": 108.35
+    },
+    {
+      "role_hint": "ce_sell",
+      "strike": 23800,
+      "type": "CE",
+      "side": "SELL",
+      "lots": 2,
+      "avg_price": 90.95
+    },
+    {
+      "role_hint": "pe_buy",
+      "strike": 23250,
+      "type": "PE",
+      "side": "BUY",
+      "lots": 1,
+      "avg_price": 64.0
+    },
+    {
+      "role_hint": "pe_sell",
+      "strike": 23200,
+      "type": "PE",
+      "side": "SELL",
+      "lots": 2,
+      "avg_price": 53.85
+    }
+  ]
+}

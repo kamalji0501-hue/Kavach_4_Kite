@@ -1,0 +1,181 @@
+{
+  "broker": {
+    "_comment": "pin_totp ABANDONED. access_token mode only. Send fresh Dhan JWT to DRISHTI each morning.",
+    "client_code": "${DHAN_CLIENT_CODE}",
+    "access_token": "${DHAN_ACCESS_TOKEN}"
+  },
+  "telegram": {
+    "bot_token": "${TELEGRAM_BOT_TOKEN}",
+    "chat_id": "${TELEGRAM_CHAT_ID}",
+    "enabled": true
+  },
+  "health_bot": {
+    "bot_token": "${HEALTH_BOT_TOKEN}",
+    "chat_id": "${HEALTH_CHAT_ID}",
+    "enabled": true,
+    "start_time": "08:45",
+    "end_time": "15:45",
+    "check_interval_seconds": 3600
+  },
+  "modules": {
+    "ato_protection": {
+      "enabled": true
+    },
+    "batman_entry": {
+      "enabled": false
+    },
+    "profit_trailing": {
+      "enabled": false
+    },
+    "ratripal": {
+      "enabled": true
+    },
+    "overnight_hedge": {
+      "enabled": false
+    },
+    "position_monitor": {
+      "enabled": true
+    },
+    "emergency_exit": {
+      "enabled": true
+    }
+  },
+  "strategy": {
+    "index": "NIFTY",
+    "exchange": "NFO",
+    "lot_size": 65,
+    "nifty_step": 50,
+    "entry_day": "Wednesday",
+    "entry_time": "11:00",
+    "expiry_day": "Tuesday",
+    "sell_distance": 300,
+    "hedge_gap": 250,
+    "buy_lots": 1,
+    "product_type": "MARGIN"
+  },
+  "ato": {
+    "strike_offset": 50,
+    "default_retrace_points": 5,
+    "buffer_min": -500,
+    "buffer_max": 100,
+    "predefined_entry_buffers": [
+      1,
+      5,
+      10,
+      20,
+      35,
+      50
+    ],
+    "predefined_exit_buffers": [
+      1,
+      5,
+      10,
+      20,
+      35,
+      50
+    ],
+    "allowed_retrace_values": [
+      5,
+      10,
+      35,
+      50
+    ],
+    "poll_interval_seconds": 3,
+    "max_cycles_per_session": 0,
+    "startup_scan_enabled": true,
+    "manual_protect_adopt_enabled": false,
+    "pre_algo_window_start": "09:15",
+    "pre_algo_window_end": "09:20"
+  },
+  "trailing": {
+    "hard_stop_loss": -8000,
+    "activation_profit": 12000,
+    "trailing_distance": 2000,
+    "profit_target": 50000,
+    "check_interval_seconds": 5
+  },
+  "hedge": {
+    "distance_from_spot": 500,
+    "lots": 1,
+    "cutoff_time": "15:15"
+  },
+  "hedge_box": {
+    "enabled": false,
+    "check_time_ist": "15:15",
+    "box_width_points": 75,
+    "strike_step_points": 50,
+    "use_ato_engaged_override": true,
+    "ato_override_requires_outside_short": true,
+    "default_opposite_side_mode": "standard_break_even",
+    "white_zone_policy": "dual_standard_break_even",
+    "quantity_mode": "deployed_buy_qty_per_side",
+    "dte_source": "deployment_calendar",
+    "single_checkpoint_only": true,
+    "active_by_dte": {
+      "4": [
+        "green"
+      ],
+      "3": [
+        "green",
+        "orange"
+      ],
+      "2": [
+        "green",
+        "orange",
+        "blue"
+      ],
+      "1": [
+        "green",
+        "orange",
+        "blue",
+        "yellow"
+      ],
+      "0": []
+    }
+  },
+  "monitor": {
+    "mtm_alert_threshold": -5000,
+    "report_interval_seconds": 300,
+    "alert_on_negative": true
+  },
+  "market": {
+    "_comment": "open_time/close_time/timezone are informational; holidays are maintained in core/utils.py NSE_HOLIDAYS_2026.",
+    "open_time": "09:15",
+    "close_time": "15:30",
+    "timezone": "Asia/Kolkata"
+  },
+  "state_file": "data/batman_state.json",
+  "log_file": "logs/batman.log",
+  "logging": {
+    "enabled": true,
+    "level": "INFO",
+    "root_dir": "logs/runtime"
+  },
+  "operations": {
+    "prompt_time": "09:00",
+    "confirm_time": "09:20",
+    "end_time": "15:30",
+    "confirm_timeout_minutes": 5,
+    "algo_start_time_options": [
+      "09:20",
+      "09:25",
+      "09:30",
+      "09:35",
+      "09:40",
+      "09:45",
+      "10:00",
+      "10:15",
+      "10:30",
+      "11:00"
+    ],
+    "algo_modules": [
+      "ato_protection",
+      "profit_trailing"
+    ],
+    "always_on_modules": [
+      "ratripal",
+      "position_monitor",
+      "emergency_exit"
+    ]
+  }
+}

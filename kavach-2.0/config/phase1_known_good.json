@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "saved_at": "2026-07-17T00:18:40.747721+00:00",
+  "mode": "uat",
+  "label": "phase1_known_good_working_stack",
+  "core_bots": [
+    "drishti",
+    "kavach2",
+    "jagran"
+  ],
+  "optional_bots": [
+    "saransh"
+  ],
+  "legacy_bots_kept_but_unused": [
+    "kavach"
+  ],
+  "start_order": [
+    "drishti",
+    "kavach2",
+    "jagran",
+    "saransh"
+  ],
+  "how_to_start": "Execution/Start Bots/Phase 1 Start All Robots.sh (or .bat)",
+  "how_to_stop": "Execution/Stop Bots/Phase 1 Stop All Robots.sh (or .bat)",
+  "ato_working_profile": {
+    "_comment": "Proven KAVACH2 ATO recipe from UAT testing. Applied in uat and prod so both modes behave the same. Protect strikes stay deployment-specific.",
+    "schema_version": 1,
+    "label": "kavach2_uat_proven_2026-07-16",
+    "manage_sides": "pe",
+    "poll_interval_seconds": 3,
+    "pe_entry_buffer": {
+      "type": "PREDEFINED",
+      "value": "20"
+    },
+    "pe_retrace_buffer": {
+      "type": "PREDEFINED",
+      "value": "10"
+    },
+    "ce_entry_buffer": {
+      "type": "CUSTOM",
+      "value": "0"
+    },
+    "ce_retrace_buffer": {
+      "type": "CUSTOM",
+      "value": "5"
+    },
+    "pe_entry_buffer_points": 20,
+    "pe_retrace_points": 10,
+    "ce_entry_buffer_points": 0,
+    "ce_retrace_points": 5,
+    "apply_on_ato_restore": false,
+    "apply_on_deploy_confirm": true
+  },
+  "deployment_file": "batman_2026-07-16_23-46.json",
+  "runtime_at_save": {
+    "drishti": {
+      "state": "running",
+      "pids": [
+        22513
+      ]
+    },
+    "kavach2": {
+      "state": "running",
+      "pids": [
+        29961
+      ]
+    },
+    "jagran": {
+      "state": "running",
+      "pids": [
+        29960
+      ]
+    },
+    "saransh": {
+      "state": "running",
+      "pids": [
+        28835
+      ]
+    }
+  },
+  "invariants": [
+    "Use KAVACH2 for all Phase 1 testing \u2014 do not start legacy KAVACH",
+    "ATO buffers/manage/poll come from config/ato_working_profile.json on deploy confirm",
+    "JAGRAN routes source=kavach2 incidents to critical chat",
+    "SARANSH Daily Summary parses IST timestamps; restart uses parent Phase 1 root",
+    "Shared incident ledger under data_runtime/data/{mode}/analytics/incidents"
+  ]
+}

@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batman v3 — Telegram Flow Simulation</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #17212b;
+            color: #e8e8e8;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ── Top bar ─────────────────────────────────────── */
+        .topbar {
+            background: #1c2733;
+            border-bottom: 1px solid #2b3a4a;
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-shrink: 0;
+        }
+
+        .top-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #e8e8e8;
+        }
+
+        .top-subtitle {
+            font-size: 12px;
+            color: #8899a6;
+            margin-top: 1px;
+        }
+
+        .phase-pills {
+            display: flex;
+            gap: 8px;
+            margin-left: auto;
+        }
+
+        .phase-pill {
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            opacity: 0.35;
+            transition: opacity 0.3s;
+        }
+
+        .phase-pill.active {
+            opacity: 1;
+        }
+
+        .pill-drishti {
+            background: #1a3a5c;
+            color: #7ec8e3;
+            border: 1px solid #2a5a8a;
+        }
+
+        .pill-kavach {
+            background: #1a3d2e;
+            color: #7cdf9a;
+            border: 1px solid #2a6048;
+        }
+
+        .pill-lakshmi {
+            background: #2d1a5c;
+            color: #c4a8f5;
+            border: 1px solid #5030a0;
+        }
+
+        /* ── Main layout ─────────────────────────────────── */
+        .main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* ── Sidebar ─────────────────────────────────────── */
+        .sidebar {
+            width: 280px;
+            background: #1c2733;
+            border-right: 1px solid #2b3a4a;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        .sidebar-header {
+            padding: 14px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #8899a6;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            border-bottom: 1px solid #2b3a4a;
+        }
+
+        .chat-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            cursor: pointer;
+            border-bottom: 1px solid #1e2d3d;
+            transition: background 0.15s;
+        }
+
+        .chat-item:hover {
+            background: #243447;
+        }
+
+        .chat-item.active {
+            background: #2b5278;
+        }
+
+        .avatar {
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+            margin-right: 12px;
+        }
+
+        .av-drishti {
+            background: #1a4a7a;
+        }
+
+        .av-kavach {
+            background: #1a5a38;
+        }
+
+        .av-lakshmi {
+            background: #4a1a7a;
+        }
+
+        .chat-meta {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .chat-name {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .chat-preview {
+            font-size: 12px;
+            color: #8899a6;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 3px;
+        }
+
+        .badge {
+            background: #4a76a8;
+            border-radius: 12px;
+            min-width: 20px;
+            height: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 5px;
+            flex-shrink: 0;
+        }
+
+        .badge.hidden {
+            display: none;
+        }
+
+        .badge.green {
+            background: #3d9171;
+        }
+
+        /* ── Chat area ──────────────────────────────────── */
+        .chat-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-header {
+            padding: 12px 20px;
+            background: #1c2733;
+            border-bottom: 1px solid #2b3a4a;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-shrink: 0;
+        }
+
+        .chat-header .hav {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .chat-header .htitle {
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .chat-header .hstatus {
+            font-size: 12px;
+            color: #3d9171;
+        }
+
+        /* ── Messages ───────────────────────────────────── */
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            scroll-behavior: smooth;
+        }
+
+        .msg-row {
+            display: flex;
+            flex-direction: column;
+            animation: slideIn 0.25s ease;
+        }
+
+        .msg-row.bot {
+            align-items: flex-start;
+            max-width: 78%;
+        }
+
+        .msg-row.user {
+            align-items: flex-end;
+            align-self: flex-end;
+            max-width: 70%;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .bubble {
+            padding: 9px 14px;
+            border-radius: 16px;
+            font-size: 13.5px;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .msg-row.bot .bubble {
+            background: #1e2e3d;
+            border-radius: 4px 16px 16px 16px;
+        }
+
+        .msg-row.user .bubble {
+            background: #2b5278;
+            border-radius: 16px 16px 16px 4px;
+        }
+
+        .bubble .bold {
+            font-weight: 700;
+        }
+
+        .bubble.token-bubble {
+            background: #0d1117;
+            border: 1px solid #2b3a4a;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: #7ec8e3;
+            word-break: break-all;
+        }
+
+        .bubble.mono {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            background: #0d1a26;
+            border-left: 3px solid #4a76a8;
+        }
+
+        .msg-row.lakshmi .bubble.mono {
+            border-left-color: #8b5cf6;
+        }
+
+        .msg-meta {
+            font-size: 11px;
+            color: #5a7a9a;
+            margin-top: 3px;
+            padding: 0 4px;
+        }
+
+        /* ── Inline keyboard ────────────────────────────── */
+        .keyboard {
+            margin-top: 5px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            max-width: 340px;
+        }
+
+        .kb-btn {
+            background: #243447;
+            border: 1px solid #2b3a4a;
+            border-radius: 10px;
+            padding: 9px 14px;
+            font-size: 12.5px;
+            color: #a8d4f5;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+            text-align: center;
+            font-family: 'Courier New', monospace;
+            font-weight: 500;
+        }
+
+        .kb-btn:hover:not(.disabled) {
+            background: #2b4060;
+            border-color: #4a6a9a;
+        }
+
+        .kb-btn.cancel {
+            color: #ff7070;
+            font-family: inherit;
+            cursor: default;
+            opacity: 0.7;
+        }
+
+        .kb-btn.confirm {
+            color: #51cf66;
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .kb-btn.confirm:hover {
+            background: #1a3a28;
+            border-color: #3d9171;
+        }
+
+        .kb-btn.selected {
+            background: #1a3a5c;
+            border-color: #4a76a8;
+            color: #ffffff;
+            cursor: default;
+        }
+
+        .kb-btn.selected::before {
+            content: '☑ ';
+        }
+
+        .kb-btn.disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .kb-btn.next-hint {
+            border-color: #3d6a9a;
+            color: #c8e8ff;
+            position: relative;
+        }
+
+        .kb-btn.next-hint::after {
+            content: ' ← tap';
+            color: #4a76a8;
+            font-size: 11px;
+            font-family: inherit;
+        }
+
+        /* ── Typing indicator ───────────────────────────── */
+        .typing {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 10px 14px;
+            background: #1e2e3d;
+            border-radius: 4px 16px 16px 16px;
+            width: fit-content;
+        }
+
+        .dot {
+            width: 7px;
+            height: 7px;
+            background: #8899a6;
+            border-radius: 50%;
+            animation: bounce 0.9s infinite;
+        }
+
+        .dot:nth-child(2) {
+            animation-delay: 0.18s;
+        }
+
+        .dot:nth-child(3) {
+            animation-delay: 0.36s;
+        }
+
+        @keyframes bounce {
+
+            0%,
+            100% {
+                transform: translateY(0);
+                opacity: 0.6;
+            }
+
+            50% {
+                transform: translateY(-4px);
+                opacity: 1;
+            }
+        }
+
+        /* ── Phase divider ──────────────────────────────── */
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+            font-size: 11px;
+            color: #5a7a9a;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #2b3a4a;
+        }
+
+        /* ── Control bar ────────────────────────────────── */
+        .control-bar {
+            background: #1c2733;
+            border-top: 1px solid #2b3a4a;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-shrink: 0;
+        }
+
+        .step-info {
+            flex: 1;
+        }
+
+        .step-label {
+            font-size: 13px;
+            color: #e8e8e8;
+            font-weight: 500;
+        }
+
+        .step-sub {
+            font-size: 11px;
+            color: #5a7a9a;
+            margin-top: 2px;
+        }
+
+        .progress-bar {
+            height: 3px;
+            background: #2b3a4a;
+            border-radius: 2px;
+            margin-top: 6px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #4a76a8;
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+
+        .next-btn {
+            background: #4a76a8;
+            color: #fff;
+            border: none;
+            padding: 10px 22px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s, transform 0.1s;
+            flex-shrink: 0;
+        }
+
+        .next-btn:hover:not(:disabled) {
+            background: #5a86b8;
+            transform: translateY(-1px);
+        }
+
+        .next-btn:active {
+            transform: translateY(0);
+        }
+
+        .next-btn:disabled {
+            background: #2b3a4a;
+            color: #5a7a9a;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .restart-btn {
+            background: transparent;
+            border: 1px solid #2b3a4a;
+            color: #8899a6;
+            padding: 9px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .restart-btn:hover {
+            background: #243447;
+            color: #e8e8e8;
+        }
+
+        /* ── Done banner ─────────────────────────────────── */
+        .done-banner {
+            background: #1a3d2e;
+            border: 1px solid #3d9171;
+            border-radius: 12px;
+            padding: 14px 18px;
+            margin: 10px 0;
+            font-size: 13px;
+            line-height: 1.6;
+            animation: slideIn 0.3s ease;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Top bar -->
+    <div class="topbar">
+        <div>
+            <div class="top-title">🦇 Batman v3 — Telegram Flow Simulation</div>
+            <div class="top-subtitle">Interactive walkthrough using real Apr 2026 positions</div>
+        </div>
+        <div class="phase-pills">
+            <div class="phase-pill pill-drishti" id="pill-drishti">🔍 Phase 1: DRISHTI</div>
+            <div class="phase-pill pill-kavach" id="pill-kavach">🛡 Phase 2: KAVACH</div>
+            <div class="phase-pill pill-lakshmi" id="pill-lakshmi">💰 Phase 3: LAKSHMI</div>
+        </div>
+    </div>
+
+    <!-- Main -->
+    <div class="main">
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">Telegram Chats</div>
+
+            <div class="chat-item active" id="si-drishti" onclick="jumpToBot('drishti')">
+                <div class="avatar av-drishti">🔍</div>
+                <div class="chat-meta">
+                    <div class="chat-name">DRISHTI</div>
+                    <div class="chat-preview" id="prev-drishti">Waiting to deliver token…</div>
+                </div>
+                <div class="badge hidden" id="badge-drishti">1</div>
+            </div>
+
+            <div class="chat-item" id="si-kavach" onclick="jumpToBot('kavach')">
+                <div class="avatar av-kavach">🛡</div>
+                <div class="chat-meta">
+                    <div class="chat-name">KAVACH</div>
+                    <div class="chat-preview" id="prev-kavach">Idle — run /deploy when ready</div>
+                </div>
+                <div class="badge hidden" id="badge-kavach">1</div>
+            </div>
+
+            <div class="chat-item" id="si-lakshmi" onclick="jumpToBot('lakshmi')">
+                <div class="avatar av-lakshmi">💰</div>
+                <div class="chat-meta">
+                    <div class="chat-name">LAKSHMI</div>
+                    <div class="chat-preview" id="prev-lakshmi">MTM alerts will appear here</div>
+                </div>
+                <div class="badge hidden" id="badge-lakshmi">1</div>
+            </div>
+
+            <!-- Context box -->
+            <div style="padding:14px 16px; border-top:1px solid #2b3a4a; margin-top:auto;">
+                <div
+                    style="font-size:11px; color:#8899a6; margin-bottom:8px; text-transform:uppercase; letter-spacing:.5px;">
+                    Live Positions (Today)</div>
+                <div style="font-family:monospace; font-size:11px; line-height:1.8; color:#c8e8ff;">
+                    NIFTY 07 APR<br>
+                    <span style="color:#e8e8e8;">Spot: ₹22,713</span><br>
+                    <span style="color:#51cf66;">PE SELL 22000 ₹87→72</span><br>
+                    <span style="color:#ff7070;">PE BUY 22050 ₹95→79</span><br>
+                    <span style="color:#ff7070;">CE BUY 23150 ₹88→84</span><br>
+                    <span style="color:#51cf66;">CE SELL 23200 ₹76→71</span><br>
+                    <span style="color:#f0c040; font-weight:bold;">P&L: +₹14,878 🟢</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat area -->
+        <div class="chat-area">
+            <div class="chat-header" id="chat-header">
+                <div class="hav av-drishti"
+                    style="width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;"
+                    id="hdr-avatar">🔍</div>
+                <div>
+                    <div class="htitle" id="hdr-title">DRISHTI</div>
+                    <div class="hstatus" id="hdr-status">● Initialising…</div>
+                </div>
+            </div>
+
+            <div class="messages" id="messages"></div>
+
+            <!-- Control bar -->
+            <div class="control-bar">
+                <div class="step-info">
+                    <div class="step-label" id="step-label">Step 1 of 18</div>
+                    <div class="step-sub" id="step-sub">Click Next to begin the simulation</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+                    </div>
+                </div>
+                <button class="restart-btn" onclick="restart()">↺ Restart</button>
+                <button class="next-btn" id="next-btn" onclick="advance()">Next ▶</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ═══════════════════════════════════════════════════════════════════
+        // SIMULATION DATA
+        // ═══════════════════════════════════════════════════════════════════
+        const BOTS = {
+            drishti: { emoji: '🔍', bgClass: 'av-drishti', label: 'DRISHTI', status: '● online' },
+            kavach: { emoji: '🛡', bgClass: 'av-kavach', label: 'KAVACH', status: '● armed' },
+            lakshmi: { emoji: '💰', bgClass: 'av-lakshmi', label: 'LAKSHMI', status: '● monitoring' },
+        };
+
+        // action types:
+        //   'next'   → Next ▶ button triggers advance
+        //   'button' → user must click one of the inline buttons (correct=true advances)
+        //   'end'    → simulation done
+
+        const STEPS = [
+
+            // ─────────────────────────────────────────────────────
+            // PHASE 1: DRISHTI — Token delivery & broker connect
+            // ─────────────────────────────────────────────────────
+            {
+                phase: 'drishti', actor: 'bot',
+                label: 'DRISHTI sends startup alert',
+                sub: 'Batman VPS starts — broker not yet connected',
+                text: `⚡ Batman v3 is ONLINE
+
+VPS started successfully at 08:35 IST.
+
+🔴 Broker not connected.
+No saved access token found.
+
+Paste your Dhan access token here and I will connect immediately. Token is valid for 24 hours.
+
+_Tip: Get your token from Dhan Developer Portal → Access Token._`,
+                action: 'next',
+            },
+
+            {
+                phase: 'drishti', actor: 'user',
+                label: 'Rahul pastes access token',
+                sub: 'Raw JWT copied from Dhan portal',
+                isToken: true,
+                text: `ENTER_DHAN_JWT_TOKEN_HERE.REPLACE_THIS_SEGMENT.REPLACE_THIS_SEGMENT`,
+                action: 'next',
+            },
+
+            {
+                phase: 'drishti', actor: 'bot',
+                label: 'DRISHTI validates token',
+                sub: 'Fetches NIFTY LTP to confirm broker connection',
+                text: `⏳ Token received. Connecting to Dhan broker…`,
+                action: 'next',
+            },
+
+            {
+                phase: 'drishti', actor: 'bot',
+                label: 'DRISHTI confirms broker connected',
+                sub: 'Token persisted, NIFTY LTP confirmed',
+                switchSidebarBadge: 'kavach',
+                text: `✅ Broker connected!
+
+NIFTY LTP  : ₹22,713.10 ✓
+GIFT Nifty : ₹22,708.50 ✓
+
+Token saved → data/access_token.json
+Expires: Sun 05-Apr-2026 · 08:35 IST (24 h)
+
+🦇 Batman is ready.
+
+Open KAVACH and run /deploy to register your positions.`,
+                action: 'next',
+            },
+
+            // ─────────────────────────────────────────────────────
+            // PHASE 2: KAVACH — /deploy wizard
+            // ─────────────────────────────────────────────────────
+            {
+                phase: 'kavach', actor: 'user',
+                label: 'Switch to KAVACH · run /deploy',
+                sub: 'Rahul opens KAVACH chat and sends the command',
+                divider: '── KAVACH chat ──',
+                text: `/deploy`,
+                action: 'next',
+            },
+
+            {
+                phase: 'kavach', actor: 'bot',
+                label: 'KAVACH safety check + position fetch',
+                sub: 'No existing file found; fetching broker positions',
+                text: `📡 No existing deployment found.
+
+Fetching your open NIFTY positions from Dhan…`,
+                action: 'next',
+            },
+
+            {
+                phase: 'kavach', actor: 'bot',
+                label: 'Step 1/4 — Select PE BUY',
+                sub: 'Tap the PE BUY leg (your LONG put hedge)',
+                text: `Step 1/4 — Select your PE BUY leg:
+
+(The LONG put you bought to cap downside losses)`,
+                buttons: [
+                    { label: 'NIFTY07APR22000PE  |  SHORT 1560  |  avg ₹87.00', correct: false, hint: false },
+                    { label: 'NIFTY07APR22050PE  |  LONG   780  |  avg ₹95.19', correct: true, hint: true },
+                    { label: 'NIFTY07APR23150CE  |  LONG   780  |  avg ₹88.09', correct: false, hint: false },
+                    { label: 'NIFTY07APR23200CE  |  SHORT 1560  |  avg ₹76.00', correct: false, hint: false },
+                    { label: '❌  Cancel', cancel: true },
+                ],
+                action: 'button',
+            },
+
+            {
+                phase: 'kavach', actor: 'bot',
+                label: 'Step 2/4 — Select PE SELL',
+                sub: 'Tap the PE SHORT leg (your sold put)',
+                text: `✅ PE BUY:  NIFTY07APR22050PE  (LONG 780, avg ₹95.19)
+
+Step 2/4 — Select your PE SELL leg:
+
+(The SHORT put you sold to collect premium)`,
+                buttons: [
+                    { label: 'NIFTY07APR22000PE  |  SHORT 1560  |  avg ₹87.00', correct: true, hint: true },
+                    { label: 'NIFTY07APR23150CE  |  LONG   780  |  avg ₹88.09', correct: false, hint: false },
+                    { label: 'NIFTY07APR23200CE  |  SHORT 1560  |  avg ₹76.00', correct: false, hint: false },
+                    { label: '❌  Cancel', cancel: true },
+                ],
+                action: 'button',
+            },
+
+            {
+                phase: 'kavach', actor: 'bot',
+                label: 'Step 3/4 — Select CE SELL',
+                sub: 'Tap the CE SHORT leg (your sold call)',
+                text: `✅ PE BUY:   NIFTY07APR22050PE
+✅ PE SELL:  NIFTY07APR22000PE
+
+Step 3/4 — Select your CE SELL leg:
+
+(The SHORT call you sold to collect premium)`,
+                buttons: [
+                    { label: 'NIFTY07APR23150CE  |  LONG   780  |  avg ₹88.09', correct: false, hint: false },
+                    { label: 'NIFTY07APR23200CE  |  SHORT 1560  |  avg ₹76.00', correct: true, hint: true },
+                    { label: '❌  Cancel', cancel: true },
+                ],
+                action: 'button',
+            },
+
+            {
+                phase: 'kavach', actor: 'bot',
+                label: 'Step 4/4 — Select CE BUY',
+                sub: 'Only one option left — the CE hedge',
+                text: `✅ PE BUY:   NIFTY07APR22050PE
+✅ PE SELL:  NIFTY07APR22000PE
+✅ CE SELL:  NIFTY07APR23200CE
+
+Step 4/4 — Select your CE BUY leg:
+
+(The LONG call bought to cap upside losses)`,
+                buttons: [
+                    { label: 'NIFTY07APR23150CE  |  LONG   780  |  avg ₹88.09', correct: true, hint: true },
+                    { label: '❌  Cancel', cancel: true },
+                ],
+                action: 'button',
+            },
+
+            {
+                phase: 'kavach', actor: 'bot',
+                label: 'Position summary + ATO auto-calc',
+                sub: 'KAVACH calculates ATO protection strikes automatically',
+                isMono: true,
+                text: `🦇 Batman Position Summary
+
+PE BUY  : NIFTY07APR22050PE  qty=  780  avg=₹95.19
+PE SELL : NIFTY07APR22000PE  qty=1,560  avg=₹87.00
+CE SELL : NIFTY07APR23200CE  qty=1,560  avg=₹76.00
+CE BUY  : NIFTY07APR23150CE  qty=  780  avg=₹88.09
+
+🛡 ATO Protection (auto-calculated, ato_step=50):
+  PE ATO : NIFTY07APR21950PE  (22000 − 50)
+  CE ATO : NIFTY07APR23250CE  (23200 + 50)
+
+ATO fires when NIFTY breaches sell strike
+by the retrace buffer (default 50 pts).`,
+                buttons: [
+                    { label: '✅  Confirm & Arm Batman', correct: true, hint: true, confirm: true },
+                    { label: '❌  Cancel & Start Over', cancel: true },
+                ],
+                action: 'button',
+            },
+
+            {
+                phase: 'kavach', actor: 'bot',
+                label: 'Batman armed ✅',
+                sub: 'Deployment file written, ATO armed, monitoring starts',
+                switchSidebarBadge: 'lakshmi',
+                text: `✅ Batman armed. KAVACH is watching.
+
+File: batman_2026-04-04_10-23.json
+
+🛡 ATO protection:
+  PE fires when NIFTY ≤ 21,950  (22000 − 50 retrace)
+  CE fires when NIFTY ≥ 23,250  (23200 + 50 retrace)
+
+  Current NIFTY: 22,713
+  Margin to PE:  763 pts  🟢
+  Margin to CE:  537 pts  🟢
+
+⏰ Algo auto-starts at 09:15 IST Mon 07-Apr.
+   Use /start_now to start immediately.
+   Use /ato to check ATO status any time.`,
+                action: 'next',
+            },
+
+            // ─────────────────────────────────────────────────────
+            // PHASE 3: LAKSHMI — MTM monitoring
+            // ─────────────────────────────────────────────────────
+            {
+                phase: 'lakshmi', actor: 'bot',
+                label: 'Switch to LAKSHMI · MTM update',
+                sub: 'LAKSHMI sends periodic P&L based on real LTPs',
+                divider: '── LAKSHMI chat ──',
+                isMono: true,
+                text: `📊 Batman MTM Update — 04-Apr-2026 · 14:45 IST
+NIFTY Spot: ₹22,713.10  |  DTE: 3
+
+Leg             LTP     Avg     P&L
+───────────────────────────────────
+PE BUY  22050   79.05   95.19  -12,587 🔴
+PE SELL 22000   72.00   87.00  +23,400 🟢
+CE SELL 23200   71.10   76.00   +7,644 🟢
+CE BUY  23150   83.50   88.09   -3,578 🔴
+───────────────────────────────────
+💰 Total P&L : +₹14,878.50  🟢
+───────────────────────────────────
+ATO:   IDLE 🟢
+Range: 21,950 ↔ 23,250 (763 / 537 pts)`,
+                action: 'next',
+            },
+
+            {
+                phase: 'lakshmi', actor: 'bot',
+                label: 'LAKSHMI ATO status detail',
+                sub: 'Margin to breach shown on both sides',
+                text: `🛡 ATO Status — IDLE on both sides
+
+PE side: NIFTY at 22,713 — needs to fall 763 pts to 21,950 to trigger
+CE side: NIFTY at 22,713 — needs to rise 537 pts to 23,250 to trigger
+
+CE side has less cushion (537 pts). Monitor if VIX rises.
+
+Next MTM update in 15 min.
+Use /pnl for live P&L on demand.`,
+                action: 'next',
+            },
+
+            {
+                phase: 'lakshmi', actor: 'bot',
+                label: 'KAVACH proactive alert (cross-bot)',
+                sub: 'If NIFTY were to spike — what the ATO alert looks like',
+                divider: '── Hypothetical: what happens if NIFTY spikes ──',
+                text: `🚨 ATO ALERT — CE SIDE
+
+NIFTY: ₹23,258  🔴  (breached 23,250!)
+
+Buying CE protection:
+  NIFTY07APR23250CE  |  qty=1,560  |  MKT order
+
+Reason: NIFTY (23,258) ≥ CE SELL (23,200) + retrace (50)
+ATO Cycle: 1 of 3 max.
+
+⚠️ Batman will monitor for retrace exit.`,
+                action: 'next',
+            },
+
+            {
+                phase: 'lakshmi', actor: 'bot',
+                label: 'ATO retrace exit alert',
+                sub: 'NIFTY pulls back — protection sold, premium collected',
+                text: `✅ ATO RETRACE EXIT — CE side
+
+NIFTY pulled back to ₹23,180.
+
+Selling CE protection:
+  NIFTY07APR23250CE  |  qty=1,560  |  MKT order
+
+Net ATO round-trip P&L: approx −₹1,200 (slippage).
+ATO cycle closed. Monitoring continues.
+
+Batman returns to normal watch. 🦇`,
+                action: 'next',
+            },
+
+            {
+                phase: 'lakshmi', actor: 'bot',
+                label: 'EOD summary on expiry day',
+                sub: 'Tuesday 07-Apr: batman_complete reminder',
+                divider: '── Expiry day (07-Apr-2026 · Tuesday) ──',
+                isMono: true,
+                text: `🌅 EOD Summary — 07-Apr-2026 (Expiry Day)
+
+NIFTY closed at: ₹22,690
+
+PE BUY  22050 expired at ₹0  (OTM, worthless)
+PE SELL 22000 expired at ₹0  (OTM, worthless) ✅
+CE SELL 23200 expired at ₹0  (OTM, worthless) ✅
+CE BUY  23150 expired at ₹0  (OTM, worthless)
+
+💰 Estimated Final P&L: +₹16,200 approx
+
+Positions auto-expired. Run /batman_complete to:
+  ✓ Archive deployment file
+  ✓ Reset algo for next week
+  ✓ KAVACH goes back to IDLE`,
+                action: 'end',
+            },
+        ];
+
+        // ═══════════════════════════════════════════════════════════════════
+        // STATE
+        // ═══════════════════════════════════════════════════════════════════
+        let currentStep = 0;
+        let messagesByBot = { drishti: [], kavach: [], lakshmi: [] };
+        let currentBot = 'drishti';
+        let awaitingButton = false;
+
+        // ═══════════════════════════════════════════════════════════════════
+        // INIT
+        // ═══════════════════════════════════════════════════════════════════
+        function restart() {
+            currentStep = 0;
+            messagesByBot = { drishti: [], kavach: [], lakshmi: [] };
+            currentBot = 'drishti';
+            awaitingButton = false;
+            document.getElementById('messages').innerHTML = '';
+            document.getElementById('badge-drishti').classList.add('hidden');
+            document.getElementById('badge-kavach').classList.add('hidden');
+            document.getElementById('badge-lakshmi').classList.add('hidden');
+            document.getElementById('prev-drishti').textContent = 'Waiting to deliver token…';
+            document.getElementById('prev-kavach').textContent = 'Idle — run /deploy when ready';
+            document.getElementById('prev-lakshmi').textContent = 'MTM alerts will appear here';
+            ['si-drishti', 'si-kavach', 'si-lakshmi'].forEach(id => document.getElementById(id).classList.remove('active'));
+            document.getElementById('si-drishti').classList.add('active');
+            ['pill-drishti', 'pill-kavach', 'pill-lakshmi'].forEach(id => document.getElementById(id).classList.remove('active'));
+            setBot('drishti');
+            updateUI();
+        }
+
+        function setBot(bot) {
+            currentBot = bot;
+            const b = BOTS[bot];
+            const hav = document.getElementById('hdr-avatar');
+            hav.textContent = b.emoji;
+            hav.className = `hav ${b.bgClass}`;
+            hav.style.cssText = 'width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;';
+            document.getElementById('hdr-title').textContent = b.label;
+            document.getElementById('hdr-status').textContent = b.status;
+            // active sidebar item
+            ['si-drishti', 'si-kavach', 'si-lakshmi'].forEach(id => document.getElementById(id).classList.remove('active'));
+            document.getElementById(`si-${bot}`).classList.add('active');
+            // pill
+            document.getElementById(`pill-${bot}`).classList.add('active');
+            // re-render messages for this bot
+            renderMessages();
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ADVANCE
+        // ═══════════════════════════════════════════════════════════════════
+        function advance() {
+            if (awaitingButton) return;
+            if (currentStep >= STEPS.length) return;
+
+            const step = STEPS[currentStep];
+
+            // Switch bot if needed
+            if (step.phase && step.phase !== currentBot) {
+                setBot(step.phase);
+                // clear badge when user navigates to that chat
+                document.getElementById(`badge-${step.phase}`).classList.add('hidden');
+            }
+
+            // Phase divider
+            if (step.divider) {
+                appendDivider(step.divider);
+            }
+
+            // Render the message
+            appendMessage(step);
+
+            // Side effects
+            if (step.switchSidebarBadge) {
+                const b = step.switchSidebarBadge;
+                document.getElementById(`badge-${b}`).classList.remove('hidden');
+                const prevTexts = {
+                    kavach: 'Ready — tap to run /deploy',
+                    lakshmi: 'New MTM update available',
+                };
+                if (prevTexts[b]) document.getElementById(`prev-${b}`).textContent = prevTexts[b];
+            }
+
+            // Update sidebar preview
+            const previewText = step.text.split('\n')[0].replace(/[*_]/g, '').slice(0, 38);
+            document.getElementById(`prev-${currentBot}`).textContent = previewText + (step.text.length > 38 ? '…' : '');
+
+            if (step.action === 'button') {
+                awaitingButton = true;
+                document.getElementById('next-btn').disabled = true;
+            }
+
+            if (step.action !== 'button') {
+                currentStep++;
+            }
+
+            updateUI();
+            scrollToBottom();
+        }
+
+        function onButtonClick(stepIdx, btnIdx, correct, cancel) {
+            if (!awaitingButton) return;
+            if (cancel) {
+                showCancelToast();
+                return;
+            }
+            if (!correct) {
+                showWrongToast();
+                return;
+            }
+
+            // Mark button as selected in DOM
+            const allBtns = document.querySelectorAll(`.kb-step-${stepIdx} .kb-btn`);
+            allBtns.forEach((el, i) => {
+                el.classList.add('disabled');
+                if (i === btnIdx) el.classList.add('selected');
+                el.onclick = null;
+            });
+
+            // Append user "tap" message
+            const step = STEPS[stepIdx];
+            const btn = step.buttons[btnIdx];
+            const tapMsg = {
+                phase: step.phase,
+                actor: 'user',
+                text: btn.label.replace(/^[✅❌]\s+/, ''),
+            };
+            appendMessage(tapMsg);
+
+            awaitingButton = false;
+            currentStep = stepIdx + 1;
+            document.getElementById('next-btn').disabled = false;
+            updateUI();
+            scrollToBottom();
+
+            // Auto-advance to next bot message after 400ms
+            setTimeout(() => { advance(); }, 400);
+        }
+
+        function showCancelToast() {
+            const t = document.createElement('div');
+            t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#3a1a1a;border:1px solid #ff7070;color:#ff9999;padding:10px 20px;border-radius:10px;font-size:13px;z-index:999;animation:slideIn .2s ease;';
+            t.textContent = '❌ That would cancel the deployment. Tap the correct leg to continue.';
+            document.body.appendChild(t);
+            setTimeout(() => t.remove(), 2500);
+        }
+
+        function showWrongToast() {
+            const t = document.createElement('div');
+            t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1a2a3a;border:1px solid #4a76a8;color:#a8d4f5;padding:10px 20px;border-radius:10px;font-size:13px;z-index:999;animation:slideIn .2s ease;';
+            t.textContent = '💡 That\'s a different leg. Tap the highlighted one (← tap) for Rahul\'s choice.';
+            document.body.appendChild(t);
+            setTimeout(() => t.remove(), 2500);
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // RENDER
+        // ═══════════════════════════════════════════════════════════════════
+        function appendDivider(text) {
+            const d = document.createElement('div');
+            d.className = 'divider';
+            d.textContent = text;
+            document.getElementById('messages').appendChild(d);
+        }
+
+        function appendMessage(step) {
+            const stepIdx = currentStep;
+            const msgs = document.getElementById('messages');
+
+            const row = document.createElement('div');
+            row.className = `msg-row ${step.actor}`;
+
+            const bubble = document.createElement('div');
+            bubble.className = `bubble ${step.actor === 'user' ? '' : (step.isMono ? 'mono' : '')}`;
+            bubble.innerHTML = formatText(step.text, step.isToken);
+
+            row.appendChild(bubble);
+
+            // Timestamp
+            const now = new Date();
+            const ts = document.createElement('div');
+            ts.className = 'msg-meta';
+            ts.textContent = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+            row.appendChild(ts);
+
+            // Keyboard
+            if (step.buttons && step.action === 'button') {
+                const kb = document.createElement('div');
+                kb.className = `keyboard kb-step-${stepIdx}`;
+                step.buttons.forEach((btn, i) => {
+                    const b = document.createElement('button');
+                    b.className = `kb-btn${btn.cancel ? ' cancel' : ''}${btn.confirm ? ' confirm' : ''}${btn.hint ? ' next-hint' : ''}`;
+                    b.textContent = btn.label;
+                    b.onclick = () => onButtonClick(stepIdx, i, btn.correct, btn.cancel);
+                    kb.appendChild(b);
+                });
+                row.appendChild(kb);
+            }
+
+            msgs.appendChild(row);
+
+            // Store for re-render
+            messagesByBot[currentBot] = messagesByBot[currentBot] || [];
+            messagesByBot[currentBot].push(row.outerHTML);
+        }
+
+        function renderMessages() {
+            const msgs = document.getElementById('messages');
+            msgs.innerHTML = (messagesByBot[currentBot] || []).join('');
+        }
+
+        function formatText(text, isToken) {
+            if (isToken) {
+                return `<span style="font-family:monospace;font-size:11px;color:#7ec8e3;word-break:break-all;">${escHtml(text)}</span>`;
+            }
+            return escHtml(text)
+                .replace(/\*([^*]+)\*/g, '<strong>$1</strong>')
+                .replace(/_([^_]+)_/g, '<em style="color:#8899a6">$1</em>');
+        }
+
+        function escHtml(s) {
+            return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function scrollToBottom() {
+            const msgs = document.getElementById('messages');
+            setTimeout(() => { msgs.scrollTop = msgs.scrollHeight; }, 50);
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // UI STATE
+        // ═══════════════════════════════════════════════════════════════════
+        function updateUI() {
+            const total = STEPS.length;
+            const pct = Math.round((currentStep / total) * 100);
+            document.getElementById('progress-fill').style.width = pct + '%';
+
+            if (currentStep >= total) {
+                // Done
+                document.getElementById('step-label').textContent = '✅ Simulation complete!';
+                document.getElementById('step-sub').textContent = 'Batman is armed, monitoring, and fully operational.';
+                document.getElementById('next-btn').disabled = true;
+                document.getElementById('next-btn').textContent = 'Done ✓';
+                appendDoneBanner();
+                return;
+            }
+
+            const step = STEPS[currentStep];
+            document.getElementById('step-label').textContent = `Step ${currentStep + 1} of ${total} — ${step.label}`;
+            document.getElementById('step-sub').textContent = step.sub || '';
+
+            if (awaitingButton) {
+                document.getElementById('next-btn').textContent = '👆 Tap a button above';
+                document.getElementById('next-btn').disabled = true;
+            } else {
+                document.getElementById('next-btn').textContent = currentStep === 0 ? 'Start ▶' : 'Next ▶';
+                document.getElementById('next-btn').disabled = false;
+            }
+        }
+
+        function appendDoneBanner() {
+            const msgs = document.getElementById('messages');
+            if (document.getElementById('done-banner')) return;
+            const d = document.createElement('div');
+            d.id = 'done-banner';
+            d.className = 'done-banner';
+            d.innerHTML = `<strong>🦇 Simulation Complete</strong><br><br>
+Batman v3 is now fully operational:<br>
+• DRISHTI: broker connected, token persisted ✅<br>
+• KAVACH: 4 legs registered, ATO armed at 21,950 / 23,250 ✅<br>
+• LAKSHMI: MTM monitoring active, alerts configured ✅<br><br>
+<em>P&L at simulation time: <strong>+₹14,878.50</strong> 🟢</em><br><br>
+Click ↺ Restart to replay the simulation.`;
+            msgs.appendChild(d);
+            scrollToBottom();
+        }
+
+        function jumpToBot(bot) {
+            setBot(bot);
+            document.getElementById(`badge-${bot}`).classList.add('hidden');
+        }
+
+        // ─── Start ─────────────────────────────────────────
+        updateUI();
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batman v3 — Market Simulator</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #0d1117;
+            color: #c9d1d9;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ── Header ─────────────────────────────────────────────────────────── */
+        .header {
+            background: #161b22;
+            border-bottom: 1px solid #21262d;
+            padding: 9px 18px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-shrink: 0;
+        }
+
+        .header-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: #c9d1d9;
+        }
+
+        .header-sub {
+            font-size: 12px;
+            color: #8b949e;
+            flex: 1;
+        }
+
+        .header a {
+            color: #58a6ff;
+            text-decoration: none;
+            font-size: 12px;
+        }
+
+        .header a:hover {
+            text-decoration: underline;
+        }
+
+        .pill {
+            background: #1f6feb;
+            color: white;
+            padding: 2px 9px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .pill.green {
+            background: #238636;
+        }
+
+        .pill.yellow {
+            background: #9e6a03;
+        }
+
+        .pill.red {
+            background: #da3633;
+        }
+
+        /* ── Layout ─────────────────────────────────────────────────────────── */
+        .layout {
+            display: flex;
+            flex: 1;
+            gap: 10px;
+            padding: 10px;
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        /* ── Panels ─────────────────────────────────────────────────────────── */
+        .panel {
+            background: #161b22;
+            border: 1px solid #21262d;
+            border-radius: 8px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        .panel-title {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.9px;
+            color: #8b949e;
+            margin-bottom: 10px;
+            padding-bottom: 7px;
+            border-bottom: 1px solid #21262d;
+            flex-shrink: 0;
+        }
+
+        /* ── LEFT: Time panel ───────────────────────────────────────────────── */
+        .time-panel {
+            width: 236px;
+            flex-shrink: 0;
+            gap: 0;
+        }
+
+        .clock-date {
+            font-size: 13px;
+            color: #8b949e;
+            text-align: center;
+            margin-top: 2px;
+        }
+
+        .clock-time {
+            font-size: 46px;
+            font-weight: 700;
+            text-align: center;
+            color: #ffffff;
+            letter-spacing: 3px;
+            line-height: 1.1;
+            margin: 2px 0 6px;
+        }
+
+        .mkt-badge {
+            text-align: center;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 3px 0;
+            border-radius: 6px;
+            margin-bottom: 4px;
+        }
+
+        .mkt-open {
+            background: #0d4429;
+            color: #3fb950;
+            border: 1px solid #238636;
+        }
+
+        .mkt-closed {
+            background: #2d0f0f;
+            color: #f85149;
+            border: 1px solid #da3633;
+        }
+
+        .day-badge {
+            text-align: center;
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 0;
+            border-radius: 4px;
+            margin-bottom: 3px;
+        }
+
+        .badge-expiry {
+            background: #3d2a00;
+            color: #d29922;
+            border: 1px solid #9e6a03;
+        }
+
+        .badge-entry {
+            background: #0d2437;
+            color: #58a6ff;
+            border: 1px solid #1f6feb;
+        }
+
+        hr.div {
+            border: none;
+            border-top: 1px solid #21262d;
+            margin: 8px 0;
+            flex-shrink: 0;
+        }
+
+        .sec-label {
+            font-size: 10px;
+            color: #8b949e;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            margin-bottom: 5px;
+            flex-shrink: 0;
+        }
+
+        /* Buttons */
+        .btn {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 5px 4px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: background 0.12s, border-color 0.12s;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        .btn:hover {
+            background: #2d333b;
+            border-color: #58a6ff;
+        }
+
+        .btn.primary {
+            background: #1f6feb;
+            border-color: #1f6feb;
+            color: #fff;
+        }
+
+        .btn.primary:hover {
+            background: #388bfd;
+        }
+
+        .btn.warn {
+            background: #3d2a00;
+            border-color: #9e6a03;
+            color: #d29922;
+        }
+
+        .btn.warn:hover {
+            background: #5a3e00;
+        }
+
+        .btn.green {
+            background: #0d4429;
+            border-color: #238636;
+            color: #3fb950;
+        }
+
+        .btn.green:hover {
+            background: #1a5c38;
+        }
+
+        .btn.red {
+            background: #2d0f0f;
+            border-color: #da3633;
+            color: #f85149;
+        }
+
+        .btn.red:hover {
+            background: #3d1414;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px;
+            margin-bottom: 6px;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 4px;
+            margin-bottom: 6px;
+        }
+
+        .grid-4 {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 4px;
+            margin-bottom: 6px;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 5px;
+            flex-shrink: 0;
+        }
+
+        .input-row input,
+        input.full {
+            flex: 1;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 5px 8px;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+
+        .input-row input:focus,
+        input.full:focus {
+            outline: none;
+            border-color: #58a6ff;
+        }
+
+        .preset-col {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        /* ── CENTER: NIFTY panel ────────────────────────────────────────────── */
+        .nifty-panel {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .price-big {
+            font-size: 56px;
+            font-weight: 700;
+            text-align: center;
+            color: #ffffff;
+            letter-spacing: 1px;
+            line-height: 1;
+            flex-shrink: 0;
+        }
+
+        .dist-row {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin: 6px 0 8px;
+            font-size: 11px;
+            flex-shrink: 0;
+        }
+
+        .dist-item {
+            text-align: center;
+        }
+
+        .dist-label {
+            color: #8b949e;
+            display: block;
+            margin-bottom: 1px;
+        }
+
+        .dist-val {
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .col-safe {
+            color: #3fb950;
+        }
+
+        .col-warn {
+            color: #d29922;
+        }
+
+        .col-breach {
+            color: #f85149;
+        }
+
+        /* Strike gauge */
+        .gauge-wrap {
+            flex: 1;
+            position: relative;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        #gaugeEl {
+            position: absolute;
+            inset: 0;
+        }
+
+        /* Price nudge controls */
+        .nudge-section {
+            flex-shrink: 0;
+        }
+
+        .nudge-grid {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 4px;
+            margin-bottom: 6px;
+        }
+
+        .slider-row {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .slider-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #8b949e;
+        }
+
+        input[type=range] {
+            width: 100%;
+            accent-color: #58a6ff;
+        }
+
+        /* ── RIGHT: Events panel ────────────────────────────────────────────── */
+        .events-panel {
+            width: 300px;
+            flex-shrink: 0;
+        }
+
+        .ato-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-bottom: 8px;
+            flex-shrink: 0;
+        }
+
+        .ato-box {
+            background: #0d1117;
+            border: 1px solid #21262d;
+            border-radius: 6px;
+            padding: 8px;
+            text-align: center;
+        }
+
+        .ato-box-label {
+            font-size: 10px;
+            color: #8b949e;
+            text-transform: uppercase;
+        }
+
+        .ato-state {
+            font-size: 15px;
+            font-weight: 700;
+            margin: 4px 0 2px;
+        }
+
+        .state-idle {
+            color: #8b949e;
+        }
+
+        .state-active {
+            color: #f85149;
+        }
+
+        .ato-cycles {
+            font-size: 10px;
+            color: #8b949e;
+        }
+
+        .deploy-info {
+            background: #0d1117;
+            border: 1px solid #21262d;
+            border-radius: 5px;
+            padding: 7px;
+            margin-bottom: 7px;
+            font-size: 11px;
+            color: #8b949e;
+            flex-shrink: 0;
+        }
+
+        .algo-status {
+            text-align: center;
+            font-size: 11px;
+            color: #8b949e;
+            margin-bottom: 6px;
+            flex-shrink: 0;
+        }
+
+        .ledger-summary {
+            background: #0d1117;
+            border: 1px solid #21262d;
+            border-radius: 5px;
+            padding: 7px;
+            margin-bottom: 7px;
+            font-size: 11px;
+            color: #8b949e;
+            line-height: 1.45;
+            flex-shrink: 0;
+        }
+
+        .ledger-list {
+            max-height: 170px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 8px;
+            flex-shrink: 0;
+        }
+
+        .ledger-row {
+            background: #0d1117;
+            border: 1px solid #21262d;
+            border-left: 3px solid #30363d;
+            border-radius: 4px;
+            padding: 5px 7px;
+            font-size: 10px;
+            color: #8b949e;
+        }
+
+        .ledger-row.ce {
+            border-left-color: #58a6ff;
+        }
+
+        .ledger-row.pe {
+            border-left-color: #d29922;
+        }
+
+        .ledger-row .head {
+            color: #c9d1d9;
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 10px;
+            color: #8b949e;
+            margin-bottom: 4px;
+            flex-shrink: 0;
+        }
+
+        .log-header button {
+            padding: 1px 7px;
+            font-size: 10px;
+        }
+
+        .event-log {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            min-height: 0;
+        }
+
+        .ev {
+            background: #0d1117;
+            border-left: 3px solid #30363d;
+            padding: 5px 7px;
+            border-radius: 0 4px 4px 0;
+            font-size: 11px;
+            flex-shrink: 0;
+        }
+
+        .ev.trigger {
+            border-left-color: #da3633;
+        }
+
+        .ev.exit {
+            border-left-color: #3fb950;
+        }
+
+        .ev.warn {
+            border-left-color: #d29922;
+        }
+
+        .ev.time {
+            border-left-color: #58a6ff;
+        }
+
+        .ev.info {
+            border-left-color: #30363d;
+        }
+
+        .ev-ts {
+            color: #8b949e;
+            font-size: 10px;
+            margin-bottom: 2px;
+        }
+
+        .ev-msg {
+            color: #c9d1d9;
+            font-weight: 500;
+        }
+
+        .ev-detail {
+            color: #8b949e;
+            font-size: 10px;
+            margin-top: 2px;
+        }
+
+        /* scrollbar */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 2px;
+        }
+
+        /* ── Date + time inputs (native, dark) ──────────────────────────── */
+        .dt-input {
+            background: #0d1117;
+            color: #c9d1d9;
+            border: 1px solid #30363d;
+            border-radius: 5px;
+            padding: 6px 8px;
+            font-size: 12px;
+            color-scheme: dark;
+            outline: none;
+        }
+
+        .dt-input:focus {
+            border-color: #388bfd;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- ── Header ─────────────────────────────────────────────────────────────── -->
+    <div class="header">
+        <span class="header-title">Market Simulator</span>
+        <span class="pill">NIFTY</span>
+        <span class="header-sub">Simulate time &amp; price · watch the algo respond live</span>
+        <a href="/">← Telegram Sim</a>
+    </div>
+
+    <!-- ── Three-column layout ─────────────────────────────────────────────────── -->
+    <div class="layout">
+
+        <!-- ═════════ LEFT: CLOCK ═════════ -->
+        <div class="panel time-panel">
+            <div class="panel-title">Simulated Clock</div>
+
+            <div id="clockDate" class="clock-date">Wed 09-Apr-2026</div>
+            <div id="clockTime" class="clock-time">11:23</div>
+            <div id="mktBadge" class="mkt-badge mkt-open">Market OPEN</div>
+            <div id="expiryBadge" class="day-badge badge-expiry" style="display:none">EXPIRY DAY (Tue)</div>
+            <div id="entryBadge" class="day-badge badge-entry" style="display:none">ENTRY DAY (Wed)</div>
+
+            <hr class="div">
+            <div class="sec-label">Advance time</div>
+            <div class="grid-3" style="margin-bottom:4px">
+                <button class="btn" onclick="advTime(1)">+1 min</button>
+                <button class="btn" onclick="advTime(5)">+5 min</button>
+                <button class="btn" onclick="advTime(15)">+15 min</button>
+            </div>
+            <div class="grid-3">
+                <button class="btn" onclick="advTime(60)">+1 hr</button>
+                <button class="btn warn" onclick="advTime(1440)">+1 day</button>
+                <button class="btn warn" onclick="advTime(10080)">+1 wk</button>
+            </div>
+
+            <div class="sec-label">Set specific time</div>
+            <div style="display:flex;gap:5px;margin-bottom:6px">
+                <input type="date" id="setDateInput" class="dt-input" style="flex:1;min-width:0" title="Pick a date">
+                <input type="time" id="setTimeInput" class="dt-input" style="width:76px" title="Pick a time">
+            </div>
+            <button class="btn primary" onclick="setTime()" style="width:100%;margin-bottom:8px">Apply time</button>
+
+            <hr class="div">
+            <div class="sec-label">Time presets</div>
+            <div class="preset-col">
+                <button class="btn" onclick="preset('wed_entry')">Wed 11:00 — Entry window</button>
+                <button class="btn" onclick="preset('tue_open')">Tue 09:20 — Expiry open</button>
+                <button class="btn" onclick="preset('tue_afternoon')">Tue 14:30 — Expiry PM</button>
+                <button class="btn" onclick="preset('pre_market')">Thu 09:00 — Pre-market</button>
+                <button class="btn" onclick="preset('after_close')">Thu 15:45 — After close</button>
+                <button class="btn" onclick="preset('weekend')">Saturday — Weekend</button>
+            </div>
+
+            <hr class="div">
+            <div class="sec-label">Price presets</div>
+            <div class="preset-col">
+                <button class="btn green" onclick="preset('center')">Center of range (safe)</button>
+                <button class="btn warn" onclick="preset('ce_approach')">CE sell −30 pts (warning)</button>
+                <button class="btn warn" onclick="preset('pe_approach')">PE sell +30 pts (warning)</button>
+            </div>
+        </div>
+
+        <!-- ═════════ CENTER: NIFTY PRICE ═════════ -->
+        <div class="panel nifty-panel">
+            <div class="panel-title">NIFTY LTP</div>
+
+            <div id="priceDisplay" class="price-big">22,713</div>
+
+            <!-- Distance from strikes -->
+            <div class="dist-row" id="distRow">
+                <div class="dist-item">
+                    <span class="dist-label">PE sell distance</span>
+                    <span id="distPE" class="dist-val col-safe">──</span>
+                    <span class="dist-label">pts</span>
+                </div>
+                <div class="dist-item">
+                    <span class="dist-label">CE sell distance</span>
+                    <span id="distCE" class="dist-val col-safe">──</span>
+                    <span class="dist-label">pts</span>
+                </div>
+            </div>
+
+            <!-- Strike gauge -->
+            <div class="gauge-wrap">
+                <div id="gaugeEl">
+                    <div
+                        style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b949e;font-size:13px;">
+                        Register positions in KAVACH to see the strike gauge
+                    </div>
+                </div>
+            </div>
+
+            <!-- Nudge + slider -->
+            <hr class="div">
+            <div class="nudge-section">
+                <div class="sec-label">Nudge NIFTY</div>
+                <div class="nudge-grid">
+                    <button class="btn red" onclick="nudge(-100)">−100</button>
+                    <button class="btn red" onclick="nudge(-50)">−50</button>
+                    <button class="btn" onclick="nudge(-10)">−10</button>
+                    <button class="btn" onclick="nudge(-5)">−5</button>
+                    <button class="btn" onclick="nudge(+5)">+5</button>
+                    <button class="btn" onclick="nudge(+10)">+10</button>
+                    <button class="btn green" onclick="nudge(+50)">+50</button>
+                    <button class="btn green" onclick="nudge(+100)">+100</button>
+                </div>
+                <div class="input-row">
+                    <input type="number" id="priceInput" placeholder="Type price, e.g. 23150" step="5">
+                    <button class="btn primary" onclick="setPriceManual()">Set</button>
+                </div>
+                <div class="slider-row">
+                    <input type="range" id="priceSlider" min="20000" max="26000" step="5" value="22713"
+                        oninput="onSliderInput(this.value)" onchange="onSliderCommit(this.value)">
+                    <div class="slider-labels">
+                        <span id="sliderMin">20,000</span>
+                        <span id="sliderMax">26,000</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═════════ RIGHT: ALGO STATE + EVENTS ═════════ -->
+        <div class="panel events-panel">
+            <div class="panel-title">Algo State &amp; Events</div>
+
+            <!-- ATO per-side status -->
+            <div class="ato-grid">
+                <div class="ato-box">
+                    <div class="ato-box-label">CE ATO</div>
+                    <div id="ceState" class="ato-state state-idle">IDLE</div>
+                    <div id="ceCycles" class="ato-cycles">0 cycles</div>
+                </div>
+                <div class="ato-box">
+                    <div class="ato-box-label">PE ATO</div>
+                    <div id="peState" class="ato-state state-idle">IDLE</div>
+                    <div id="peCycles" class="ato-cycles">0 cycles</div>
+                </div>
+            </div>
+
+            <!-- Deployment info bar -->
+            <div class="deploy-info" id="deployInfo">No deployment armed — run /register in KAVACH</div>
+
+            <!-- Algo running status -->
+            <div class="algo-status" id="algoStatus">──</div>
+
+            <!-- ATO cycle ledger summary -->
+            <div class="ledger-summary" id="atoLedgerSummary">No closed ATO cycles yet today.</div>
+            <div class="ledger-list" id="atoLedgerRows">
+                <div class="ledger-row" data-ledger-ph>
+                    <div class="head">Awaiting first closed ATO cycle</div>
+                    Trigger and retrace once to see buy/sell timestamps and points lost.
+                </div>
+            </div>
+
+            <!-- Event log -->
+            <div class="log-header">
+                <span>Event Log</span>
+                <button class="btn" onclick="clearLog()">Clear</button>
+            </div>
+            <div class="event-log" id="eventLog">
+                <div class="ev info" data-ph>
+                    <div class="ev-msg" style="color:#8b949e">No events yet — change price or advance time</div>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- end .layout -->
+
+    <script>
+        // ═══════════════════════════════════════════════════════════════════════════
+        // State
+        // ═══════════════════════════════════════════════════════════════════════════
+        let lastState = null;
+        let lastEventId = 0;
+        let sliderLive = false;   // true while dragging slider
+        let _fp = null;             // unused (flatpickr removed)
+        let _pendingSelection = false; // true after user edits inputs, until Apply is clicked
+
+        // ═══════════════════════════════════════════════════════════════════════════
+        // Time helpers
+        // ═══════════════════════════════════════════════════════════════════════════
+        async function advTime(minutes) {
+            await postJSON('/api/market/advance', { minutes });
+            await refreshAll();
+        }
+
+        async function setTime() {
+            const dateVal = document.getElementById('setDateInput').value;   // "YYYY-MM-DD"
+            const timeVal = document.getElementById('setTimeInput').value;   // "HH:MM"
+            if (!dateVal || !timeVal) return;
+            _pendingSelection = false;
+            await postJSON('/api/market/settime', { datetime: dateVal + 'T' + timeVal });
+            await refreshAll();
+        }
+
+        async function preset(name) {
+            await postJSON('/api/market/preset', { name });
+            await refreshAll();
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════════
+        // Price helpers
+        // ═══════════════════════════════════════════════════════════════════════════
+        async function nudge(delta) {
+            const cur = lastState ? lastState.nifty_spot : 22713;
+            await sendPrice(Math.round((cur + delta) / 5) * 5);
+        }
+
+        async function setPriceManual() {
+            const v = parseFloat(document.getElementById('priceInput').value);
+            if (isNaN(v)) return;
+            await sendPrice(v);
+        }
+
+        async function sendPrice(spot) {
+            await postJSON('/api/market/setnifty', { spot });
+            await refreshAll();
+        }
+
+        function onSliderInput(v) {
+            sliderLive = true;
+            document.getElementById('priceDisplay').textContent =
+                Number(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+        }
+
+        async function onSliderCommit(v) {
+            sliderLive = false;
+            await sendPrice(parseFloat(v));
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════════
+        // Fetch helpers
+        // ═══════════════════════════════════════════════════════════════════════════
+        async function postJSON(url, body) {
+            try {
+                await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+            } catch { }
+        }
+
+        async function refreshAll() {
+            await Promise.all([pollState(), pollEvents()]);
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════════
+        // Polling
+        // ═══════════════════════════════════════════════════════════════════════════
+        async function pollState() {
+            try {
+                const r = await fetch('/api/market/state');
+                if (!r.ok) return;
+                const s = await r.json();
+                lastState = s;
+                renderState(s);
+            } catch (err) {
+                console.warn('pollState error:', err);
+            }
+        }
+
+        async function pollEvents() {
+            try {
+                const r = await fetch(`/api/market/events?after=${lastEventId}`);
+                if (!r.ok) return;
+                const d = await r.json();
+                if (d.events && d.events.length) {
+                    appendEvents(d.events);
+                    lastEventId = d.events[d.events.length - 1].id;
+                }
+            } catch (err) {
+                console.warn('pollEvents error:', err);
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════════
+        // UI rendering
+        // ═══════════════════════════════════════════════════════════════════════════
+        function renderState(s) {
+            // Clock
+            document.getElementById('clockDate').textContent = s.sim_date_str;
+            document.getElementById('clockTime').textContent = s.sim_time_str;
+
+            // Keep the date+time inputs in sync with the sim clock.
+            // Skip while the user is actively editing (pendingSelection = true).
+            if (!_pendingSelection && s.sim_time) {
+                const di = document.getElementById('setDateInput');
+                const ti = document.getElementById('setTimeInput');
+                if (document.activeElement !== di && document.activeElement !== ti) {
+                    di.value = s.sim_time.substring(0, 10);  // "YYYY-MM-DD"
+                    ti.value = s.sim_time.substring(11, 16); // "HH:MM"
+                }
+            }
+
+            // Market badge
+            const mb = document.getElementById('mktBadge');
+            mb.textContent = s.is_market_open ? 'Market OPEN' : 'Market CLOSED';
+            mb.className = 'mkt-badge ' + (s.is_market_open ? 'mkt-open' : 'mkt-closed');
+
+            document.getElementById('expiryBadge').style.display = s.is_expiry_day ? '' : 'none';
+            document.getElementById('entryBadge').style.display = s.is_entry_day ? '' : 'none';
+
+            // Price
+            if (!sliderLive) {
+                const fmt = s.nifty_spot.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+                document.getElementById('priceDisplay').textContent = fmt;
+                document.getElementById('priceInput').value = s.nifty_spot;
+                document.getElementById('priceSlider').value = s.nifty_spot;
+            }
+
+            // ATO state
+            const ce = s.ato_ce, pe = s.ato_pe;
+            const ceEl = document.getElementById('ceState');
+            ceEl.textContent = ce ? 'ACTIVE' : 'IDLE';
+            ceEl.className = 'ato-state ' + (ce ? 'state-active' : 'state-idle');
+            document.getElementById('ceCycles').textContent =
+                `${s.ato_ce_cycles} cycle${s.ato_ce_cycles !== 1 ? 's' : ''}`;
+
+            const peEl = document.getElementById('peState');
+            peEl.textContent = pe ? 'ACTIVE' : 'IDLE';
+            peEl.className = 'ato-state ' + (pe ? 'state-active' : 'state-idle');
+            document.getElementById('peCycles').textContent =
+                `${s.ato_pe_cycles} cycle${s.ato_pe_cycles !== 1 ? 's' : ''}`;
+
+            // Algo status line
+            let algo = '';
+            if (!s.deployment_armed) algo = 'Batman not armed';
+            else if (!s.algo_running) algo = 'Algo not started — use /start_algo_now in KAVACH';
+            else if (s.algo_paused) algo = 'Algo PAUSED';
+            else if (!s.is_market_open) algo = 'Algo waiting — outside market hours';
+            else algo = 'ATO monitoring ACTIVE';
+            document.getElementById('algoStatus').textContent = algo;
+
+            const ledger = s.ato_ledger || { rows: [] };
+            const summary = document.getElementById('atoLedgerSummary');
+            summary.innerHTML =
+                `Date: <strong>${ledger.date_ist || 'n/a'}</strong><br>` +
+                `Closed cycles: <strong>${ledger.closed_cycles_today || 0}</strong><br>` +
+                `Points lost: <strong>${(ledger.total_points_lost_today || 0).toFixed(2)}</strong><br>` +
+                `Points lost × lots: <strong>${(ledger.total_points_lost_x_lots_today || 0).toFixed(2)}</strong>`;
+
+            const ledgerRowsEl = document.getElementById('atoLedgerRows');
+            ledgerRowsEl.innerHTML = '';
+            const rows = (ledger.rows || []).slice().reverse();
+            if (!rows.length) {
+                ledgerRowsEl.innerHTML =
+                    '<div class="ledger-row" data-ledger-ph>' +
+                    '<div class="head">Awaiting first closed ATO cycle</div>' +
+                    'Trigger and retrace once to see buy/sell timestamps and points lost.' +
+                    '</div>';
+            } else {
+                for (const r of rows) {
+                    const div = document.createElement('div');
+                    div.className = `ledger-row ${String(r.side || '').toLowerCase()}`;
+                    div.innerHTML =
+                        `<div class="head">${escHtml(r.side)} cycle #${escHtml(r.cycle_index)}</div>` +
+                        `Buy: ${escHtml(r.buy_timestamp_ist)} @ ${escHtml(r.buy_nifty_ltp)}<br>` +
+                        `Sell: ${escHtml(r.sell_timestamp_ist)} @ ${escHtml(r.sell_nifty_ltp)}<br>` +
+                        `Loss: ${Number(r.points_lost || 0).toFixed(2)} pts (x lots: ${Number(r.points_lost_x_lots || 0).toFixed(2)})`;
+                    ledgerRowsEl.appendChild(div);
+                }
+            }
+
+            // Deploy info + distances + gauge
+            const str = s.strikes;
+            if (s.deployment_armed && str.pe_sell != null && str.ce_sell != null) {
+                const spot = s.nifty_spot;
+                const distP = spot - str.pe_sell;
+                const distC = str.ce_sell - spot;
+
+                const peEl2 = document.getElementById('distPE');
+                peEl2.textContent = distP < 0 ? 'BREACHED' : Math.round(Math.abs(distP)).toLocaleString();
+                peEl2.className = 'dist-val ' + (distP < 0 ? 'col-breach' : distP < 50 ? 'col-warn' : 'col-safe');
+
+                const ceEl2 = document.getElementById('distCE');
+                ceEl2.textContent = distC < 0 ? 'BREACHED' : Math.round(Math.abs(distC)).toLocaleString();
+                ceEl2.className = 'dist-val ' + (distC < 0 ? 'col-breach' : distC < 50 ? 'col-warn' : 'col-safe');
+
+                document.getElementById('deployInfo').innerHTML =
+                    `<span style="color:#c9d1d9">Batman ARMED</span>&nbsp;&nbsp;` +
+                    `PE sell <strong>${str.pe_sell.toLocaleString()}</strong>&nbsp;` +
+                    `CE sell <strong>${str.ce_sell.toLocaleString()}</strong>&nbsp;&nbsp;` +
+                    `Retrace <strong>${str.retrace}pts</strong>`;
+
+                // Update slider range
+                const lo = Math.min(str.pe_buy || str.pe_sell - 250, str.pe_sell - 300);
+                const hi = Math.max(str.ce_buy || str.ce_sell + 250, str.ce_sell + 300);
+                const sl = document.getElementById('priceSlider');
+                sl.min = lo; sl.max = hi;
+                document.getElementById('sliderMin').textContent = lo.toLocaleString();
+                document.getElementById('sliderMax').textContent = hi.toLocaleString();
+
+                renderGauge(str, spot);
+            } else {
+                document.getElementById('distPE').textContent = '──';
+                document.getElementById('distCE').textContent = '──';
+                document.getElementById('distPE').className = 'dist-val col-safe';
+                document.getElementById('distCE').className = 'dist-val col-safe';
+                document.getElementById('deployInfo').textContent =
+                    'No deployment armed — run /register in KAVACH';
+                document.getElementById('gaugeEl').innerHTML =
+                    '<div style="display:flex;align-items:center;justify-content:center;height:100%;' +
+                    'color:#8b949e;font-size:13px;">Register positions to see strike gauge</div>';
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════════
+        // Strike gauge
+        // ═══════════════════════════════════════════════════════════════════════════
+        function renderGauge(str, spot) {
+            const el = document.getElementById('gaugeEl');
+            const h = el.clientHeight;
+            if (h < 60) return;
+
+            const peBuy = str.pe_buy ?? (str.pe_sell - 250);
+            const peSell = str.pe_sell;
+            const ceSell = str.ce_sell;
+            const ceBuy = str.ce_buy ?? (str.ce_sell + 250);
+            const peAto = str.pe_ato ?? (peSell - 50);
+            const ceAto = str.ce_ato ?? (ceSell + 50);
+
+            const lo = peBuy - 80;
+            const hi = ceBuy + 80;
+            const range = hi - lo;
+            if (range <= 0) return;
+
+            // Y = 0 at TOP, increases downward.  Higher price → smaller Y.
+            const toY = p => (1 - (p - lo) / range) * h;
+
+            let html = '';
+            const y_ceBuy = toY(ceBuy);
+            const y_ceSell = toY(ceSell);
+            const y_ceAto = toY(ceAto);
+            const y_peSell = toY(peSell);
+            const y_peBuy = toY(peBuy);
+            const y_peAto = toY(peAto);
+            const y_spot = toY(spot);
+
+            // Background zones
+            // Above CE BUY — outer (beyond wing)
+            html += zone(0, y_ceBuy, 'rgba(31,111,235,0.06)');
+            // CE BUY → CE SELL — wing zone
+            html += zone(y_ceBuy, y_ceSell, 'rgba(31,111,235,0.10)');
+            // CE SELL → PE SELL — safe green zone
+            html += zone(y_ceSell, y_peSell, 'rgba(63,185,80,0.09)');
+            // PE SELL → PE BUY — wing zone
+            html += zone(y_peSell, y_peBuy, 'rgba(31,111,235,0.10)');
+            // Below PE BUY — outer
+            html += zone(y_peBuy, h, 'rgba(31,111,235,0.06)');
+
+            // Breach highlights (above CE sell or below PE sell)
+            if (spot >= ceSell) html += zone(0, Math.min(y_ceSell, y_spot), 'rgba(218,54,51,0.18)');
+            if (spot <= peSell) html += zone(Math.max(y_peSell, y_spot), h, 'rgba(218,54,51,0.18)');
+
+            // ATO protect strike dashed lines
+            html += dashLine(y_ceAto, '#1f6feb', `ATO ${ceAto.toLocaleString()}`);
+            html += dashLine(y_peAto, '#1f6feb', `ATO ${peAto.toLocaleString()}`);
+
+            // Strike lines (solid)
+            html += strikeLine(y_ceSell, `CE SELL  ${ceSell.toLocaleString()}`, '#da3633', 2);
+            html += strikeLine(y_peSell, `PE SELL  ${peSell.toLocaleString()}`, '#da3633', 2);
+            html += strikeLine(y_ceBuy, `CE BUY   ${ceBuy.toLocaleString()}`, '#1f6feb', 1);
+            html += strikeLine(y_peBuy, `PE BUY   ${peBuy.toLocaleString()}`, '#1f6feb', 1);
+
+            // NIFTY marker
+            const inBreach = spot >= ceSell || spot <= peSell;
+            const inWarn = !inBreach && (spot >= ceSell - 50 || spot <= peSell + 50);
+            const spotColor = inBreach ? '#f85149' : inWarn ? '#d29922' : '#ffffff';
+
+            // Glow line
+            html += `<div style="position:absolute;left:0;right:0;top:${y_spot}px;` +
+                `height:2px;background:${spotColor};` +
+                `box-shadow:0 0 6px ${spotColor};"></div>`;
+            // Circle dot
+            html += `<div style="position:absolute;left:50%;transform:translateX(-50%);` +
+                `top:${y_spot - 7}px;width:14px;height:14px;background:${spotColor};` +
+                `border-radius:50%;box-shadow:0 0 10px ${spotColor};border:2px solid #0d1117;"></div>`;
+            // Price label (right side of dot, avoids overlap with left labels)
+            const priceFmt = spot.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+            html += `<div style="position:absolute;left:calc(50%+14px);top:${y_spot - 10}px;` +
+                `font-size:13px;font-weight:700;color:${spotColor};` +
+                `text-shadow:0 0 6px ${spotColor};">${priceFmt}</div>`;
+
+            el.innerHTML = html;
+        }
+
+        function zone(top, bottom, bg) {
+            if (bottom <= top) return '';
+            return `<div style="position:absolute;left:0;right:0;top:${top}px;` +
+                `height:${bottom - top}px;background:${bg};"></div>`;
+        }
+
+        function strikeLine(y, label, color, thick) {
+            return `<div style="position:absolute;left:0;right:0;top:${y}px;` +
+                `height:${thick}px;background:${color};"></div>` +
+                `<div style="position:absolute;left:4px;top:${y - 13}px;` +
+                `font-size:10px;color:${color};font-weight:600;white-space:nowrap;">${label}</div>`;
+        }
+
+        function dashLine(y, color, label) {
+            return `<div style="position:absolute;left:0;right:0;top:${y}px;height:1px;` +
+                `background:repeating-linear-gradient(90deg,${color} 0,${color} 4px,transparent 4px,transparent 8px);` +
+                `opacity:0.55;"></div>` +
+                `<div style="position:absolute;right:4px;top:${y - 11}px;font-size:10px;color:${color};` +
+                `opacity:0.7;white-space:nowrap;">${label}</div>`;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════════
+        // Event log
+        // ═══════════════════════════════════════════════════════════════════════════
+        function appendEvents(events) {
+            const log = document.getElementById('eventLog');
+            // Remove placeholder
+            log.querySelector('[data-ph]')?.remove();
+
+            for (const ev of events) {
+                const div = document.createElement('div');
+                div.className = `ev ${ev.level}`;
+                div.innerHTML =
+                    `<div class="ev-ts">${ev.date} ${ev.time_str}</div>` +
+                    `<div class="ev-msg">${escHtml(ev.msg)}</div>` +
+                    (ev.detail ? `<div class="ev-detail">${escHtml(ev.detail)}</div>` : '');
+                log.appendChild(div);
+                log.scrollTop = log.scrollHeight;
+            }
+            // Cap at 150 visible
+            while (log.children.length > 150) log.removeChild(log.firstChild);
+        }
+
+        function clearLog() {
+            lastEventId = lastState ? lastState.last_event_id : 0;
+            document.getElementById('eventLog').innerHTML =
+                '<div class="ev info" data-ph><div class="ev-msg" style="color:#8b949e">Log cleared</div></div>';
+        }
+
+        function escHtml(s) {
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════════
+        // Boot
+        // ═══════════════════════════════════════════════════════════════════════════
+        (function init() {
+            // Wire up the native date + time inputs: any change sets the pending flag
+            // so the 1-second poll doesn’t overwrite the user’s selection before Apply.
+            ['setDateInput', 'setTimeInput'].forEach(id => {
+                document.getElementById(id).addEventListener('input', () => {
+                    _pendingSelection = true;
+                });
+            });
+
+            // Initial load
+            pollState();
+            pollEvents();
+
+            // Live polling every second
+            setInterval(pollState, 1000);
+            setInterval(pollEvents, 1000);
+        })();
+    </script>
+</body>
+
+</html>

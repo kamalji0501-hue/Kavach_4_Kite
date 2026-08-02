@@ -1,0 +1,98 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Batman v3 — .gitignore
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Secrets — NEVER commit these ─────────────────────────────────────────────
+# Main broker config (keep config/.env.example if you add one)
+config/.env
+.env
+
+# Per-bot Telegram tokens (each bot has its own token file)
+telegram/bots/drishti/token.env
+telegram/bots/kavach/token.env
+telegram/bots/lakshmi/token.env
+
+# Catch-all: any token.env anywhere in the project
+**/token.env
+
+# VPS / AWS deploy secrets + generated status
+vps/deploy.env
+vps/lightsail.STATUS
+vps/smoke_last_report.json
+vps/prod_cutover.STATUS
+vps/deploy_package.STATUS
+**/*.pem
+
+# ── Logs & data (runtime lives on Desktop — see config/batman_mode.json) ─────
+logs/
+logs_dev/
+logs_uat/
+logs_prod/
+data/
+uat/deployed_positions/
+daily_test_execution/logs/
+daily_test_execution/*.xlsx
+daily_test_execution/LATEST_RUN.md
+config/local_runtime.json
+config/.env
+*.log
+
+# ── OS / editors ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+
+# ── Tool caches (regenerated locally) ────────────────────────────────────────
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+**/.slingshot/
+
+# --- GitHub Ops harden 2026-08-02 ---
+# Extra secrets / backups
+**/credentials_backup*/
+secrets_runtime/
+**/secrets_runtime/
+Batman-Secrets/
+**/token*.txt
+config/dhan_auth.env
+config/client_id.txt
+config/token.txt
+config/*secret*
+
+# Runtime / bulky (never push)
+Dependencies/
+*all_instrument*.csv
+logs_runtime/
+outputs/
+*.sqlite3
+*.pid
+*.lock
+_archive/
+scraped/
+tmp/
+probe-output.json
+
+# nested / legacy secret trees
+**/config/client_id.txt
+**/config/token.txt
+**/config/dhan_auth.env
+**/config/.env
+Dhan/
+**/Dhan/

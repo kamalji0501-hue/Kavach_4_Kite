@@ -1,0 +1,9 @@
+# Batman v3 — development / quality-gate tooling
+# Install: .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+
+-r requirements.txt
+
+black>=26.0.0
+mypy>=2.0.0
+ruff>=0.15.0
+pre-commit>=4.0.0

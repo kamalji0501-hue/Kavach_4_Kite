@@ -1,0 +1,24 @@
+{
+    "_bot": "SARANSH",
+    "_purpose": "Post-market summary report bot",
+    "_file_role": "Tunable parameters ONLY. Secrets (token, chat_id) live in token.env.",
+    "enabled": true,
+    "mode": "runtime_optional",
+    "trigger": {
+        "auto_eod": true,
+        "on_demand_manual": true
+    },
+    "schedule": {
+        "eod_time_ist": "15:35"
+    },
+    "summary_v1": {
+        "include_total_orders": true,
+        "include_total_ato_orders": true,
+        "include_entry_reentry_points_impact": true,
+        "include_running_pnl": true,
+        "include_one_lot_normalization": true,
+        "include_total_lot_view": true,
+        "include_pnl_percentage": true,
+        "include_token_status_addendum": true
+    }
+}

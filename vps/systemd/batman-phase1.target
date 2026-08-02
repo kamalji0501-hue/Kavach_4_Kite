@@ -1,0 +1,11 @@
+# Brings up the Phase-1 bot set as one target.
+#   sudo systemctl enable --now batman-phase1.target
+#   sudo systemctl stop batman-phase1.target
+
+[Unit]
+Description=Batman Phase-1 (DRISHTI + KAVACH2 + JAGRAN + SARANSH)
+Wants=batman-drishti.service batman-kavach2.service batman-jagran.service batman-saransh.service
+After=network-online.target
+
+[Install]
+WantedBy=multi-user.target

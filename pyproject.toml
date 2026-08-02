@@ -1,0 +1,58 @@
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+exclude = '''
+/(\
+    \.git
+  | \.venv
+  | __pycache__
+  | \.pytest_cache
+  | data/deployments/archive
+  | logs
+)/
+'''
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    ".pytest_cache",
+    "data/deployments/archive",
+    "logs",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*.py" = ["E402"]
+"core/buffer_config/schema.py" = ["UP042"]
+"scripts/send_drishti_alive.py" = ["B026"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "bat_telegram",
+    "bot",
+    "core",
+    "modules",
+    "simulator",
+    "tests",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --tb=short"
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+ignore_missing_imports = true
+exclude = "(^data/|^logs/|^simulator/|^bot/)"

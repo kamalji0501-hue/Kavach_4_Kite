@@ -1,0 +1,13 @@
+=== PHASE 2 MIGRATION SUMMARY ===
+timestamp=2026-07-22T06:26:04+00:00
+source=/home/kamalji0501e/Batman Algo Files/15 July 26 DEV Batman Algo/DEV Batman Algo
+destination=ubuntu@3.110.43.9:/home/ubuntu/batman-algo
+backup=/home/ubuntu/backups/batman-algo_pre_deploy_20260722_062118.tar.gz
+src_files=1487
+dst_files=1410
+missing_on_dest=78
+extra_on_dest=1
+size_mismatches=0
+rsync=success
+venv=excluded (rebuild Phase 3; local py3.13 != remote py3.12)
+mode_target=uat

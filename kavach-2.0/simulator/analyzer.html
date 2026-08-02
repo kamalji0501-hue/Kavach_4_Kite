@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batman — Option Sell Analyzer</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #0d1117;
+            color: #c9d1d9;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh;
+        }
+
+        /* ── Header ── */
+        .header {
+            background: #161b22;
+            border-bottom: 1px solid #21262d;
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header h1 {
+            font-size: 17px;
+            font-weight: 700;
+            color: #e6edf3;
+        }
+
+        .header .sub {
+            font-size: 12px;
+            color: #8b949e;
+            margin-left: 4px;
+        }
+
+        .bat-icon {
+            font-size: 22px;
+        }
+
+        /* ── Layout ── */
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 24px 20px;
+            display: grid;
+            grid-template-columns: 340px 1fr;
+            gap: 20px;
+            align-items: start;
+        }
+
+        /* ── Card ── */
+        .card {
+            background: #161b22;
+            border: 1px solid #21262d;
+            border-radius: 8px;
+            padding: 18px;
+        }
+
+        .card-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #8b949e;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 14px;
+            border-bottom: 1px solid #21262d;
+            padding-bottom: 8px;
+        }
+
+        /* ── Input form ── */
+        .field {
+            margin-bottom: 12px;
+        }
+
+        .field label {
+            display: block;
+            font-size: 12px;
+            color: #8b949e;
+            margin-bottom: 4px;
+        }
+
+        .field input {
+            width: 100%;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 5px;
+            color: #e6edf3;
+            font-size: 14px;
+            padding: 7px 10px;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+
+        .field input:focus {
+            border-color: #388bfd;
+        }
+
+        .field .hint {
+            font-size: 11px;
+            color: #484f58;
+            margin-top: 3px;
+        }
+
+        .divider {
+            border: none;
+            border-top: 1px solid #21262d;
+            margin: 14px 0;
+        }
+
+        .btn-analyze {
+            width: 100%;
+            background: #238636;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
+            margin-top: 4px;
+        }
+
+        .btn-analyze:hover {
+            background: #2ea043;
+        }
+
+        /* ── Right panel ── */
+        .right-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        /* ── Summary cards ── */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .stat-card {
+            background: #0d1117;
+            border: 1px solid #21262d;
+            border-radius: 6px;
+            padding: 12px 14px;
+        }
+
+        .stat-card .label {
+            font-size: 11px;
+            color: #8b949e;
+            margin-bottom: 4px;
+        }
+
+        .stat-card .value {
+            font-size: 22px;
+            font-weight: 700;
+            color: #e6edf3;
+            letter-spacing: -0.5px;
+        }
+
+        .stat-card .value.green {
+            color: #3fb950;
+        }
+
+        .stat-card .value.red {
+            color: #f85149;
+        }
+
+        .stat-card .value.yellow {
+            color: #d29922;
+        }
+
+        .stat-card .sub-val {
+            font-size: 11px;
+            color: #8b949e;
+            margin-top: 2px;
+        }
+
+        /* ── Badge ── */
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .badge.safe {
+            background: #1a3a26;
+            color: #3fb950;
+            border: 1px solid #2ea043;
+        }
+
+        .badge.warn {
+            background: #3a2e1a;
+            color: #d29922;
+            border: 1px solid #9e6a03;
+        }
+
+        .badge.danger {
+            background: #3a1a1a;
+            color: #f85149;
+            border: 1px solid #b91c1c;
+        }
+
+        /* ── Verdict ── */
+        .verdict-box {
+            background: #0d1117;
+            border: 1px solid #21262d;
+            border-radius: 6px;
+            padding: 14px 16px;
+            font-size: 13px;
+            line-height: 1.7;
+            color: #c9d1d9;
+        }
+
+        .verdict-box strong {
+            color: #e6edf3;
+        }
+
+        .verdict-box .verdict-line {
+            margin-bottom: 4px;
+        }
+
+        /* ── Scenario table ── */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        thead th {
+            text-align: right;
+            padding: 7px 10px;
+            font-size: 11px;
+            color: #8b949e;
+            font-weight: 600;
+            text-transform: uppercase;
+            border-bottom: 1px solid #21262d;
+        }
+
+        thead th:first-child {
+            text-align: left;
+        }
+
+        tbody tr:hover {
+            background: #1c2128;
+        }
+
+        tbody td {
+            padding: 7px 10px;
+            border-bottom: 1px solid #161b22;
+            text-align: right;
+            color: #c9d1d9;
+        }
+
+        tbody td:first-child {
+            text-align: left;
+            font-weight: 500;
+        }
+
+        .row-highlight td {
+            background: #1c2128;
+        }
+
+        .row-danger td {
+            background: #2a1616;
+        }
+
+        .cell-green {
+            color: #3fb950 !important;
+            font-weight: 600;
+        }
+
+        .cell-red {
+            color: #f85149 !important;
+            font-weight: 600;
+        }
+
+        .cell-yellow {
+            color: #d29922 !important;
+        }
+
+        .cell-grey {
+            color: #484f58 !important;
+        }
+
+        /* ── Placeholder ── */
+        .placeholder {
+            text-align: center;
+            padding: 60px 20px;
+            color: #484f58;
+            font-size: 14px;
+        }
+
+        .placeholder .icon {
+            font-size: 40px;
+            margin-bottom: 12px;
+        }
+
+        /* ── Note box ── */
+        .note-box {
+            background: #1c2128;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 12px;
+            color: #8b949e;
+            line-height: 1.6;
+        }
+
+        .note-box strong {
+            color: #c9d1d9;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header">
+        <span class="bat-icon">🦇</span>
+        <h1>Option Sell Analyzer</h1>
+        <span class="sub">Black-Scholes based — seller's view</span>
+    </div>
+
+    <div class="container">
+
+        <!-- ── LEFT: Inputs ── -->
+        <div class="card">
+            <div class="card-title">Option Chain Inputs</div>
+
+            <div class="field">
+                <label>Current NIFTY Spot</label>
+                <input type="number" id="spot" value="23775" step="25">
+            </div>
+            <div class="field">
+                <label>Strike to Sell (CE)</label>
+                <input type="number" id="strike" value="24500" step="50">
+            </div>
+            <div class="field">
+                <label>IV % (from option chain)</label>
+                <input type="number" id="iv" value="17.74" step="0.1">
+                <div class="hint">Enter as number e.g. 17.74 for 17.74%</div>
+            </div>
+            <div class="field">
+                <label>DTE — Days to Expiry (today)</label>
+                <input type="number" id="dte" value="13" step="1">
+                <div class="hint">Analysis is for next session (DTE-1)</div>
+            </div>
+            <div class="field">
+                <label>Premium Collected (LTP)</label>
+                <input type="number" id="premium" value="89.05" step="0.05">
+            </div>
+
+            <hr class="divider">
+
+            <div class="field">
+                <label>Your Max Move View (%)</label>
+                <input type="number" id="maxmove" value="3" step="0.5">
+                <div class="hint">e.g. 3 means "NIFTY cannot rise more than 3%"</div>
+            </div>
+            <div class="field">
+                <label>Risk-free Rate % (default 6.5)</label>
+                <input type="number" id="rfr" value="6.5" step="0.1">
+            </div>
+
+            <button class="btn-analyze" onclick="analyze()">⚡ Analyze</button>
+        </div>
+
+        <!-- ── RIGHT: Results ── -->
+        <div class="right-panel" id="results">
+            <div class="placeholder">
+                <div class="icon">📊</div>
+                Fill in the option chain details and click <strong>Analyze</strong>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ── Black-Scholes ────────────────────────────────────────────────────────────
+        function normCDF(x) {
+            const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+            const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+            const sign = x < 0 ? -1 : 1;
+            x = Math.abs(x) / Math.sqrt(2);
+            const t = 1 / (1 + p * x);
+            const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+            return 0.5 * (1 + sign * y);
+        }
+
+        function bsCall(S, K, T, r, sigma) {
+            if (T <= 0) return Math.max(S - K, 0);
+            const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
+            const d2 = d1 - sigma * Math.sqrt(T);
+            return S * normCDF(d1) - K * Math.exp(-r * T) * normCDF(d2);
+        }
+
+        // Binary search: find spot where bsCall = target at given DTE
+        function findBreakEven(K, T, r, sigma, target) {
+            let lo = K * 0.3, hi = K * 1.8;
+            for (let i = 0; i < 120; i++) {
+                const mid = (lo + hi) / 2;
+                bsCall(mid, K, T, r, sigma) < target ? lo = mid : hi = mid;
+            }
+            return (lo + hi) / 2;
+        }
+
+        // ── Main Analysis ────────────────────────────────────────────────────────────
+        function analyze() {
+            const spot = parseFloat(document.getElementById('spot').value);
+            const K = parseFloat(document.getElementById('strike').value);
+            const iv = parseFloat(document.getElementById('iv').value) / 100;
+            const dte = parseInt(document.getElementById('dte').value);
+            const premium = parseFloat(document.getElementById('premium').value);
+            const maxMove = parseFloat(document.getElementById('maxmove').value) / 100;
+            const rfr = parseFloat(document.getElementById('rfr').value) / 100;
+
+            if (isNaN(spot) || isNaN(K) || isNaN(iv) || isNaN(dte) || isNaN(premium)) {
+                alert('Please fill in all fields.'); return;
+            }
+
+            const T_tomorrow = Math.max((dte - 1) / 365, 0.0001);
+            const T_today = dte / 365;
+
+            // ── Key scenarios ──
+            const priceFlat = bsCall(spot, K, T_tomorrow, rfr, iv);       // NIFTY flat tomorrow
+            const spotMaxMove = spot * (1 + maxMove);
+            const priceMaxMove = bsCall(spotMaxMove, K, T_tomorrow, rfr, iv); // NIFTY at max move
+            const breakEvenSpot = findBreakEven(K, T_tomorrow, rfr, iv, premium);
+            const bufferPts = breakEvenSpot - spot;
+            const bufferPct = (bufferPts / spot) * 100;
+
+            // ── Safety determination ──
+            const pnlAtMaxMove = premium - priceMaxMove; // +ve = profit, -ve = loss
+            let safetyClass, safetyText;
+            if (pnlAtMaxMove >= 10) { safetyClass = 'safe'; safetyText = 'SAFE'; }
+            else if (pnlAtMaxMove >= 0) { safetyClass = 'warn'; safetyText = 'CLOSE'; }
+            else { safetyClass = 'danger'; safetyText = 'DANGER'; }
+
+            // ── Scenarios table: -4% to +5% in 0.5% steps ──
+            const steps = [];
+            for (let pct = -4; pct <= 5; pct += 0.5) {
+                const S = spot * (1 + pct / 100);
+                const price = bsCall(S, K, T_tomorrow, rfr, iv);
+                const pnl = premium - price;
+                steps.push({ pct, S, price, pnl });
+            }
+
+            // ── Build HTML ──
+            const html = `
+  <!-- Summary row -->
+  <div class="summary-grid">
+    <div class="stat-card">
+      <div class="label">Break-even Spot (tomorrow)</div>
+      <div class="value ${bufferPts > 0 ? 'yellow' : 'red'}">${breakEvenSpot.toFixed(0)}</div>
+      <div class="sub-val">+${bufferPts.toFixed(0)} pts &nbsp;/&nbsp; +${bufferPct.toFixed(2)}% from spot</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Option at Max Move (${(maxMove * 100).toFixed(1)}% up)</div>
+      <div class="value ${pnlAtMaxMove >= 0 ? 'green' : 'red'}">₹${priceMaxMove.toFixed(2)}</div>
+      <div class="sub-val">NIFTY @ ${spotMaxMove.toFixed(0)} &nbsp;|&nbsp; P&L: ${pnlAtMaxMove >= 0 ? '+' : ''}₹${pnlAtMaxMove.toFixed(2)}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Trade Safety</div>
+      <div class="value" style="margin-top:4px"><span class="badge ${safetyClass}">${safetyText}</span></div>
+      <div class="sub-val">Option flat tomorrow: ₹${priceFlat.toFixed(2)}</div>
+    </div>
+  </div>
+
+  <!-- Verdict -->
+  <div class="card">
+    <div class="card-title">💡 Analysis — 24 Apr | 24500 CE</div>
+    <div class="verdict-box">
+      <div class="verdict-line">• You collected <strong>₹${premium}</strong>. At flat NIFTY tomorrow, theta decays it to <strong>₹${priceFlat.toFixed(2)}</strong> — you profit <strong>₹${(premium - priceFlat).toFixed(2)}</strong> even if market doesn't move.</div>
+      <div class="verdict-line">• For NIFTY to threaten this trade, it needs to reach <strong>${breakEvenSpot.toFixed(0)}</strong> (+${bufferPts.toFixed(0)} pts, +${bufferPct.toFixed(2)}%) by tomorrow's close.</div>
+      <div class="verdict-line">• At your max move view of <strong>${(maxMove * 100).toFixed(1)}%</strong> (NIFTY @ ${spotMaxMove.toFixed(0)}), the option will be worth <strong>₹${priceMaxMove.toFixed(2)}</strong>. Your P&L: <strong style="color:${pnlAtMaxMove >= 0 ? '#3fb950' : '#f85149'}">${pnlAtMaxMove >= 0 ? '+' : ''}₹${pnlAtMaxMove.toFixed(2)}</strong>.</div>
+      <div class="verdict-line" style="margin-top:8px; font-weight:600; color:${safetyClass === 'safe' ? '#3fb950' : safetyClass === 'warn' ? '#d29922' : '#f85149'}">
+        Verdict: ${safetyClass === 'safe' ? '✅ Your view provides adequate buffer. Selling this strike appears reasonable.' : safetyClass === 'warn' ? '⚠️ Very tight. Max move nearly equals your premium — consider a higher strike.' : '❌ At your max move, this trade is a loss. Consider a higher strike or smaller position.'}
+      </div>
+    </div>
+  </div>
+
+  <!-- Scenario Table -->
+  <div class="card">
+    <div class="card-title">Scenario Analysis — NIFTY Level vs Option Price (Tomorrow)</div>
+    <table>
+      <thead>
+        <tr>
+          <th>NIFTY Move</th>
+          <th>NIFTY Level</th>
+          <th>Option Price</th>
+          <th>Your P&L</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${steps.map(r => {
+                const isMaxMove = Math.abs(r.pct - maxMove * 100) < 0.26;
+                const isFlat = r.pct === 0;
+                const isBreakEven = Math.abs(r.S - breakEvenSpot) < (spot * 0.005);
+                let rowClass = '';
+                if (r.pnl < 0) rowClass = 'row-danger';
+                else if (isFlat || isMaxMove) rowClass = 'row-highlight';
+
+                const pnlColor = r.pnl >= 10 ? 'cell-green' : r.pnl >= 0 ? 'cell-yellow' : 'cell-red';
+                const priceColor = r.price <= premium * 0.5 ? 'cell-green' : r.price <= premium ? 'cell-yellow' : 'cell-red';
+
+                const tags = [];
+                if (isFlat) tags.push('<span style="background:#103828;color:#3fb950;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;">FLAT</span>');
+                if (isMaxMove) tags.push('<span style="background:#2a2010;color:#d29922;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;">MAX MOVE</span>');
+                if (r.pnl < 0) tags.push('<span style="background:#3a1010;color:#f85149;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;">LOSS ZONE</span>');
+
+                return `<tr class="${rowClass}">
+            <td>${r.pct >= 0 ? '+' : ''}${r.pct.toFixed(1)}%</td>
+            <td>${r.S.toFixed(0)}</td>
+            <td class="${priceColor}">₹${r.price.toFixed(2)}</td>
+            <td class="${pnlColor}">${r.pnl >= 0 ? '+' : ''}₹${r.pnl.toFixed(2)}</td>
+            <td>${tags.join(' ')}</td>
+          </tr>`;
+            }).join('')}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Note -->
+  <div class="note-box">
+    <strong>Important:</strong> This uses Black-Scholes with <em>constant IV</em>. In real markets, IV can spike sharply during a rally (IV expansion), making OTM calls more expensive than this model shows. Always keep a mental buffer of 20–30% above the calculated break-even. This is for <strong>educational/reference use</strong> only, not trading advice.
+  </div>
+  `;
+
+            document.getElementById('results').innerHTML = html;
+        }
+
+        // ── Auto-analyze on load with defaults ──────────────────────────────────────
+        window.onload = () => analyze();
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,45 @@
+# Batman v3 — systemd service unit
+#
+# Install on VPS:
+#   sudo cp batman.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable batman    ← auto-start on every boot
+#   sudo systemctl start batman     ← start now
+#
+# Useful commands:
+#   sudo systemctl status batman    ← check running state
+#   sudo journalctl -u batman -f    ← tail live logs
+#   sudo systemctl restart batman   ← restart after code update
+#   sudo systemctl stop batman      ← graceful shutdown
+
+[Unit]
+Description=Batman v3 — NIFTY Options ATO Trading System
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# ── Change these two lines to match your VPS paths ──────────────
+User=batman
+WorkingDirectory=/home/batman/batman_v3
+# ────────────────────────────────────────────────────────────────
+
+ExecStart=/home/batman/.venv/bin/python main.py
+Restart=on-failure
+RestartSec=10
+
+# Give the process time to shut down gracefully (stop all modules,
+# save state) before systemd sends SIGKILL.
+TimeoutStopSec=30
+
+# Log to the system journal (accessible via journalctl -u batman).
+# Batman's own rotating file handler also writes to logs/batman.log.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=batman
+
+# Prevent the process from writing outside the project directory
+# (optional but recommended).
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
