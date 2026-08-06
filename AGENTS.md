@@ -1,3 +1,9 @@
+<!-- RAHUL SANDBOX BANNER -->
+> **RAHUL SANDBOX** (`/home/ubuntu/rahul_Changes`)  
+> Before any work: read `RAHUL_CHANGES_README.md`, `NEW_CHAT_HANDOFF.md`, `docs/PROJECT_DIRECTION.md`.  
+> Runtime: `/home/ubuntu/Trading_Runtime_Rahul` only. Do not use Kamalji’s `/home/ubuntu/Trading_Runtime`.  
+> Baseline behaviour = Kamalji Batman; this track improves architecture + Place Order execution integration.
+
 # Batman v3 — Agent Playbook (Cursor)
 
 Operator gives **instructions only**. The agent **executes** — reads code, runs scripts, fixes issues, verifies gates, updates docs when scope changes.
@@ -6,8 +12,10 @@ Operator gives **instructions only**. The agent **executes** — reads code, run
 
 | Priority | File | Why |
 |----------|------|-----|
-| 0 | `NEW_CHAT_HANDOFF.md` | **New Cursor chat** — session bridge, locked decisions, next topic |
-| 0b | `docs/BOT_LIFECYCLE_ARCHITECTURE.md` | **Bot start/stop** — Tier 1–3 lifecycle design |
+| 0 | `context/KAMALJI_HANDOFF.md` | **Kamalji ownership** — start every new chat here |
+| 0a | `context/CURSOR_AI_GUIDE_FOR_KAMALJI.md` | How Kamalji should drive Cursor safely |
+| 0b | `NEW_CHAT_HANDOFF.md` | Session bridge (ownership banner + older notes) |
+| 0c | `docs/BOT_LIFECYCLE_ARCHITECTURE.md` | **Bot start/stop** — Tier 1–3 lifecycle design |
 | 1 | `CONTEXT.md` | Current scope, architecture, status |
 | 2 | `UAT_E2E_AGENT.md` | **Autonomous UAT loop** — script + agent prompt (no manual Telegram testing) |
 | 3 | `PHASE1_REQUIREMENTS.md` | Locked operator requirements |

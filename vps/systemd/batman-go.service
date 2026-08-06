@@ -1,0 +1,29 @@
+# Batman — GO (independent NIFTY options bot)
+# NOT part of Phase 1. Paths rewritten by vps/install_systemd.sh.
+
+[Unit]
+Description=Batman GO (independent Telegram options bot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__BATMAN_USER__
+Group=__BATMAN_USER__
+WorkingDirectory=__BATMAN_ROOT__
+Environment=BATMAN_LAUNCHED_VIA_BAT=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart="__PYTHON__" "__BATMAN_ROOT__/run_go.py"
+Restart=always
+RestartSec=10
+TimeoutStopSec=45
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=batman-go
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

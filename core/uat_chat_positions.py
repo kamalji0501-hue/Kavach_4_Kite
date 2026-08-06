@@ -27,6 +27,23 @@ EXPECTED_LEG_COUNT = 8
 EXPECTED_BUY_COUNT = 6
 EXPECTED_SELL_COUNT = 2
 
+# Retired Sensibull sessions — Register must never offer these PE BUY buttons again.
+_BANNED_PE_BUY_FINGERPRINTS = (
+    frozenset({23000, 23650, 23900}),
+)
+
+
+def assert_pe_buy_book_allowed(strikes) -> None:
+    """Raise if PE BUY strike set matches a retired Sensibull session."""
+    pe = frozenset(int(s) for s in strikes if s is not None)
+    for banned in _BANNED_PE_BUY_FINGERPRINTS:
+        if pe == banned:
+            raise UATChatPositionsError(
+                "Rejected retired Sensibull PE BUY book "
+                f"{sorted(banned)} — overwrite positions.json with the current "
+                "Aug-04 book (PE BUY 23500 / 24000 / 24250) and Register again."
+            )
+
 
 class UATChatPositionsError(Exception):
     """Invalid or incomplete positions fixture."""
@@ -125,6 +142,14 @@ def validate_fixture(data: dict[str, Any]) -> None:
             f"Fixture must have at least 1 PE BUY and 1 CE BUY candidate, "
             f"got PE_BUY={pe_buy} CE_BUY={ce_buy}"
         )
+
+    pe_buy_strikes = frozenset(
+        int(leg["strike"])
+        for leg in legs
+        if str(leg.get("type", "")).upper() == "PE"
+        and str(leg.get("side", "")).upper() == "BUY"
+    )
+    assert_pe_buy_book_allowed(pe_buy_strikes)
 
     expiry = str(data.get("expiry_date", "")).strip()
     if len(expiry) != 10 or expiry[4] != "-":

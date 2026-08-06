@@ -417,6 +417,11 @@ def read_nifty_ltp_cache(path: Path | None = None) -> NiftyLtpCacheSnapshot | No
                 unchanged_seconds=float(raw.get("unchanged_seconds", 0.0)),
                 collector=str(raw.get("collector", "drishti")),
                 collector_pid=int(raw["collector_pid"]) if raw.get("collector_pid") else None,
+                replay_market_time=(
+                    str(raw["replay_market_time"])
+                    if raw.get("replay_market_time")
+                    else None
+                ),
             )
         except (PermissionError, OSError, json.JSONDecodeError) as exc:
             last_exc = exc

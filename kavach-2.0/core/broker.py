@@ -3,6 +3,7 @@ Batman v3 — Dhan-Tradehull broker adapter.
 
 Wraps the ``Dhan_Tradehull.Tradehull`` client with:
     • access_token auth (daily manual token via DRISHTI bot)
+    • pin_totp auth (PIN + TOTP seed from env — same as Fetch Historical Data)
     • Hot-reload of token without process restart
     • Token age monitoring (24h TTL, warn after 20h)
     • Unified error handling → BatmanError types
@@ -120,6 +121,68 @@ class BatmanBroker:
             )
         except Exception as exc:
             raise BrokerAuthError(f"Dhan broker connection failed: {exc}") from exc
+
+    @classmethod
+    def connect_with_pin_totp(
+        cls,
+        client_code: str,
+        pin: str,
+        totp_secret: str,
+    ) -> BatmanBroker:
+        """Create a Tradehull session via Dhan PIN + TOTP (automated daily JWT).
+
+        Same auth mode as Fetch Historical Data (``mode="pin_totp"``).
+        PIN/TOTP must come from env/runtime secrets — never hard-code or commit.
+        The resulting JWT is exposed on ``broker._access_token`` for TokenStore/REST.
+        """
+        try:
+            from Dhan_Tradehull import Tradehull
+        except ImportError as exc:
+            raise BrokerAuthError(
+                "Dhan-Tradehull not installed. " "Run: pip install Dhan-Tradehull"
+            ) from exc
+
+        if not client_code or not pin or not totp_secret:
+            raise BrokerAuthError(
+                "PIN/TOTP login requires client_code, pin, and totp_secret "
+                "(set DHAN_CLIENT_CODE, DHAN_PIN, DHAN_TOTP_SECRET)."
+            )
+
+        try:
+            logger.info("Connecting to Dhan (pin_totp mode) …")
+            tsl = Tradehull(
+                ClientCode=client_code,
+                mode="pin_totp",
+                pin=pin,
+                totp_secret=totp_secret,
+            )
+            access_token = (getattr(tsl, "token_id", None) or "").strip()
+            if not access_token:
+                raise BrokerAuthError(
+                    "PIN/TOTP login succeeded but Tradehull did not expose token_id."
+                )
+            _sync_tradehull_token_cache(access_token)
+            logger.info("Dhan broker connected via PIN/TOTP ✓")
+            try:
+                from core.money_audit import audit as money_audit
+
+                money_audit(
+                    "broker.auth.pin_totp.ok",
+                    client_code=client_code,
+                    token_len=len(access_token),
+                )
+            except Exception:
+                pass
+            return cls(
+                tsl,
+                datetime.now(),
+                client_code=client_code,
+                access_token=access_token,
+            )
+        except BrokerAuthError:
+            raise
+        except Exception as exc:
+            raise BrokerAuthError(f"Dhan PIN/TOTP connection failed: {exc}") from exc
 
     # ── Token management ─────────────────────────────────────
 

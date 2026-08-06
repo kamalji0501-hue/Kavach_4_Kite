@@ -40,6 +40,7 @@ _BOT_LOGO_ALIASES: dict[str, tuple[str, ...]] = {
     "jagran": ("jagran", "Jagran"),
     "kavach": ("kavach2", "kavach", "Kavach"),
     "kavach2": ("kavach2", "kavach", "Kavach"),
+    "ratripal": ("ratripal", "kavach2", "kavach", "Kavach"),
 }
 
 _prepared_logo: dict[str, bytes] = {}  # source path → jpeg bytes

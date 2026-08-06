@@ -208,6 +208,13 @@ def secrets_dhan_env_path(root: Path | None = None) -> Path:
     return secrets_root(root) / "config" / ".env"
 
 
+def secrets_telegram_bots_env_path(root: Path | None = None) -> Path:
+    """Consolidated Telegram bot tokens on the desktop/runtime."""
+    from core.telegram_credentials import secrets_telegram_bots_env_path as _p
+
+    return _p(root)
+
+
 def shared_data_dir(root: Path | None = None) -> Path:
     """Cross-mode shared artifacts (JWT, NIFTY cache, DRISHTI/JAGRAN locks)."""
     return data_reports_base(root) / "data" / "shared"
@@ -326,6 +333,15 @@ def prod_hostname_guard(root: Path | None = None) -> str | None:
     )
 
 
+def trading_runtime_umbrella(root: Path | None = None) -> Path | None:
+    """Parent of Logs/Data/Credentials when using split Trading_Runtime layout."""
+    ws = root or workspace_root()
+    lb = logs_base(ws)
+    if lb.name.lower() == "logs":
+        return lb.parent
+    return None
+
+
 def ensure_runtime_layout(root: Path | None = None) -> dict[str, Path]:
     """Create standard runtime folders (idempotent)."""
     ws = root or workspace_root()
@@ -347,6 +363,22 @@ def ensure_runtime_layout(root: Path | None = None) -> dict[str, Path]:
         path.mkdir(parents=True, exist_ok=True)
     for sub in ("config", "telegram", "bots"):
         (secrets_root(ws) / sub).mkdir(parents=True, exist_ok=True)
+    (secrets_root(ws) / "Tokens").mkdir(parents=True, exist_ok=True)
+    umbrella = trading_runtime_umbrella(ws)
+    if umbrella is not None:
+        for name in (
+            "Temp",
+            "Cache",
+            "Backups",
+            "Health",
+            "Exports",
+            "Screenshots",
+            "Database",
+            "User",
+            "Config",
+        ):
+            (umbrella / name).mkdir(parents=True, exist_ok=True)
+            paths[f"scaffold_{name.lower()}"] = umbrella / name
     return paths
 
 

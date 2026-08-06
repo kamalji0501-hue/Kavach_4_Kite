@@ -20,6 +20,81 @@ _IST = ZoneInfo("Asia/Kolkata")
 _TELEGRAM_CHUNK = 3800
 
 
+def _parse_ist_timestamp(raw: str) -> datetime | None:
+    text = str(raw or "").strip().replace(" IST", "").strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=_IST)
+        except ValueError:
+            continue
+    try:
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_IST)
+        return dt.astimezone(_IST)
+    except ValueError:
+        return None
+
+
+def _heal_sticky_cycle_premiums(
+    *,
+    side: str,
+    protect_strike: int,
+    buy_ts: str,
+    sell_ts: str,
+    buy_premium: float,
+    sell_premium: float,
+    root: Path | None,
+) -> tuple[float, float, float]:
+    """When Buy==Sell but entry/exit times differ, re-read DRISHTI option_ltp audit.
+
+    Historical UAT cycles stamped sticky REST fills (e.g. PE 42/42 while audit
+    had ~37.85 on exit). Heal display without inventing synthetic floors.
+    """
+    if abs(float(buy_premium) - float(sell_premium)) > 1e-6:
+        pnl = round(float(sell_premium) - float(buy_premium), 2)
+        return float(buy_premium), float(sell_premium), pnl
+    buy_dt = _parse_ist_timestamp(buy_ts)
+    sell_dt = _parse_ist_timestamp(sell_ts)
+    if buy_dt is None or sell_dt is None or buy_dt == sell_dt:
+        pnl = round(float(sell_premium) - float(buy_premium), 2)
+        return float(buy_premium), float(sell_premium), pnl
+    if int(protect_strike or 0) <= 0:
+        pnl = round(float(sell_premium) - float(buy_premium), 2)
+        return float(buy_premium), float(sell_premium), pnl
+    try:
+        from core.batman_mode import workspace_root
+        from core.option_ltp_uat_lookup import lookup_protect_premium
+
+        ws = root or workspace_root()
+        side_u = (side or "").upper()
+        symbol = f"NIFTY-{protect_strike}-{side_u}"
+        healed_buy = lookup_protect_premium(
+            symbol=symbol, root=ws, replay_market_time=buy_dt, day=buy_dt
+        )
+        healed_sell = lookup_protect_premium(
+            symbol=symbol, root=ws, replay_market_time=sell_dt, day=sell_dt
+        )
+        if healed_buy is None or healed_sell is None:
+            return float(buy_premium), float(sell_premium), round(
+                float(sell_premium) - float(buy_premium), 2
+            )
+        if abs(float(healed_buy) - float(healed_sell)) < 1e-6:
+            return float(buy_premium), float(sell_premium), round(
+                float(sell_premium) - float(buy_premium), 2
+            )
+        hb = round(float(healed_buy), 2)
+        hs = round(float(healed_sell), 2)
+        return hb, hs, round(hs - hb, 2)
+    except Exception as exc:
+        logger.debug("sticky premium heal skipped: %s", exc)
+        return float(buy_premium), float(sell_premium), round(
+            float(sell_premium) - float(buy_premium), 2
+        )
+
+
 @dataclass(frozen=True)
 class CompletedCycle:
     side: str
@@ -33,6 +108,8 @@ class CompletedCycle:
     buy_option_premium: float = 0.0
     sell_option_premium: float = 0.0
     premium_pnl: float = 0.0
+    buy_timestamp_ist: str = ""
+    sell_timestamp_ist: str = ""
 
     @property
     def premium_diff(self) -> float:
@@ -53,11 +130,19 @@ def _parse_feed_date(ts: str) -> date | None:
         return None
 
 
+def _format_time_ist(ts: str) -> str:
+    """HH:MM from an IST timestamp string."""
+    if " " in ts:
+        return ts.split(" ")[1][:5]
+    return ""
+
+
 def load_today_completed_cycles(*, root: Path | None = None) -> list[CompletedCycle]:
     path = ato_cycle_feed_path(root)
     if not path.is_file():
         return []
     today = datetime.now(_IST).date()
+    pending_buys: dict[str, list[str]] = {"CE": [], "PE": []}
     cycles: list[CompletedCycle] = []
     try:
         with open(path, encoding="utf-8") as fh:
@@ -69,29 +154,57 @@ def load_today_completed_cycles(*, root: Path | None = None) -> list[CompletedCy
                     row = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if row.get("event") != "cycle_complete":
-                    continue
-                # Guard: real KAVACH cycles always carry a deployment_file. Rows
-                # with a blank deployment_file are synthetic/test injections that
-                # must never be counted as live round trips.
+                event = row.get("event")
                 if not str(row.get("deployment_file") or "").strip():
                     continue
-                ts = str(row.get("timestamp_ist") or "")
-                if _parse_feed_date(ts) != today:
+                side = str(row.get("side") or "?").upper()
+                if event == "ato_buy":
+                    buy_ts = str(row.get("timestamp_ist") or "")
+                    if _parse_feed_date(buy_ts) == today:
+                        pending_buys.setdefault(side, []).append(buy_ts)
                     continue
+                if event != "cycle_complete":
+                    continue
+                sell_ts = str(row.get("timestamp_ist") or "")
+                if _parse_feed_date(sell_ts) != today:
+                    continue
+                buy_ts = str(row.get("buy_timestamp_ist") or "")
+                queue = pending_buys.get(side, [])
+                # Always consume one pending ato_buy for this side. If we only
+                # skip the pop when buy_timestamp_ist is already set, the next
+                # cycle reuses the old Entry time (seen: PE 14:12 still showed 13:34).
+                if queue:
+                    queued = queue.pop(0)
+                    if not buy_ts:
+                        buy_ts = queued
+                buy_px = float(row.get("buy_option_premium") or 0)
+                sell_px = float(row.get("sell_option_premium") or 0)
+                protect_strike = int(row.get("protect_strike") or 0)
+                premium_pnl = float(row.get("premium_pnl") or 0)
+                buy_px, sell_px, premium_pnl = _heal_sticky_cycle_premiums(
+                    side=side,
+                    protect_strike=protect_strike,
+                    buy_ts=buy_ts,
+                    sell_ts=sell_ts,
+                    buy_premium=buy_px,
+                    sell_premium=sell_px,
+                    root=root,
+                )
                 cycles.append(
                     CompletedCycle(
-                        side=str(row.get("side") or "?"),
+                        side=side,
                         sell_strike=int(row.get("sell_strike") or 0),
                         buy_nifty_ltp=float(row.get("buy_nifty_ltp") or 0),
                         sell_nifty_ltp=float(row.get("sell_nifty_ltp") or 0),
                         point_impact=float(row.get("point_impact") or 0),
                         lots=float(row.get("lots") or 0),
-                        timestamp_ist=ts,
-                        protect_strike=int(row.get("protect_strike") or 0),
-                        buy_option_premium=float(row.get("buy_option_premium") or 0),
-                        sell_option_premium=float(row.get("sell_option_premium") or 0),
-                        premium_pnl=float(row.get("premium_pnl") or 0),
+                        timestamp_ist=sell_ts,
+                        protect_strike=protect_strike,
+                        buy_option_premium=buy_px,
+                        sell_option_premium=sell_px,
+                        premium_pnl=premium_pnl,
+                        buy_timestamp_ist=buy_ts,
+                        sell_timestamp_ist=sell_ts,
                     )
                 )
     except OSError as exc:
@@ -281,17 +394,19 @@ def render_ato_cycle_messages(
         header_lines.append(_net_impact_html(net))
         return ["\n".join(header_lines)]
 
-    # Monospaced table inside <pre> for aligned columns. Buy/Sell columns show the
-    # ATO protect-option premium (25000-CE price) at buy and at sell; Impact is
-    # the premium difference (sell − buy).
-    table_header = f"{'Side':<5}{'Time':<7}{'ATO':<7}{'Buy':<8}{'Sell':<8}{'Impact':<8}{'Lots':<5}"
+    # Monospaced table: Entry/Exit are ATO buy/sell times; Buy/Sell are protect
+    # option premiums; Impact is premium difference (sell − buy).
+    table_header = (
+        f"{'Side':<5}{'ATO':<7}{'Entry':<7}{'Buy':<8}{'Exit':<7}{'Sell':<8}{'Impact':<8}"
+    )
     table_rows: list[str] = []
     for c in cycles:
-        time_bit = c.timestamp_ist.split(" ")[1][:5] if " " in c.timestamp_ist else ""
+        entry_bit = _format_time_ist(c.buy_timestamp_ist)
+        exit_bit = _format_time_ist(c.sell_timestamp_ist or c.timestamp_ist)
         ato = _resolve_ato_strike(c.side, c.protect_strike, fallback)
         table_rows.append(
-            f"{c.side:<5}{time_bit:<7}{ato:<7}{c.buy_option_premium:<8.2f}"
-            f"{c.sell_option_premium:<8.2f}{c.premium_diff:<+8.2f}{c.lots:<5.1f}"
+            f"{c.side:<5}{ato:<7}{entry_bit:<7}{c.buy_option_premium:<8.2f}"
+            f"{exit_bit:<7}{c.sell_option_premium:<8.2f}{c.premium_diff:<+8.2f}"
         )
 
     header = "\n".join(header_lines)
@@ -351,8 +466,13 @@ def write_session_xlsx(
 
     cycle_rows = [
         {
-            "timestamp_ist": c.timestamp_ist,
             "side": c.side,
+            "protect_strike": c.protect_strike,
+            "entry_time_ist": c.buy_timestamp_ist,
+            "buy_option_premium": c.buy_option_premium,
+            "exit_time_ist": c.sell_timestamp_ist or c.timestamp_ist,
+            "sell_option_premium": c.sell_option_premium,
+            "premium_impact": c.premium_diff,
             "sell_strike": c.sell_strike,
             "buy_nifty_ltp": c.buy_nifty_ltp,
             "sell_nifty_ltp": c.sell_nifty_ltp,

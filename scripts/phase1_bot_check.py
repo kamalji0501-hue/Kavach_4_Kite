@@ -23,27 +23,31 @@ def mask(s: str, show: int = 6) -> str:
 
 
 def _token_env_path(name: str) -> Path:
-    """Resolve token.env for Phase 1 bots (incl. kavach-2.0 sub-project)."""
+    """Resolve credentials file for Phase 1 bots (desktop bots.env preferred)."""
     from core.batman_mode import secrets_bot_dir
+    from core.telegram_credentials import secrets_telegram_bots_env_path
 
     candidates = [
+        secrets_telegram_bots_env_path(ROOT),
         secrets_bot_dir(name, ROOT) / "token.env",
         ROOT / "telegram" / "bots" / name / "token.env",
     ]
     if name == "kavach2":
         candidates.insert(
-            1, ROOT / "kavach-2.0" / "telegram" / "bots" / "kavach2" / "token.env"
+            2, ROOT / "kavach-2.0" / "telegram" / "bots" / "kavach2" / "token.env"
         )
     return next((p for p in candidates if p.is_file()), candidates[0])
 
 
 async def check_telegram_bot(name: str) -> dict:
     from bat_telegram.loader import load_bot_config
+    from core.telegram_credentials import get_bot_credentials
 
     token_path = _token_env_path(name)
-    out: dict = {"bot": name.upper(), "token_env": token_path.is_file()}
-    if not token_path.is_file():
-        out["status"] = "MISSING token.env"
+    tok, chat, src = get_bot_credentials(name, ROOT)
+    out: dict = {"bot": name.upper(), "token_env": bool(tok), "source": src}
+    if not tok:
+        out["status"] = "MISSING credentials (bots.env / token.env)"
         return out
 
     try:

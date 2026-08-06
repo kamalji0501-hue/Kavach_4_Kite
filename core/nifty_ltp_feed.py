@@ -1052,6 +1052,12 @@ class NiftyLtpFeedService:
 
         if self.config.log_enabled:
             await asyncio.to_thread(append_rest_ltp_log, self.log_dir, now, ltp)
+            try:
+                from core.ato_nifty_tick_csv import record_nifty_tick
+
+                record_nifty_tick(now, float(ltp), source="nifty_rest")
+            except Exception:
+                pass
 
         if should_alert_stale_price(
             unchanged_seconds,

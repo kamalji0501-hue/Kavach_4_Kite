@@ -3,6 +3,7 @@ Batman v3 — Dhan-Tradehull broker adapter.
 
 Wraps the ``Dhan_Tradehull.Tradehull`` client with:
     • access_token auth (daily manual token via DRISHTI bot)
+    • pin_totp auth (PIN + TOTP seed from env — same as Fetch Historical Data)
     • Hot-reload of token without process restart
     • Token age monitoring (24h TTL, warn after 20h)
     • Unified error handling → BatmanError types
@@ -13,6 +14,13 @@ Wraps the ``Dhan_Tradehull.Tradehull`` client with:
 """
 
 from __future__ import annotations
+
+try:
+    from core.money_audit import audit as money_audit
+except Exception:  # pragma: no cover
+    def money_audit(*_a, **_k):  # type: ignore
+        return None
+
 
 import logging
 import threading
@@ -120,6 +128,68 @@ class BatmanBroker:
             )
         except Exception as exc:
             raise BrokerAuthError(f"Dhan broker connection failed: {exc}") from exc
+
+    @classmethod
+    def connect_with_pin_totp(
+        cls,
+        client_code: str,
+        pin: str,
+        totp_secret: str,
+    ) -> BatmanBroker:
+        """Create a Tradehull session via Dhan PIN + TOTP (automated daily JWT).
+
+        Same auth mode as Fetch Historical Data (``mode="pin_totp"``).
+        PIN/TOTP must come from env/runtime secrets — never hard-code or commit.
+        The resulting JWT is exposed on ``broker._access_token`` for TokenStore/REST.
+        """
+        try:
+            from Dhan_Tradehull import Tradehull
+        except ImportError as exc:
+            raise BrokerAuthError(
+                "Dhan-Tradehull not installed. " "Run: pip install Dhan-Tradehull"
+            ) from exc
+
+        if not client_code or not pin or not totp_secret:
+            raise BrokerAuthError(
+                "PIN/TOTP login requires client_code, pin, and totp_secret "
+                "(set DHAN_CLIENT_CODE, DHAN_PIN, DHAN_TOTP_SECRET)."
+            )
+
+        try:
+            logger.info("Connecting to Dhan (pin_totp mode) …")
+            tsl = Tradehull(
+                ClientCode=client_code,
+                mode="pin_totp",
+                pin=pin,
+                totp_secret=totp_secret,
+            )
+            access_token = (getattr(tsl, "token_id", None) or "").strip()
+            if not access_token:
+                raise BrokerAuthError(
+                    "PIN/TOTP login succeeded but Tradehull did not expose token_id."
+                )
+            _sync_tradehull_token_cache(access_token)
+            logger.info("Dhan broker connected via PIN/TOTP ✓")
+            try:
+                from core.money_audit import audit as money_audit
+
+                money_audit(
+                    "broker.auth.pin_totp.ok",
+                    client_code=client_code,
+                    token_len=len(access_token),
+                )
+            except Exception:
+                pass
+            return cls(
+                tsl,
+                datetime.now(),
+                client_code=client_code,
+                access_token=access_token,
+            )
+        except BrokerAuthError:
+            raise
+        except Exception as exc:
+            raise BrokerAuthError(f"Dhan PIN/TOTP connection failed: {exc}") from exc
 
     # ── Token management ─────────────────────────────────────
 
@@ -325,6 +395,27 @@ class BatmanBroker:
                 Pass False when the caller manages fill/chase itself.
         """
         self._enforce_live_mode_for_orders()
+        money_audit(
+            "broker.place_order.request",
+            symbol=str(symbol),
+            exchange=str(exchange),
+            qty=int(qty),
+            price=float(price),
+            trigger_price=float(trigger_price),
+            order_type=str(order_type),
+            side=str(transaction_type),
+            trade_type=str(trade_type),
+            confirm=confirm,
+        )
+        logger.debug(
+            "place_order begin symbol=%s side=%s type=%s qty=%s price=%s trade_type=%s",
+            symbol,
+            transaction_type,
+            order_type,
+            qty,
+            price,
+            trade_type,
+        )
         try:
             tsl, _, _ = self._snapshot_tsl()
             order_id = tsl.order_placement(
@@ -345,6 +436,15 @@ class BatmanBroker:
                 qty,
                 price,
                 order_id,
+            )
+            money_audit(
+                "broker.place_order.accepted",
+                symbol=str(symbol),
+                side=str(transaction_type),
+                order_type=str(order_type),
+                qty=int(qty),
+                price=float(price),
+                order_id=str(order_id),
             )
 
             oid_str = str(order_id)
@@ -377,6 +477,14 @@ class BatmanBroker:
 
             return oid_str
         except Exception as exc:
+            money_audit(
+                "broker.place_order.error",
+                symbol=str(symbol),
+                side=str(transaction_type),
+                order_type=str(order_type),
+                qty=int(qty),
+                error=str(exc)[:500],
+            )
             raise OrderPlacementError(
                 f"Order failed: {transaction_type} {qty}×{symbol} ({order_type}): {exc}"
             ) from exc
@@ -423,6 +531,14 @@ class BatmanBroker:
     ) -> str:
         """Modify a pending order (price/qty/type). Used for LIMIT chase."""
         self._enforce_live_mode_for_orders()
+        money_audit(
+            "broker.modify_order.request",
+            order_id=str(order_id),
+            order_type=str(order_type),
+            qty=int(qty),
+            price=float(price),
+            trigger_price=float(trigger_price),
+        )
         try:
             tsl, _, _ = self._snapshot_tsl()
             # Tradehull uses OrderID + order_type + quantity + price.
@@ -467,6 +583,26 @@ class BatmanBroker:
         from core.order_pricing import aggressive_limit_price
 
         self._enforce_live_mode_for_orders()
+        money_audit(
+            "broker.place_aggressive_limit.request",
+            symbol=str(symbol),
+            qty=int(qty),
+            side=str(side),
+            buffer_pct=float(buffer_pct),
+            tick_size=float(tick_size),
+            chase_timeout_sec=float(chase_timeout_sec),
+            chase_interval_sec=float(chase_interval_sec),
+            trade_type=str(trade_type),
+            exchange=str(exchange),
+        )
+        logger.debug(
+            "place_aggressive_limit begin symbol=%s qty=%s side=%s buffer=%.2f timeout=%.1f",
+            symbol,
+            qty,
+            side,
+            buffer_pct,
+            chase_timeout_sec,
+        )
         side_u = str(side).upper()
         if side_u not in {"BUY", "SELL"}:
             raise OrderPlacementError(f"Invalid side for aggressive LIMIT: {side}")
@@ -509,6 +645,15 @@ class BatmanBroker:
             limit_px,
             buffer_pct,
             order_id,
+        )
+        money_audit(
+            "broker.place_aggressive_limit.placed",
+            symbol=str(symbol),
+            side=side_u,
+            qty=int(qty),
+            limit_px=float(limit_px),
+            buffer_pct=float(buffer_pct),
+            order_id=str(order_id),
         )
 
         deadline = time.time() + max(0.0, float(chase_timeout_sec))

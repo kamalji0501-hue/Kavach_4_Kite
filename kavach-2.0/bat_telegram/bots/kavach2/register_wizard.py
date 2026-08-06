@@ -46,9 +46,12 @@ WIZARD_CONVERSATION_NAME = "kavach2_register"
 
 # ── Conversation states ───────────────────────────────────────────────────────
 (
+    WIZARD_ORDER_MODE,
     WIZARD_PRE_CONFIRM,
     WIZARD_PE_INTENT,
     WIZARD_PE_BUY,
+    WIZARD_PE_MARGIN_HEDGE,
+    WIZARD_PE_DYN_HEDGE,
     WIZARD_PE_SELL,
     WIZARD_PE_LOTS,
     WIZARD_PE_ATO_LOTS,
@@ -56,6 +59,8 @@ WIZARD_CONVERSATION_NAME = "kavach2_register"
     WIZARD_PE_ATO_STRIKE_CUSTOM,
     WIZARD_CE_INTENT,
     WIZARD_CE_BUY,
+    WIZARD_CE_MARGIN_HEDGE,
+    WIZARD_CE_DYN_HEDGE,
     WIZARD_CE_SELL,
     WIZARD_CE_LOTS,
     WIZARD_CE_ATO_LOTS,
@@ -72,9 +77,10 @@ WIZARD_CONVERSATION_NAME = "kavach2_register"
     WIZARD_POLL_INTERVAL,
     WIZARD_ATO_MON,
     WIZARD_CONFIRM,
-) = range(26)
+) = range(31)
 
 _CB_PRE = "wiz_pre"
+_CB_ORDER_MODE = "wiz_omode"
 _CB_LEG = "wiz_leg"
 _CB_SIDE = "wiz_side"
 _CB_LOTS = "wiz_lots"
@@ -331,10 +337,37 @@ def _ato_monitor_keyboard(pe_enabled: bool, ce_enabled: bool) -> InlineKeyboardM
 
 def _selected_for_header(wiz: dict) -> dict:
     sel = {}
-    for k in ("pe_buy", "pe_sell", "ce_buy", "ce_sell"):
+    for k in (
+        "pe_buy",
+        "pe_margin_hedge",
+        "pe_dyn_hedge",
+        "pe_sell",
+        "ce_buy",
+        "ce_margin_hedge",
+        "ce_dyn_hedge",
+        "ce_sell",
+    ):
         if wiz.get(k):
             sel[k] = wiz[k]
     return sel
+
+
+def _used_symbols(wiz: dict, *keys: str) -> set[str]:
+    used: set[str] = set()
+    for key in keys:
+        leg = wiz.get(key)
+        if isinstance(leg, dict) and leg.get("symbol"):
+            used.add(str(leg["symbol"]))
+    return used
+
+
+def _remaining_long_pool(wiz: dict, side: str, used: set[str]) -> list[dict]:
+    all_pos = cast(list[dict], wiz.get("wiz_positions") or [])
+    return [
+        p
+        for p in filter_positions_by_direction(filter_positions_by_side(all_pos, side), "LONG")
+        if p["symbol"] not in used
+    ]
 
 
 def _sync_wiz_selected(wiz: dict) -> None:
@@ -429,6 +462,19 @@ async def _ask_pe_buy_legs(query_or_msg, context, *, prefer_edit: bool = True) -
     rebuild_wizard_plan(wiz)
     all_pos = cast(list[dict], wiz["wiz_positions"])
     long_pe = filter_positions_by_direction(filter_positions_by_side(all_pos, "PE"), "LONG")
+    try:
+        from core.uat_chat_positions import UATChatPositionsError, assert_pe_buy_book_allowed
+
+        assert_pe_buy_book_allowed(p.get("strike") for p in long_pe)
+    except UATChatPositionsError as exc:
+        await b._wizard_show(
+            context,
+            query_or_msg,
+            f"⚠️ *Retired PE BUY book blocked*\n\n{b._md2(str(exc))}",
+            prefer_edit=prefer_edit,
+        )
+        b._clear_wizard_data(context)
+        return ConversationHandler.END
     lot_size = _lot_size(context)
     body = "Select your *Core PE BUY* leg:"
     text = _qheader(context, "pe_buy", body)
@@ -501,7 +547,11 @@ async def begin_register_leg_pick(
 
     if pe_ok:
         lot_size = _lot_size(context)
-        body = "Select your *Core PE BUY* leg:"
+        pe_strikes = sorted({int(p.get("strike") or 0) for p in long_pe})
+        body = (
+            "Select your *Core PE BUY* leg:\n"
+            f"_Book PE BUY strikes: {', '.join(str(s) for s in pe_strikes)}_"
+        )
         text = _qheader(context, "pe_buy", body)
         kb = _positions_keyboard(long_pe, lot_size)
         wiz["_pe_pick_pool"] = long_pe
@@ -509,7 +559,6 @@ async def begin_register_leg_pick(
             context, reply_target, text, reply_markup=kb, prefer_edit=prefer_edit
         )
         return WIZARD_PE_BUY
-
     lot_size = _lot_size(context)
     body = "Select your *Core CE BUY* leg:"
     text = _qheader(context, "ce_buy", body)
@@ -594,7 +643,70 @@ async def wizard_pe_buy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return await _cancel_wizard(query, context)
     idx = int((query.data or "").split(":")[-1])
     wiz["pe_buy"] = pool[idx]
-    used = {pool[idx]["symbol"]}
+    used = _used_symbols(wiz, "pe_buy")
+    remaining = _remaining_long_pool(wiz, "PE", used)
+    if remaining:
+        wiz["_pe_hedge_pool"] = remaining
+        header = b._selected_header(_selected_for_header(wiz))
+        lot_size = _lot_size(context)
+        body = f"{header}\n\nSelect your *Margin Hedge* \\(PE\\) leg:"
+        await b._wizard_edit_step(
+            context,
+            query,
+            _qheader(context, "pe_margin_hedge", body),
+            reply_markup=_positions_keyboard(remaining, lot_size),
+        )
+        return WIZARD_PE_MARGIN_HEDGE
+    return await _ask_pe_sell(query, context)
+
+
+async def wizard_pe_margin_hedge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    b = _bot()
+    query = b._require_query(update)
+    await b._safe_answer_callback(query)
+    wiz = _wiz(context)
+    pool = cast(list[dict], wiz.get("_pe_hedge_pool", []))
+    if query.data == f"{_CB_LEG}:cancel":
+        return await _cancel_wizard(query, context)
+    idx = int((query.data or "").split(":")[-1])
+    wiz["pe_margin_hedge"] = pool[idx]
+    used = _used_symbols(wiz, "pe_buy", "pe_margin_hedge")
+    remaining = _remaining_long_pool(wiz, "PE", used)
+    if remaining:
+        wiz["_pe_hedge_pool"] = remaining
+        header = b._selected_header(_selected_for_header(wiz))
+        lot_size = _lot_size(context)
+        body = (
+            f"{header}\n\n"
+            "*30% Dynamic Hedge* \\(PE\\) — confirm this leg:"
+        )
+        await b._wizard_edit_step(
+            context,
+            query,
+            _qheader(context, "pe_dyn_hedge", body),
+            reply_markup=_positions_keyboard(remaining, lot_size),
+        )
+        return WIZARD_PE_DYN_HEDGE
+    return await _ask_pe_sell(query, context)
+
+
+async def wizard_pe_dyn_hedge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    b = _bot()
+    query = b._require_query(update)
+    await b._safe_answer_callback(query)
+    wiz = _wiz(context)
+    pool = cast(list[dict], wiz.get("_pe_hedge_pool", []))
+    if query.data == f"{_CB_LEG}:cancel":
+        return await _cancel_wizard(query, context)
+    idx = int((query.data or "").split(":")[-1])
+    wiz["pe_dyn_hedge"] = pool[idx]
+    return await _ask_pe_sell(query, context)
+
+
+async def _ask_pe_sell(query, context) -> int:
+    b = _bot()
+    wiz = _wiz(context)
+    used = _used_symbols(wiz, "pe_buy", "pe_margin_hedge", "pe_dyn_hedge")
     all_pos = cast(list[dict], wiz["wiz_positions"])
     short_pe = [
         p
@@ -722,7 +834,70 @@ async def wizard_ce_buy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return await _cancel_wizard(query, context)
     idx = int((query.data or "").split(":")[-1])
     wiz["ce_buy"] = pool[idx]
-    used = {pool[idx]["symbol"]}
+    used = _used_symbols(wiz, "ce_buy")
+    remaining = _remaining_long_pool(wiz, "CE", used)
+    if remaining:
+        wiz["_ce_hedge_pool"] = remaining
+        header = b._selected_header(_selected_for_header(wiz))
+        lot_size = _lot_size(context)
+        body = f"{header}\n\nSelect your *Margin Hedge* \\(CE\\) leg:"
+        await b._wizard_edit_step(
+            context,
+            query,
+            _qheader(context, "ce_margin_hedge", body),
+            reply_markup=_positions_keyboard(remaining, lot_size),
+        )
+        return WIZARD_CE_MARGIN_HEDGE
+    return await _ask_ce_sell(query, context)
+
+
+async def wizard_ce_margin_hedge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    b = _bot()
+    query = b._require_query(update)
+    await b._safe_answer_callback(query)
+    wiz = _wiz(context)
+    pool = cast(list[dict], wiz.get("_ce_hedge_pool", []))
+    if query.data == f"{_CB_LEG}:cancel":
+        return await _cancel_wizard(query, context)
+    idx = int((query.data or "").split(":")[-1])
+    wiz["ce_margin_hedge"] = pool[idx]
+    used = _used_symbols(wiz, "ce_buy", "ce_margin_hedge")
+    remaining = _remaining_long_pool(wiz, "CE", used)
+    if remaining:
+        wiz["_ce_hedge_pool"] = remaining
+        header = b._selected_header(_selected_for_header(wiz))
+        lot_size = _lot_size(context)
+        body = (
+            f"{header}\n\n"
+            "*30% Dynamic Hedge* \\(CE\\) — confirm this leg:"
+        )
+        await b._wizard_edit_step(
+            context,
+            query,
+            _qheader(context, "ce_dyn_hedge", body),
+            reply_markup=_positions_keyboard(remaining, lot_size),
+        )
+        return WIZARD_CE_DYN_HEDGE
+    return await _ask_ce_sell(query, context)
+
+
+async def wizard_ce_dyn_hedge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    b = _bot()
+    query = b._require_query(update)
+    await b._safe_answer_callback(query)
+    wiz = _wiz(context)
+    pool = cast(list[dict], wiz.get("_ce_hedge_pool", []))
+    if query.data == f"{_CB_LEG}:cancel":
+        return await _cancel_wizard(query, context)
+    idx = int((query.data or "").split(":")[-1])
+    wiz["ce_dyn_hedge"] = pool[idx]
+    return await _ask_ce_sell(query, context)
+
+
+async def _ask_ce_sell(query, context) -> int:
+    b = _bot()
+    wiz = _wiz(context)
+    used = _used_symbols(wiz, "ce_buy", "ce_margin_hedge", "ce_dyn_hedge")
     all_pos = cast(list[dict], wiz["wiz_positions"])
     short_ce = [
         p
@@ -1016,22 +1191,65 @@ async def wizard_ato_mon(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return await b._wizard_show_summary(query, context)
 
 
+
+async def wizard_order_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """First /register question — Paper vs Live (does not change later questions)."""
+    b = _bot()
+    query = update.callback_query
+    if query is None:
+        return ConversationHandler.END
+    await query.answer()
+    raw = str(query.data or "")
+    mode = "paper"
+    if raw.endswith(":live"):
+        mode = "live"
+    elif raw.endswith(":paper"):
+        mode = "paper"
+    wiz = _wiz(context)
+    wiz["order_mode"] = mode
+    rebuild_wizard_plan(wiz)
+    try:
+        from core.money_audit import audit
+
+        audit("register.order_mode", mode=mode)
+    except Exception:
+        pass
+    logger.info("Register order_mode selected: %s", mode)
+    try:
+        from core.money_audit import audit
+
+        audit("register.order_mode.ui", mode=mode, callback=raw[:80])
+    except Exception:
+        pass
+    # Continue existing register pipeline (preamble / UAT / fetch legs)
+    return await b._wizard_continue_after_order_mode(update, context)
+
+
 def build_wizard_handler(timeout: int) -> ConversationHandler:
     b = _bot()
 
     return ConversationHandler(
-        allow_reentry=True,
+        allow_reentry=False,
         name=WIZARD_CONVERSATION_NAME,
         entry_points=[
             CommandHandler("register", b.wizard_entry),
             CallbackQueryHandler(b.wizard_entry_menu, pattern=f"^{b._CB_MENU}:register$"),
         ],
         states={
+            WIZARD_ORDER_MODE: [
+                CallbackQueryHandler(wizard_order_mode, pattern=f"^{_CB_ORDER_MODE}:")
+            ],
             WIZARD_PRE_CONFIRM: [
                 CallbackQueryHandler(b.wizard_pre_confirm, pattern=f"^{_CB_PRE}:")
             ],
             WIZARD_PE_INTENT: [CallbackQueryHandler(wizard_pe_intent, pattern=f"^{_CB_SIDE}:pe:")],
             WIZARD_PE_BUY: [CallbackQueryHandler(wizard_pe_buy, pattern=f"^{_CB_LEG}:")],
+            WIZARD_PE_MARGIN_HEDGE: [
+                CallbackQueryHandler(wizard_pe_margin_hedge, pattern=f"^{_CB_LEG}:")
+            ],
+            WIZARD_PE_DYN_HEDGE: [
+                CallbackQueryHandler(wizard_pe_dyn_hedge, pattern=f"^{_CB_LEG}:")
+            ],
             WIZARD_PE_SELL: [CallbackQueryHandler(wizard_pe_sell, pattern=f"^{_CB_LEG}:")],
             WIZARD_PE_ATO_STRIKE: [
                 CallbackQueryHandler(wizard_pe_ato_strike, pattern=f"^{_CB_ATO_STR}:")
@@ -1041,6 +1259,12 @@ def build_wizard_handler(timeout: int) -> ConversationHandler:
             ],
             WIZARD_CE_INTENT: [CallbackQueryHandler(wizard_ce_intent, pattern=f"^{_CB_SIDE}:ce:")],
             WIZARD_CE_BUY: [CallbackQueryHandler(wizard_ce_buy, pattern=f"^{_CB_LEG}:")],
+            WIZARD_CE_MARGIN_HEDGE: [
+                CallbackQueryHandler(wizard_ce_margin_hedge, pattern=f"^{_CB_LEG}:")
+            ],
+            WIZARD_CE_DYN_HEDGE: [
+                CallbackQueryHandler(wizard_ce_dyn_hedge, pattern=f"^{_CB_LEG}:")
+            ],
             WIZARD_CE_SELL: [CallbackQueryHandler(wizard_ce_sell, pattern=f"^{_CB_LEG}:")],
             WIZARD_CE_ATO_STRIKE: [
                 CallbackQueryHandler(wizard_ce_ato_strike, pattern=f"^{_CB_ATO_STR}:")

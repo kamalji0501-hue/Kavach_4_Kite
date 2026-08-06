@@ -47,6 +47,7 @@ WIZARD_CONVERSATION_NAME = "kavach_register"
 
 # ── Conversation states ───────────────────────────────────────────────────────
 (
+    WIZARD_ORDER_MODE,
     WIZARD_PRE_CONFIRM,
     WIZARD_PE_INTENT,
     WIZARD_PE_BUY,
@@ -73,9 +74,10 @@ WIZARD_CONVERSATION_NAME = "kavach_register"
     WIZARD_POLL_INTERVAL,
     WIZARD_ATO_MON,
     WIZARD_CONFIRM,
-) = range(26)
+) = range(27)
 
 _CB_PRE = "wiz_pre"
+_CB_ORDER_MODE = "wiz_omode"
 _CB_LEG = "wiz_leg"
 _CB_SIDE = "wiz_side"
 _CB_LOTS = "wiz_lots"
@@ -1100,6 +1102,40 @@ async def wizard_ato_mon(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return await b._wizard_show_summary(query, context)
 
 
+
+async def wizard_order_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """First /register question — Paper vs Live (does not change later questions)."""
+    b = _bot()
+    query = update.callback_query
+    if query is None:
+        return ConversationHandler.END
+    await query.answer()
+    raw = str(query.data or "")
+    mode = "paper"
+    if raw.endswith(":live"):
+        mode = "live"
+    elif raw.endswith(":paper"):
+        mode = "paper"
+    wiz = _wiz(context)
+    wiz["order_mode"] = mode
+    rebuild_wizard_plan(wiz)
+    try:
+        from core.money_audit import audit
+
+        audit("register.order_mode", mode=mode)
+    except Exception:
+        pass
+    logger.info("Register order_mode selected: %s", mode)
+    try:
+        from core.money_audit import audit
+
+        audit("register.order_mode.ui", mode=mode, callback=raw[:80])
+    except Exception:
+        pass
+    # Continue existing register pipeline (preamble / UAT / fetch legs)
+    return await b._wizard_continue_after_order_mode(update, context)
+
+
 def build_wizard_handler(timeout: int) -> ConversationHandler:
     b = _bot()
 
@@ -1111,6 +1147,9 @@ def build_wizard_handler(timeout: int) -> ConversationHandler:
             CallbackQueryHandler(b.wizard_entry_menu, pattern=f"^{b._CB_MENU}:register$"),
         ],
         states={
+            WIZARD_ORDER_MODE: [
+                CallbackQueryHandler(wizard_order_mode, pattern=f"^{_CB_ORDER_MODE}:")
+            ],
             WIZARD_PRE_CONFIRM: [
                 CallbackQueryHandler(b.wizard_pre_confirm, pattern=f"^{_CB_PRE}:")
             ],

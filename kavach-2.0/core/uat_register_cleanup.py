@@ -27,6 +27,10 @@ def prepare_uat_register_fresh(
     if not is_uat(root):
         return {"skipped": True, "reason": "not_uat"}
 
+    from core.uat_positions import reconcile_uat_positions_books
+
+    reconcile_uat_positions_books(root)
+
     summary: dict[str, Any] = {"ok": True}
 
     # Archive active deployment files (not armed anymore for this session).

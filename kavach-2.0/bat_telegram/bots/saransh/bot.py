@@ -56,7 +56,7 @@ _WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
 _DEPLOY_DIR = deployment_dir(_WORKSPACE_ROOT)
 _TELEMETRY_PATH = legacy_telemetry_csv_path(_WORKSPACE_ROOT)
 _SUMMARY_DIR = saransh_analytics_dir(_WORKSPACE_ROOT)
-_TOKEN_STORE = TokenStore(path=_WORKSPACE_ROOT / "data" / "access_token.json")
+_TOKEN_STORE = TokenStore()
 _CB_MENU = "sar_menu"
 _HELP = (
     "📊 <b>SARANSH — Reporting</b>\n\n"
@@ -125,7 +125,7 @@ def apply_saransh_paths(workspace_root: Path) -> None:
     _DEPLOY_DIR = deployment_dir(workspace_root)
     _TELEMETRY_PATH = legacy_telemetry_csv_path(workspace_root)
     _SUMMARY_DIR = saransh_analytics_dir(workspace_root)
-    _TOKEN_STORE = TokenStore(path=workspace_root / "data" / "access_token.json")
+    _TOKEN_STORE = TokenStore()
 
 
 def _require_message(update: Update) -> Message:

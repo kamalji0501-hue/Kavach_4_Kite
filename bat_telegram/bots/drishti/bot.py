@@ -284,19 +284,26 @@ def _remember_chat_id(update: Update) -> None:
     if chat is None:
         return
     try:
-        text = _DRISHTI_TOKEN_ENV.read_text(encoding="utf-8")
-        line = f"DRISHTI_CHAT_ID={chat.id}"
-        if "DRISHTI_CHAT_ID=" in text:
-            lines = [
-                line if item.startswith("DRISHTI_CHAT_ID=") else item for item in text.splitlines()
-            ]
-            text = "\n".join(lines) + "\n"
-        else:
-            text = text.rstrip() + "\n" + line + "\n"
-        _DRISHTI_TOKEN_ENV.write_text(text, encoding="utf-8")
-        logger.info("DRISHTI chat id remembered: %s", chat.id)
+        from core.telegram_credentials import upsert_bot_credential_key
+
+        path = upsert_bot_credential_key("drishti", "CHAT_ID", str(chat.id))
+        logger.info("DRISHTI chat id remembered in %s: %s", path, chat.id)
+        # Best-effort legacy mirror for older tooling
+        if _DRISHTI_TOKEN_ENV.is_file():
+            text = _DRISHTI_TOKEN_ENV.read_text(encoding="utf-8")
+            line = f"DRISHTI_CHAT_ID={chat.id}"
+            if "DRISHTI_CHAT_ID=" in text:
+                lines = [
+                    line if item.startswith("DRISHTI_CHAT_ID=") else item
+                    for item in text.splitlines()
+                ]
+                text = chr(10).join(lines) + chr(10)
+            else:
+                text = text.rstrip() + chr(10) + line + chr(10)
+            _DRISHTI_TOKEN_ENV.write_text(text, encoding="utf-8")
     except Exception as exc:
         logger.warning("Could not remember DRISHTI chat id: %s", exc)
+
 
 
 def _fleet_keyboard() -> InlineKeyboardMarkup:
@@ -1408,6 +1415,12 @@ def build_application(
     app.bot_data["params"] = cfg.params
 
     # ── Register handlers ──────────────────────────────────────
+    try:
+        from bat_telegram.update_audit import attach_update_audit
+        attach_update_audit(app)
+    except Exception as _audit_exc:
+        logging.getLogger(__name__).warning("update audit attach failed: %s", _audit_exc)
+    
     app.add_handler(CommandHandler("start", pretty_cmd_start))
     app.add_handler(CommandHandler("ping", pretty_cmd_ping))
     app.add_handler(CommandHandler("status", pretty_cmd_status))

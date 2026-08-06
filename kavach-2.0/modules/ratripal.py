@@ -15,7 +15,17 @@ from core.module_base import ModuleBase
 
 logger = logging.getLogger(__name__)
 
-_HANDOFF_PATH = Path("data/analytics/hedge_box/prabhat_mukti_handoff.csv")
+
+def _handoff_path() -> Path:
+    try:
+        from core.batman_mode import data_root
+
+        return data_root() / "analytics" / "hedge_box" / "aditya_handoff.csv"
+    except Exception:
+        return Path("data/analytics/hedge_box/aditya_handoff.csv")
+
+
+_HANDOFF_PATH = _handoff_path()
 _REQUEST_TIMEOUT_SECONDS = 120
 _BUY_ACTIONS = {
     "standard_break_even",
@@ -95,10 +105,16 @@ class Ratripal(ModuleBase):
             return
 
         request_id = f"{today.isoformat()}::{int(now.timestamp())}"
-        response = self._request_confirmation(request_id, eligible, dte, spot)
+        buy_time = self._resolve_buy_time()
+        response = self._request_confirmation(request_id, eligible, dte, spot, buy_time)
         if response == "deny":
             self.state.set("ratripal.last_run_date", today.isoformat())
             self.state.set("ratripal.last_decision", "denied")
+            return
+
+        if not self._wait_until_buy_time(buy_time):
+            self.state.set("ratripal.last_run_date", today.isoformat())
+            self.state.set("ratripal.last_decision", "stopped_before_buy")
             return
 
         for plan in eligible:
@@ -147,7 +163,6 @@ class Ratripal(ModuleBase):
 
     def _build_plans(self, deployment: dict[str, Any], spot: float, dte: int) -> list[SidePlan]:
         positions = deployment.get("positions", {})
-        break_even = deployment.get("risk", {}).get("break_even", {})
         ce_short = int(positions.get("ce_sell", {}).get("strike", 0) or 0)
         pe_short = int(positions.get("pe_sell", {}).get("strike", 0) or 0)
         box_width = int(self.config.get("hedge_box.box_width_points", 75))
@@ -160,7 +175,7 @@ class Ratripal(ModuleBase):
             self._plan_for_side(
                 side="CE",
                 side_state=ce_state,
-                break_even=break_even.get("ce"),
+                break_even=self._fixed_break_even("CE", ce_short),
                 short_strike=ce_short,
                 sell_symbol=str(positions.get("ce_sell", {}).get("symbol", "")),
                 buy_qty=abs(int(positions.get("ce_buy", {}).get("qty", 0) or 0)),
@@ -171,7 +186,7 @@ class Ratripal(ModuleBase):
             self._plan_for_side(
                 side="PE",
                 side_state=pe_state,
-                break_even=break_even.get("pe"),
+                break_even=self._fixed_break_even("PE", pe_short),
                 short_strike=pe_short,
                 sell_symbol=str(positions.get("pe_sell", {}).get("symbol", "")),
                 buy_qty=abs(int(positions.get("pe_buy", {}).get("qty", 0) or 0)),
@@ -180,6 +195,14 @@ class Ratripal(ModuleBase):
                 strike_step=strike_step,
             ),
         ]
+
+    def _fixed_break_even(self, side: str, short_strike: int) -> int | None:
+        """Standard BE = sell strike ± offset (CE outside +, PE outside −)."""
+        if not short_strike:
+            return None
+        offset = int(self.config.get("hedge_box.standard_break_even_offset_points", 200))
+        raw = short_strike + offset if str(side).upper() == "CE" else short_strike - offset
+        return self._round_to_strike(float(raw), int(self.config.get("hedge_box.strike_step_points", 50)))
 
     def _classify_side_state(
         self,
@@ -223,9 +246,9 @@ class Ratripal(ModuleBase):
         strike_step: int,
     ) -> SidePlan:
         quantity = buy_qty or max(0, sell_qty // 2)
-        if break_even is None:
+        if break_even is None or not short_strike:
             return SidePlan(
-                side, side_state, "skip_missing_break_even", None, None, quantity, None, None
+                side, side_state, "skip_missing_sell_strike", None, None, quantity, None, None
             )
 
         if side_state == "Breach" and ato_active:
@@ -281,13 +304,34 @@ class Ratripal(ModuleBase):
             self._get_option_ltp(symbol),
         )
 
+    def _resolve_buy_time(self) -> time:
+        """Operator-selected buy time (state) or config default 15:20."""
+        raw = self.state.get("ratripal.buy_time_ist")
+        if not raw:
+            raw = self.config.get("hedge_box.buy_time_ist", "15:20")
+        try:
+            return time.fromisoformat(str(raw))
+        except ValueError:
+            return time(15, 20)
+
+    def _wait_until_buy_time(self, buy_time: time) -> bool:
+        """Block until buy_time IST (or stop). Returns False if stopped early."""
+        while not self._stop_event.is_set():
+            if utils.now_ist().time() >= buy_time:
+                return True
+            if self._sleep(2):
+                return False
+        return False
+
     def _request_confirmation(
         self,
         request_id: str,
         eligible: list[SidePlan],
         dte: int,
         spot: float,
+        buy_time: time | None = None,
     ) -> str | None:
+        buy_hhmm = (buy_time or self._resolve_buy_time()).strftime("%H:%M")
         self.state.set("ratripal.pending.request_id", request_id, save=False)
         self.state.set("ratripal.pending.response", None, save=False)
         self.state.set("ratripal.pending.sent_at", utils.now_ist().isoformat(), save=False)
@@ -297,6 +341,7 @@ class Ratripal(ModuleBase):
                 "request_id": request_id,
                 "spot": spot,
                 "dte": dte,
+                "buy_time_ist": buy_hhmm,
                 "timeout_seconds": _REQUEST_TIMEOUT_SECONDS,
                 "sides": [
                     {
@@ -473,7 +518,7 @@ class Ratripal(ModuleBase):
             writer.writeheader()
             writer.writerows(rows)
 
-        self.state.set("prabhat_mukti.handoff_file", str(_HANDOFF_PATH), save=False)
+        self.state.set("aditya.handoff_file", str(_HANDOFF_PATH), save=False)
 
     def _is_buy_candidate(self, plan: SidePlan) -> bool:
         if plan.action not in _BUY_ACTIONS or not plan.symbol:

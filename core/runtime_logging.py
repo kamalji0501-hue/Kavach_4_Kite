@@ -17,17 +17,30 @@ _LOGGING_ROBOT: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 )
 
 _ROBOT_NAMES = frozenset(
-    {"main", "drishti", "kavach", "kavach2", "jagran", "lakshmi", "saransh", "sanchalak"}
+    {
+        "main",
+        "drishti",
+        "go",
+        "kavach",
+        "kavach2",
+        "jagran",
+        "lakshmi",
+        "saransh",
+        "sanchalak",
+        "ratripal",
+    }
 )
 
 _MODULE_ALIASES = {
     "main": "main",
     "drishti": "drishti",
+    "go": "go",
     "kavach": "kavach",
     "kavach2": "kavach2",
     "lakshmi": "lakshmi",
     "saransh": "saransh",
     "sanchalak": "sanchalak",
+    "ratripal": "ratripal",
     "incidents": "jagran",
     "jagran": "jagran",
     "nifty_ltp_feed": "nifty_ltp_feed",

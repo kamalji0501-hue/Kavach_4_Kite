@@ -29,6 +29,7 @@ class ShadowBroker:
         self._core_positions_df = pd.DataFrame()
         self._positions_df = pd.DataFrame()
         self._orders: list[dict[str, Any]] = []
+        self._fixture_mtime_ns: int | None = None
         self._load_order_ledger()
         self._reload_positions_from_fixture()
 
@@ -82,13 +83,24 @@ class ShadowBroker:
         self._reload_positions_from_fixture()
         logger.info("ShadowBroker virtual book cleared")
 
+    def _fixture_path(self) -> Path:
+        from core.batman_mode import uat_screenshot_dir
+
+        return uat_screenshot_dir(self._root) / "positions.json"
+
+    def _read_fixture_mtime_ns(self) -> int | None:
+        path = self._fixture_path()
+        try:
+            return path.stat().st_mtime_ns
+        except OSError:
+            return None
+
     def _reload_positions_from_fixture(self) -> None:
         from backtest_engine.resolver.instrument_master import (
             load_instrument_master,
             resolve_fixture_trading_expiry,
             resolve_nifty_option,
         )
-        from core.batman_mode import uat_screenshot_dir
         from core.nifty_option_expiry import fixture_expiry_date
 
         fixture = load_positions_fixture(self._root)
@@ -134,12 +146,13 @@ class ShadowBroker:
         self._positions_df = rebuild_positions(
             self._core_positions_df, self._orders, expiry_date=exp_date
         )
+        self._fixture_mtime_ns = self._read_fixture_mtime_ns()
         logger.info(
             "ShadowBroker loaded %d core legs + %d virtual fills → %d rows from %s",
             len(rows),
             sum(1 for o in self._orders if o.get("status") == "TRADED"),
             len(self._positions_df),
-            uat_screenshot_dir(self._root) / "positions.json",
+            self._fixture_path(),
         )
 
     def refresh_fixture_positions(self) -> None:
@@ -147,9 +160,16 @@ class ShadowBroker:
         self._reload_positions_from_fixture()
 
     def get_positions(self) -> pd.DataFrame:
-        """Fast book read — live enrich happens in KAVACH cmd_positions only."""
+        """Always reload from positions.json so Register never shows a stale book after FAST UAT."""
         from core.uat_position_enrich import enrich_positions_dataframe
 
+        mtime = self._read_fixture_mtime_ns()
+        if self._fixture_mtime_ns is not None and mtime != self._fixture_mtime_ns:
+            logger.info(
+                "ShadowBroker positions.json changed on disk — reloading before get_positions"
+            )
+        # Always reload: in-memory cache was the root cause of stale Register PE BUY legs.
+        self._reload_positions_from_fixture()
         fixture = load_positions_fixture(self._root)
         return enrich_positions_dataframe(self._positions_df.copy(), fixture)
 
@@ -272,7 +292,13 @@ class ShadowBroker:
                 candidate = float(raw or 0.0)
             except (TypeError, ValueError):
                 candidate = 0.0
-            ltp = candidate if 0 < candidate < 5000 else 50.0
+            if 0 < candidate < 5000:
+                ltp = candidate
+            else:
+                raise RuntimeError(
+                    f"UAT shadow: no option LTP for {symbol} — cannot price aggressive LIMIT "
+                    "(refusing hardcoded 50.0 premium fallback)"
+                )
         limit_px = aggressive_limit_price(
             ltp, side, buffer_pct=buffer_pct, tick=tick_size
         )

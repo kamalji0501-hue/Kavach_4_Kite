@@ -143,7 +143,17 @@ class StateManager:
     """
 
     def __init__(self, path: str | Path = "data/batman_state.json"):
-        self._path = Path(path)
+        # Default / legacy relative path → mode-aware runtime (Trading_Runtime/Data/...)
+        raw = str(path).replace("\\", "/")
+        if raw in ("data/batman_state.json",) or path is None:
+            try:
+                from core.batman_mode import state_path
+
+                self._path = Path(state_path())
+            except Exception:
+                self._path = Path(path)
+        else:
+            self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._data: dict[str, Any] = {}

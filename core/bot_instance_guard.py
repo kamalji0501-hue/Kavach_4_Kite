@@ -34,6 +34,8 @@ def reclaim_same_bot_instances(
     max_retry_seconds: float = 15.0,
 ) -> int:
     """Kill only *robot* run_*.py trees (never other bots). Returns stop_bot_instance rc."""
+    import os
+
     key = robot.lower()
     if key not in PHASE1_BOTS:
         raise ValueError(f"Unknown robot: {robot}")
@@ -41,8 +43,13 @@ def reclaim_same_bot_instances(
     meta = PHASE1_BOTS[key]
     name = key.upper()
     status = classify_bot(key, root=root or ROOT)
-    if status.state is BotRunState.STOPPED:
-        logger.info("%s reclaim: no prior instance on process tray", name)
+    self_pids = {os.getpid(), os.getppid()}
+    foreign = tuple(p for p in status.pids if p not in self_pids)
+    if status.state is BotRunState.STOPPED or not foreign:
+        if status.pids and not foreign:
+            logger.info("%s reclaim: only this process on tray — skip", name)
+        else:
+            logger.info("%s reclaim: no prior instance on process tray", name)
         return 0
 
     logger.info(

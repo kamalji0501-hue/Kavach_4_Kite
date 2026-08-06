@@ -59,7 +59,9 @@ from dotenv import dotenv_values
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 _BOTS_DIR = Path(__file__).resolve().parent.parent / "telegram" / "bots"
-_KNOWN_BOTS = frozenset({"drishti", "jagran", "kavach", "kavach2", "lakshmi", "sanchalak", "saransh"})
+_KNOWN_BOTS = frozenset(
+    {"drishti", "jagran", "kavach", "kavach2", "lakshmi", "ratripal", "sanchalak", "saransh"}
+)
 
 # In-process cache:  bot_name → BotConfig
 _CACHE: dict[str, BotConfig] = {}

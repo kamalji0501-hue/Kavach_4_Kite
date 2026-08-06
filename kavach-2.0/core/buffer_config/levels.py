@@ -132,3 +132,58 @@ def format_buffer_with_level(
         buffer, side=side, kind=kind, sell_strike=sell_strike
     )
     return f"NIFTY {format_nifty_level_number(level)}"
+
+
+def ato_absolute_levels(
+    *,
+    pe_sell_strike: int | None,
+    ce_sell_strike: int | None,
+    pe_entry_buffer: Decimal | int | float,
+    ce_entry_buffer: Decimal | int | float,
+    pe_exit_buffer: Decimal | int | float,
+    ce_exit_buffer: Decimal | int | float,
+) -> dict[str, int | None]:
+    """Absolute ATO levels shared by Buffer Manager, ATO Status, and the engine.
+
+    Same-side hysteresis only (exit must sit strictly beyond entry). Never clamp
+    PE entry against CE exit — that silent rewrite made Buffer Manager show one
+    PE fire level while ATO Status showed another.
+    """
+    pe_entry = Decimal(str(pe_entry_buffer))
+    ce_entry = Decimal(str(ce_entry_buffer))
+    pe_exit = Decimal(str(pe_exit_buffer))
+    ce_exit = Decimal(str(ce_exit_buffer))
+    min_hyst = Decimal("1")
+
+    pe_trigger = (
+        int(nifty_level_from_buffer(pe_entry, side="PE", kind="entry", sell_strike=pe_sell_strike))
+        if pe_sell_strike is not None
+        else None
+    )
+    ce_trigger = (
+        int(nifty_level_from_buffer(ce_entry, side="CE", kind="entry", sell_strike=ce_sell_strike))
+        if ce_sell_strike is not None
+        else None
+    )
+    pe_exit_level = (
+        int(nifty_level_from_buffer(pe_exit, side="PE", kind="exit", sell_strike=pe_sell_strike))
+        if pe_sell_strike is not None
+        else None
+    )
+    ce_exit_level = (
+        int(nifty_level_from_buffer(ce_exit, side="CE", kind="exit", sell_strike=ce_sell_strike))
+        if ce_sell_strike is not None
+        else None
+    )
+
+    if ce_trigger is not None and ce_exit_level is not None and ce_exit_level >= ce_trigger:
+        ce_exit_level = int(Decimal(ce_trigger) - min_hyst)
+    if pe_trigger is not None and pe_exit_level is not None and pe_exit_level <= pe_trigger:
+        pe_exit_level = int(Decimal(pe_trigger) + min_hyst)
+
+    return {
+        "pe_trigger": pe_trigger,
+        "ce_trigger": ce_trigger,
+        "pe_exit": pe_exit_level,
+        "ce_exit": ce_exit_level,
+    }

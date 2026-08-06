@@ -44,6 +44,13 @@ PHASE1_BOTS: dict[str, dict[str, str]] = {
         "stop_script": "scripts\\stop_saransh.py",
         "optional": True,
     },
+    "ratripal": {
+        "runner": "run_ratripal.py",
+        "lock": "ratripal.lock",
+        "start_bat": "start Ratripal.bat",
+        "stop_script": "scripts\\stop_ratripal.py",
+        "optional": True,
+    },
 }
 
 # Active Phase 1 stack for start/verify (legacy kavach excluded).

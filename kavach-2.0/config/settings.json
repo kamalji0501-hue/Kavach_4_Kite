@@ -100,10 +100,12 @@
     "cutoff_time": "15:15"
   },
   "hedge_box": {
-    "enabled": false,
+    "enabled": true,
     "check_time_ist": "15:15",
+    "buy_time_ist": "15:20",
     "box_width_points": 75,
     "strike_step_points": 50,
+    "standard_break_even_offset_points": 200,
     "use_ato_engaged_override": true,
     "ato_override_requires_outside_short": true,
     "default_opposite_side_mode": "standard_break_even",

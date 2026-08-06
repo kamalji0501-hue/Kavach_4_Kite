@@ -90,15 +90,15 @@ def get_virtual_order_status(broker: Any, order_id: str) -> str:
 def _resolve_shadow_fill_price(broker: Any, symbol: str) -> float:
     """Option LTP for a shadow fill.
 
-    UAT replay: prefer option_ltp_YYYYMMDD.log at replay market time (so Buy/Sell
-    differ as spot moves). Otherwise live REST / broker quote. JWT may live under
-    data_runtime — do not require repo-relative data/access_token.json.
+    UAT replay: prefer option_ltp_YYYYMMDD.log at replay market time.
+    Live UAT: prefer DRISHTI option_ltp audit *before* REST — sticky REST/429
+    stamps the same avg_price on entry and exit (SARANSH Buy=Sell).
     """
     strike, opt = _strike_opt(symbol)
     if not strike or not opt:
         return 0.0
     try:
-        from core.batman_mode import access_token_path, workspace_root
+        from core.batman_mode import access_token_path, secrets_dhan_env_path, workspace_root
         from core.dhan_rest_quote import cached_rest_quote_client
         from core.nifty_option_expiry import fixture_expiry_date
         from core.option_ltp_uat_lookup import (
@@ -122,13 +122,39 @@ def _resolve_shadow_fill_price(broker: Any, symbol: str) -> float:
             )
             if replay_px is not None and replay_px > 0:
                 return float(replay_px)
+            logger.warning(
+                "Shadow fill: uat_replay active but option_ltp miss for %s at %s",
+                symbol,
+                replay_t.isoformat(),
+            )
+        else:
+            # Live UAT: audit first so entry/exit track the protect feed.
+            audit_px = lookup_protect_premium(
+                symbol=symbol,
+                root=root,
+                replay_market_time=None,
+            )
+            if audit_px is not None and audit_px > 0:
+                return float(audit_px)
 
-        env = dotenv_values(workspace_root() / "config" / ".env")
-        cc = (getattr(broker, "_client_code", None) or env.get("DHAN_CLIENT_CODE") or "").strip()
-        token = getattr(broker, "_access_token", None)
-        if not token:
+        try:
+            env = dotenv_values(secrets_dhan_env_path(root))
+        except Exception:
+            env = {}
+        if not env.get("DHAN_CLIENT_CODE"):
+            env = dotenv_values(workspace_root() / "config" / ".env")
+        # Prefer secrets client code over a stale broker._client_code (wrong account).
+        cc = (env.get("DHAN_CLIENT_CODE") or getattr(broker, "_client_code", None) or "").strip()
+        token = None
+        try:
             store = TokenStore(path=access_token_path(root))
             token, _ = store.load()
+            if token:
+                broker._access_token = token
+                if getattr(broker, "_rest_quote_client", None) is not None:
+                    broker._rest_quote_client = None
+        except Exception:
+            token = getattr(broker, "_access_token", None)
         if cc:
             broker._client_code = cc
         if token:
@@ -136,26 +162,48 @@ def _resolve_shadow_fill_price(broker: Any, symbol: str) -> float:
 
         fix = load_positions_fixture(root)
         exp = fixture_expiry_date(fix)
+        px = 0.0
         getter = getattr(broker, "get_nifty_option_ltps", None)
         if callable(getter):
-            prices = getter([(strike, opt)], expiry_date=exp)
-            if isinstance(prices, dict):
-                return float(prices.get((strike, opt), 0.0) or 0.0)
+            try:
+                prices = getter([(strike, opt)], expiry_date=exp)
+                if isinstance(prices, dict):
+                    px = float(prices.get((strike, opt), 0.0) or 0.0)
+            except Exception as exc:
+                logger.debug("Shadow fill broker quote failed for %s: %s", symbol, exc)
+                px = 0.0
+        if px <= 0 and token and cc:
+            try:
+                quote = cached_rest_quote_client(broker)
+                if quote:
+                    prices = quote.get_nifty_option_ltps([(strike, opt)], expiry_date=exp)
+                    px = float(prices.get((strike, opt), 0.0) or 0.0)
+            except Exception as exc:
+                logger.debug("Shadow fill REST quote failed for %s: %s", symbol, exc)
+                px = 0.0
+        if px > 0:
+            return px
 
-        if not token or not cc:
-            return 0.0
-        quote = cached_rest_quote_client(broker)
-        if not quote:
-            return 0.0
-        prices = quote.get_nifty_option_ltps([(strike, opt)], expiry_date=exp)
-        return float(prices.get((strike, opt), 0.0) or 0.0)
+        audit_px = lookup_protect_premium(
+            symbol=symbol,
+            root=root,
+            replay_market_time=None,
+        )
+        if audit_px is not None and audit_px > 0:
+            logger.info(
+                "Shadow fill: using DRISHTI option_ltp audit for %s → %.2f",
+                symbol,
+                audit_px,
+            )
+            return float(audit_px)
+        return 0.0
     except Exception as exc:
         logger.debug("ATO fill LTP lookup: %s", exc)
         return 0.0
 
 
 def _uat_fallback_premium(symbol: str, *, spot: float | None = None) -> float:
-    """Reporting-only estimate so UAT SARANSH never shows blank Buy/Sell premiums."""
+    """Deprecated synthetic premium — kept for tests; do not use for SARANSH."""
     strike, opt = _strike_opt(symbol)
     if not strike or not opt:
         return 1.0
@@ -164,7 +212,6 @@ def _uat_fallback_premium(symbol: str, *, spot: float | None = None) -> float:
         intrinsic = max(0.0, px - float(strike))
     else:
         intrinsic = max(0.0, float(strike) - px)
-    # Small time-value floor — display only; does not affect order placement.
     return round(max(intrinsic + 5.0, 1.0), 2)
 
 
@@ -180,19 +227,25 @@ def _apply_fill_to_book(
 
     fill_price = _resolve_shadow_fill_price(broker, symbol)
     if fill_price <= 0:
-        spot = None
-        getter = getattr(broker, "get_nifty_ltp", None)
-        if callable(getter):
-            try:
-                spot = float(getter())
-            except Exception:
-                spot = None
-        fill_price = _uat_fallback_premium(symbol, spot=spot)
-        logger.warning(
-            "Shadow fill: no live option LTP for %s — using UAT fallback premium %.2f",
-            symbol,
-            fill_price,
-        )
+        # Prefer aggressive-limit audit price on the order over inventing premiums.
+        raw = (order_entry or {}).get("price") if order_entry else None
+        try:
+            candidate = float(raw or 0.0)
+        except (TypeError, ValueError):
+            candidate = 0.0
+        if 0 < candidate < 5000:
+            fill_price = candidate
+            logger.warning(
+                "Shadow fill: no option LTP for %s — using order limit price %.2f",
+                symbol,
+                fill_price,
+            )
+        else:
+            logger.warning(
+                "Shadow fill: no option LTP for %s — leaving avg_price unset (no synthetic)",
+                symbol,
+            )
+            fill_price = 0.0
 
     exp_date = None
     try:

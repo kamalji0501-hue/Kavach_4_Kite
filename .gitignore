@@ -38,11 +38,14 @@ vps/prod_cutover.STATUS
 vps/deploy_package.STATUS
 **/*.pem
 
-# ── Logs & data (runtime lives on Desktop — see config/batman_mode.json) ─────
+# ── Logs & data (runtime lives in Trading_Runtime — see runtime_context.md) ─
 logs/
 logs_dev/
 logs_uat/
 logs_prod/
+logs_runtime/
+data_runtime/
+secrets_runtime/
 data/
 uat/deployed_positions/
 daily_test_execution/logs/
@@ -64,36 +67,41 @@ Thumbs.db
 .ruff_cache/
 **/.slingshot/
 
-# --- GitHub Ops harden 2026-08-02 ---
-# Extra secrets / backups
-**/credentials_backup*/
+# === GitHub Ops extras (Kamalji push 2026-08-06) ===
+**/token.env.bak
+**/access_token.json
+credentials/
+credentials_backup*/
 secrets_runtime/
-**/secrets_runtime/
-Batman-Secrets/
-**/token*.txt
+Dhan/
+Dependencies/
+Dependencies\\*
+*all_instrument*.csv
+Prod Data/
+screenshots/
+Screenshots*/
+logs_uat/
+.cursor/
+.agent/
+*.sqlite3
+*.pid
+*.lock
+auth.json
+auth/
 config/dhan_auth.env
 config/client_id.txt
 config/token.txt
 config/*secret*
+kavach-2.0/data/
+GO/data/
+telegram/**/token.env*
+vps_ops/venv/
+# Consolidated desktop credentials — never commit
+**/telegram/bots.env
+bots.env
+Credentials/
 
-# Runtime / bulky (never push)
-Dependencies/
-*all_instrument*.csv
-logs_runtime/
-outputs/
-*.sqlite3
-*.pid
-*.lock
-_archive/
-scraped/
-tmp/
-probe-output.json
-
-# nested / legacy secret trees
-**/config/client_id.txt
-**/config/token.txt
-**/config/dhan_auth.env
-**/config/.env
+# Rahul push safety 2026-08-06
+**/access_token.json
+**/sim_access_token.json
 Dhan/
-**/Dhan/
-n**/token.env.bakn**/*.env.bakn**/sim_access_token.jsonn

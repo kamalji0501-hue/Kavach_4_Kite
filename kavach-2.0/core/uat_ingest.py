@@ -173,32 +173,54 @@ def ingest_uat_for_register(
         load_positions_json,
         validate_fixture,
     )
+    from core.uat_positions import reconcile_uat_positions_books
+
+    reconcile_uat_positions_books(root)
 
     pos_path = positions_json_path(root)
+    shot_dir = uat_screenshot_dir(root)
+    images = find_screenshot_images(shot_dir)
+    newest_shot = images[0] if images else None
+
     if prefer_chat:
         data = load_positions_json(root)
         if data and is_cursor_chat_positions(data):
-            try:
-                validate_fixture(data)
-                logger.info(
-                    "UAT register: using cursor_chat positions.json (skip OCR) path=%s legs=%s",
+            # If a Sensibull screenshot is newer than the kept chat book, re-OCR —
+            # otherwise Register forever shows the stale cursor_chat PE BUY list.
+            shot_newer = False
+            if newest_shot is not None and pos_path.is_file():
+                try:
+                    shot_newer = newest_shot.stat().st_mtime > pos_path.stat().st_mtime + 1.0
+                except OSError:
+                    shot_newer = False
+            if shot_newer:
+                logger.warning(
+                    "UAT register: screenshot %s newer than cursor_chat book %s — re-OCR",
+                    newest_shot.name,
                     pos_path,
-                    len(data.get("legs") or []),
                 )
-                return {
-                    "ok": True,
-                    "method": "cursor_chat",
-                    "positions_path": str(pos_path),
-                    "expiry_date": data.get("expiry_date"),
-                    "spot": data.get("spot_at_capture"),
-                }
-            except UATChatPositionsError as exc:
-                # Do not fall through to OCR with a vague message — chat book is present but bad.
-                logger.error("cursor_chat positions invalid at %s: %s", pos_path, exc)
-                raise UATIngestError(
-                    f"UAT positions.json invalid ({pos_path}): {exc}. "
-                    "Re-run FAST UAT with Sensibull screenshot, then Register again."
-                ) from exc
+            else:
+                try:
+                    validate_fixture(data)
+                    logger.info(
+                        "UAT register: using cursor_chat positions.json (skip OCR) path=%s legs=%s",
+                        pos_path,
+                        len(data.get("legs") or []),
+                    )
+                    return {
+                        "ok": True,
+                        "method": "cursor_chat",
+                        "positions_path": str(pos_path),
+                        "expiry_date": data.get("expiry_date"),
+                        "spot": data.get("spot_at_capture"),
+                    }
+                except UATChatPositionsError as exc:
+                    # Do not fall through to OCR with a vague message — chat book is present but bad.
+                    logger.error("cursor_chat positions invalid at %s: %s", pos_path, exc)
+                    raise UATIngestError(
+                        f"UAT positions.json invalid ({pos_path}): {exc}. "
+                        "Re-run FAST UAT with Sensibull screenshot, then Register again."
+                    ) from exc
         if data is None:
             logger.warning("UAT register: no positions.json at %s", pos_path)
         elif not is_cursor_chat_positions(data):

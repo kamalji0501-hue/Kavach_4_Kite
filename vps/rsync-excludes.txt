@@ -20,6 +20,9 @@ __pycache__/
 .git/
 logs_runtime/
 data_runtime/
+secrets_runtime/
+backtest_engine/cache/
+kavach-2.0/backtest_engine/cache/
 logs_uat/
 logs_prod/
 logs_dev/

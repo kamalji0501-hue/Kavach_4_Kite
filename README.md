@@ -1,4 +1,3 @@
-﻿> **Branches:** `main` (stable) · `kamalji` (Kamalji WIP) · `rahul` (Rahul WIP). See [BRANCH_POLICY.md](BRANCH_POLICY.md).
 # DEV Batman Algo
 
 Live Batman options trading via **broker API** (not UI automation).
@@ -15,17 +14,16 @@ Live Batman options trading via **broker API** (not UI automation).
 ## Key facts
 
 - **Live orders:** broker API + JWT + static IP (whitelisted)
-- **No Stockmock** for live trading â€” Stockmock is research/backtest only
-- **Test VPS (friend's):** `3.110.255.216` â€” temporary; buy own VPS for production
+- **No Stockmock** for live trading — Stockmock is research/backtest only
+- **Test VPS (friend's):** `3.110.255.216` — temporary; buy own VPS for production
 - **Telegram:** alerts on trades, crashes, recovery
-- **VPS monitor:** `vps_ops/` â€” auto-restart, retry, 100% stability test pass
+- **VPS monitor:** `vps_ops/` — auto-restart, retry, 100% stability test pass
 - **Agent:** deploy, run, logs, debug via SSH from your PC
 
 ## VPS ops (deployed)
 
-Local: `vps_ops/` â†’ VPS: `/home/ubuntu/vps_ops/`
+Local: `vps_ops/` → VPS: `/home/ubuntu/vps_ops/`
 
 Services: `my_telegram_bot` + `vps-monitor` (both active)
 
 *Last updated: 2026-07-10*
-

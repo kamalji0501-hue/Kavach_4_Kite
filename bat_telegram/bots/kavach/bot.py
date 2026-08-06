@@ -46,6 +46,7 @@ from telegram.helpers import escape_markdown
 
 from bat_telegram.bots.kavach.register_wizard import (
     WIZARD_CONFIRM,
+    WIZARD_ORDER_MODE,
     WIZARD_PE_INTENT,
     build_wizard_handler,
     pe_intent_keyboard,
@@ -88,9 +89,12 @@ from telegram import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, 
 logger = logging.getLogger("batman.kavach")
 
 # ── Deployment paths ──────────────────────────────────────────────────────────
-_DEPLOY_DIR = Path("data/deployments")
-_ARCHIVE_DIR = Path("data/deployments/archive")
-_DEPLOY_LOG = Path("data/deployments/deploy_log.jsonl")
+# ── Deployment paths (mode-aware runtime under Trading_Runtime/Data) ───────────
+from core.batman_mode import data_root as _batman_data_root  # noqa: E402
+
+_DEPLOY_DIR = _batman_data_root() / "deployments"
+_ARCHIVE_DIR = _DEPLOY_DIR / "archive"
+_DEPLOY_LOG = _DEPLOY_DIR / "deploy_log.jsonl"
 _AUDIT_ROOT = Path.home() / "Desktop" / "batman execution"
 
 # ── Wizard conversation states (legacy BE/buffer constants kept for future release) ──
@@ -988,6 +992,7 @@ def _write_deployment_file(
     break_even: dict[str, Any] | None = None,
     trading_calendar: dict[str, Any] | None = None,
     profile: dict[str, Any] | None = None,
+    order_mode: str = "paper",
 ) -> Path:
     """Write batman_YYYY-MM-DD_HH-MM.json and return its path."""
     _DEPLOY_DIR.mkdir(parents=True, exist_ok=True)
@@ -1030,8 +1035,12 @@ def _write_deployment_file(
     filename = f"batman_{now.strftime('%Y-%m-%d_%H-%M')}.json"
     filepath = _DEPLOY_DIR / filename
 
+    from core.order_mode import normalize_order_mode
+
+    omode = normalize_order_mode(order_mode)
     data: dict[str, Any] = {
         "schema_version": 1.1,
+        "order_mode": omode,
         "deployed_at": now.astimezone().isoformat(),
         "registered_at": now.strftime("%A %d-%b-%Y at %H:%M"),
         "file_name": filename,
@@ -1408,6 +1417,25 @@ def _sync_state_from_deployment_file(filepath: Path, state) -> None:
         state.set(f"positions.{role}", leg, save=False)
 
     state.set("deployment.registration_scope", scope, save=False)
+    from core.order_mode import normalize_order_mode
+
+    state.set(
+        "order_mode",
+        normalize_order_mode(dep.get("order_mode")),
+        save=False,
+    )
+    try:
+        from core.money_audit import audit
+
+        audit(
+            "deployment.sync.evidence",
+            file=str(filepath.name),
+            order_mode=normalize_order_mode(dep.get("order_mode")),
+            has_ce=bool((dep.get("ato") or {}).get("ce_protect_symbol")),
+            has_pe=bool((dep.get("ato") or {}).get("pe_protect_symbol")),
+        )
+    except Exception:
+        pass
     state.set("ato.ce_protect_symbol", ato.get("ce_protect_symbol"), save=False)
     state.set("ato.ce_protect_strike", ato.get("ce_protect_strike"), save=False)
     state.set("ato.pe_protect_symbol", ato.get("pe_protect_symbol"), save=False)
@@ -1470,10 +1498,42 @@ def _finalize_register_confirm(
         _mirror_deployment_to_daily_audit(filepath)
         state = context.bot_data.get("state")
         _sync_state_from_deployment_file(filepath, state)
+
+        try:
+            from core.order_mode import configure_ato_order_sink, normalize_order_mode
+
+            ato = context.bot_data.get("ato_module") or context.bot_data.get("ato")
+            if ato is not None:
+                configure_ato_order_sink(
+                    ato,
+                    order_mode=normalize_order_mode(wizard_data.get("order_mode")),
+                    state=state,
+                )
+        except Exception as sink_exc:
+            logger.warning("order sink reconfigure soft-failed: %s", sink_exc)
+        try:
+            from core.money_audit import audit
+
+            audit(
+                "register.confirm.evidence",
+                file=filepath.name,
+                order_mode=str(wizard_data.get("order_mode") or "paper"),
+                pe_enabled=bool(wizard_data.get("pe_enabled")),
+                ce_enabled=bool(wizard_data.get("ce_enabled")),
+                ato_manage_sides=str(ato_manage_sides),
+                ce_protect=str(wizard_data.get("ce_protect_symbol") or ""),
+                pe_protect=str(wizard_data.get("pe_protect_symbol") or ""),
+                ce_mode=str(wizard_data.get("ce_protect_strike_mode") or ""),
+                pe_mode=str(wizard_data.get("pe_protect_strike_mode") or ""),
+                poll_interval_seconds=poll_interval_seconds,
+            )
+        except Exception:
+            pass
         _persist_session_after_confirm(filepath, state)
         _append_log(
             "confirmed",
             file=filepath.name,
+            order_mode=str(wizard_data.get("order_mode") or "paper"),
             pe_enabled=wizard_data.get("pe_enabled"),
             ce_enabled=wizard_data.get("ce_enabled"),
             poll_interval_seconds=poll_interval_seconds,
@@ -1670,9 +1730,74 @@ async def wizard_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     if blocked is not None:
         return blocked
 
+    # ── First question: Paper vs Live (rest of wizard unchanged after this) ──
+    from bat_telegram.bots.kavach.register_wizard import _CB_ORDER_MODE
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    mode_kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "📄 Paper trade (no exchange orders)",
+                    callback_data=f"{_CB_ORDER_MODE}:paper",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "💰 Live trade (real Dhan orders)",
+                    callback_data=f"{_CB_ORDER_MODE}:live",
+                )
+            ],
+        ]
+    )
+    body = (
+        "🦇 *" + _md2("Register - Trading mode") + "*\n\n"
+        + _md2("How should this deployment place orders?") + "\n\n"
+        + "• *Paper trade* — " + _md2("Live market data; Kavach/ATO fully runs; no exchange orders.") + "\n"
+        + "• *Live trade* — " + _md2("Real money on Dhan (existing live order path).") + "\n\n"
+        + "_" + _md2("Everything after this question is the same as before.") + "_"
+    )
+    await message.reply_text(
+        body,
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=mode_kb,
+    )
+    return WIZARD_ORDER_MODE
+
+
+
+
+
+async def _wizard_continue_after_order_mode(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Resume classic /register flow after Paper/Live is chosen."""
+    query = update.callback_query
+    message = query.message if query is not None else _require_message(update)
+    prefer_edit = bool(context.user_data.pop("_register_prefer_edit", False))
+    broker = context.bot_data.get("broker")
+    from core.batman_mode import is_uat, workspace_root
     from core.environment_display import register_preamble
 
-    await message.reply_text(register_preamble())
+    mode = str(_wizard_data(context).get("order_mode") or "paper").upper()
+    mode_line = f"Mode: *{_md2(mode)}*\n\n"
+    if query is not None:
+        try:
+            await query.edit_message_text(
+                mode_line + register_preamble(),
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+        except Exception:
+            await message.reply_text(
+                mode_line + register_preamble(),
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+    else:
+        await message.reply_text(
+            mode_line + register_preamble(),
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+
 
     try:
         from core.uat_ingest import (
@@ -2772,6 +2897,7 @@ async def wizard_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             },
             trading_calendar=trading_calendar,
             profile=profile,
+            order_mode=str(wizard_data.get("order_mode") or "paper"),
         )
     except Exception as exc:
         logger.error("Failed to write deployment file: %s", exc)
@@ -2803,6 +2929,7 @@ async def wizard_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "✅ *Batman armed\\. KAVACH is watching\\.*",
         "",
         f"File: `{_md2_code(filepath.name)}`",
+        f"Trading mode: *{_md2(str(wizard_data.get('order_mode') or 'paper').upper())}*",
     ]
     if wizard_data.get("ce_enabled"):
         confirm_lines.append(
@@ -2827,6 +2954,47 @@ async def wizard_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         confirm_lines.append(f"PE ATO fires when NIFTY ≤ {_md2(f'{levels['pe_trigger']:,}')}")
     if wizard_data.get("ce_enabled") and "ce_trigger" in levels:
         confirm_lines.append(f"CE ATO fires when NIFTY ≥ {_md2(f'{levels['ce_trigger']:,}')}")
+
+    # Tick-by-tick CSV: NIFTY + registered ATO CE/PE (runtime data disk)
+    csv_path = None
+    try:
+        from core.ato_nifty_tick_csv import record_registration
+        from core.nifty_ltp_feed import read_nifty_ltp_cache
+
+        nifty_now = None
+        try:
+            snap = read_nifty_ltp_cache()
+            if snap is not None and getattr(snap, "ltp", None):
+                nifty_now = float(snap.ltp)
+        except Exception:
+            nifty_now = None
+        csv_path = record_registration(
+            ce_symbol=wizard_data.get("ce_protect_symbol") if wizard_data.get("ce_enabled") else "",
+            ce_strike=wizard_data.get("ce_protect_strike") if wizard_data.get("ce_enabled") else "",
+            ce_mode=(wizard_data.get("ce_protect_strike_mode") or "AUTO")
+            if wizard_data.get("ce_enabled")
+            else "",
+            pe_symbol=wizard_data.get("pe_protect_symbol") if wizard_data.get("pe_enabled") else "",
+            pe_strike=wizard_data.get("pe_protect_strike") if wizard_data.get("pe_enabled") else "",
+            pe_mode=(wizard_data.get("pe_protect_strike_mode") or "AUTO")
+            if wizard_data.get("pe_enabled")
+            else "",
+            nifty_ltp=nifty_now,
+        )
+    except Exception as csv_exc:
+        logger.warning("ATO tick CSV register hook failed: %s", csv_exc)
+
+    confirm_lines.extend(
+        [
+            "",
+            f"📊 *{_md2('Tick CSV')}* — {_md2('NIFTY + ATO CE/PE on disk')}",
+            _md2("Columns: date/time, NIFTY LTP, CE ATO (symbol/strike/mode/LTP), PE ATO (same)."),
+        ]
+    )
+    if csv_path is not None:
+        confirm_lines.append(f"File: `{_md2_code(str(csv_path))}`")
+    else:
+        confirm_lines.append(_md2("File: pending under runtime Data/ato_tick_csv/"))
 
     await _edit_md2(query, "\n".join(confirm_lines))
     if query.message is not None:
@@ -3256,6 +3424,16 @@ async def cmd_positions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     try:
         df = await asyncio.to_thread(broker.get_positions)
         positions = _enrich_positions_list(context, _filter_nifty_positions(df))
+        paper_note = ""
+        try:
+            from core.order_mode import order_mode_from_state
+            from core.paper_position_book import snapshot_text
+
+            st = context.bot_data.get("state")
+            if order_mode_from_state(st) == "paper":
+                paper_note = "\n\n📄 *" + "Paper mode" + "* — " + _md2(snapshot_text())
+        except Exception:
+            paper_note = ""
     except Exception as exc:
         await _reply_md2(
             message,
@@ -3266,8 +3444,8 @@ async def cmd_positions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     if not positions:
         await _reply_md2(
-            message,
-            "📊 *Broker Positions*\n\nNo open NIFTY option positions found\\.",
+        message,
+        ("📊 *Broker Positions*\n\nNo open NIFTY option positions found\\.") + paper_note,
             reply_markup=_main_menu_keyboard(),
         )
         return
@@ -4072,6 +4250,18 @@ def build_application(broker=None, state=None, event_bus=None) -> Application:
 
     # ── Deploy wizard (ConversationHandler) ──────────────────────────────────
     from bat_telegram.bots.kavach.ato_configuration_wizard import build_ato_tune_handler
+
+    try:
+
+        from bat_telegram.update_audit import attach_update_audit
+
+        attach_update_audit(app)
+
+    except Exception as _audit_exc:
+
+        logging.getLogger(__name__).warning("update audit attach failed: %s", _audit_exc)
+
+    
 
     app.add_handler(build_wizard_handler(timeout))
     app.add_handler(build_ato_tune_handler(timeout))

@@ -131,6 +131,7 @@ def record_ato_cycle_complete(
     timestamp_ist: str,
     deployment_file: str,
     root: Path | None = None,
+    buy_timestamp_ist: str | None = None,
     buy_option_premium: float | None = None,
     sell_option_premium: float | None = None,
     premium_pnl: float | None = None,
@@ -149,6 +150,8 @@ def record_ato_cycle_complete(
         "lots": lots,
         "deployment_file": deployment_file,
     }
+    if buy_timestamp_ist:
+        event["buy_timestamp_ist"] = buy_timestamp_ist
     if protect_strike is not None:
         event["protect_strike"] = int(protect_strike)
     if buy_option_premium is not None:

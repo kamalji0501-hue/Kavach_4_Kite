@@ -58,6 +58,11 @@ _TOKEN_WATCH_STOP: threading.Event | None = None
 
 def _configure_logging() -> None:
     configure_bot_logging(workspace_root=ROOT, bot_name="kavach")
+    try:
+        from core.money_audit import audit
+        audit("kavach.boot", runner=str(Path(__file__).name), root=str(ROOT))
+    except Exception:
+        pass
 
 
 def _load_dhan_client_code() -> str:
@@ -128,6 +133,35 @@ def _start_ato_module(
     if not ato.is_enabled():
         logger.info("ATO Protection disabled in config — skipping module start")
         return None
+
+    # Order sink: paper → OrderManager/FakeBroker; live → real broker (no paper OM).
+    # Prefer deployment/state order_mode from last /register; ORDER_MODE env overrides.
+    try:
+        import os
+
+        from core.order_mode import (
+            configure_ato_order_sink,
+            latest_deployment_order_mode,
+            normalize_order_mode,
+            order_mode_from_state,
+        )
+
+        env_mode = (os.environ.get("ORDER_MODE") or "").strip().lower()
+        if env_mode in {"paper", "live"}:
+            order_mode = env_mode
+        else:
+            order_mode = order_mode_from_state(state, default=latest_deployment_order_mode(ROOT))
+        order_mode = normalize_order_mode(order_mode)
+        configure_ato_order_sink(ato, order_mode=order_mode, workspace_root=ROOT, state=state)
+        logger.info("ATO order sink configured mode=%s", order_mode)
+        try:
+            from core.money_audit import audit
+
+            audit("kavach.order_sink.ready", mode=order_mode, runner="run_kavach")
+        except Exception:
+            pass
+    except Exception as exc:
+        logger.warning("Order sink not configured: %s", exc)
 
     ato.start()
     logger.info(

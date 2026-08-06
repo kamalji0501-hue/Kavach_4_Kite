@@ -1,3 +1,5 @@
+> **Ownership (2026-08-06):** Kamalji — see [`KAMALJI_HANDOFF.md`](KAMALJI_HANDOFF.md).
+
 # VPS Context — DEV Batman Algo (API Live Trading)
 
 > **Purpose:** Single reference for VPS setup, testing, SSH access, monitoring, and lessons learned.  

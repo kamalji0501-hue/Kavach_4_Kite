@@ -26,7 +26,9 @@ from core.runtime_logging import (
 
 _IST = ZoneInfo("Asia/Kolkata")
 
-_VALID_BOTS = frozenset({"drishti", "kavach", "kavach2", "jagran", "main", "saransh", "sanchalak", "lakshmi"})
+_VALID_BOTS = frozenset(
+    {"drishti", "go", "kavach", "kavach2", "jagran", "main", "saransh", "sanchalak", "lakshmi", "ratripal"}
+)
 
 
 def load_logging_settings(workspace_root: Path) -> dict[str, Any]:
@@ -36,8 +38,11 @@ def load_logging_settings(workspace_root: Path) -> dict[str, Any]:
 
     defaults: dict[str, Any] = {
         "enabled": True,
-        "level": "INFO",
+        "level": "DEBUG",
         "root_dir": "logs/runtime",
+        "audit_jsonl": True,
+        "detail_jsonl": True,
+        "debug_trading": True,
     }
 
     if not settings_path.exists():
@@ -124,6 +129,16 @@ def bot_option_ltp_log_dir(
 
     return robot_logs_dir(workspace_root, "drishti", ts) / "option_ltp"
 
+
+def bot_ato_tick_csv_dir(
+    workspace_root: Path,
+    *,
+    ts: datetime | None = None,
+) -> Path:
+    """NIFTY + ATO CE/PE tick CSV mirror under DRISHTI day logs."""
+
+    return robot_logs_dir(workspace_root, "drishti", ts) / "ato_tick_csv"
+
 def main_all_log_path(workspace_root: Path, *, ts: datetime | None = None) -> Path:
     """Single cumulative main timeline for an IST day (all robots)."""
 
@@ -160,7 +175,9 @@ def _attach_domain_incident_handler(
 
 def attach_main_incident_handler(workspace_root: Path) -> None:
     """Attach incident tracking for main.py five-bot orchestrator."""
-    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    from core.paper_trade_logging import TradeLaneFormatter
+
+    fmt = TradeLaneFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     _attach_domain_incident_handler(workspace_root, "main", fmt)
 
 
@@ -204,7 +221,9 @@ def configure_bot_logging(
 
     set_logging_robot(name)
 
-    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    from core.paper_trade_logging import TradeLaneFormatter
+
+    fmt = TradeLaneFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     root = logging.getLogger()
 
@@ -219,6 +238,27 @@ def configure_bot_logging(
     root.addHandler(console)
 
     configure_runtime_logging({"logging": settings}, workspace_root)
+
+    try:
+        from core.money_audit import configure_money_audit
+
+        configure_money_audit(workspace_root, bot_name=name, settings=settings)
+        try:
+            from core.money_audit import audit
+
+            audit(
+                "logging.bootstrap.evidence",
+                bot=name,
+                level=str(settings.get("level")),
+                audit_jsonl=bool(settings.get("audit_jsonl", True)),
+                detail_jsonl=bool(settings.get("detail_jsonl", True)),
+                debug_trading=bool(settings.get("debug_trading", True)),
+                log_hint=str(bot_all_log_path(workspace_root, name)),
+            )
+        except Exception:
+            pass
+    except Exception as exc:
+        logging.getLogger(__name__).warning("money_audit configure failed: %s", exc)
 
     from core.incident_log_handler import DomainIncidentHandler
 

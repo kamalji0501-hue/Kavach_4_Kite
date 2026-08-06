@@ -27,6 +27,23 @@ EXPECTED_LEG_COUNT = 8
 EXPECTED_BUY_COUNT = 6
 EXPECTED_SELL_COUNT = 2
 
+# Retired Sensibull sessions — Register must never offer these PE BUY buttons again.
+_BANNED_PE_BUY_FINGERPRINTS = (
+    frozenset({23000, 23650, 23900}),
+)
+
+
+def assert_pe_buy_book_allowed(strikes) -> None:
+    """Raise if PE BUY strike set matches a retired Sensibull session."""
+    pe = frozenset(int(s) for s in strikes if s is not None)
+    for banned in _BANNED_PE_BUY_FINGERPRINTS:
+        if pe == banned:
+            raise UATChatPositionsError(
+                "Rejected retired Sensibull PE BUY book "
+                f"{sorted(banned)} — overwrite positions.json with the current "
+                "Aug-04 book (PE BUY 23500 / 24000 / 24250) and Register again."
+            )
+
 
 class UATChatPositionsError(Exception):
     """Invalid or incomplete positions fixture."""
@@ -126,6 +143,14 @@ def validate_fixture(data: dict[str, Any]) -> None:
             f"got PE_BUY={pe_buy} CE_BUY={ce_buy}"
         )
 
+    pe_buy_strikes = frozenset(
+        int(leg["strike"])
+        for leg in legs
+        if str(leg.get("type", "")).upper() == "PE"
+        and str(leg.get("side", "")).upper() == "BUY"
+    )
+    assert_pe_buy_book_allowed(pe_buy_strikes)
+
     expiry = str(data.get("expiry_date", "")).strip()
     if len(expiry) != 10 or expiry[4] != "-":
         raise UATChatPositionsError(f"expiry_date must be ISO YYYY-MM-DD, got {expiry!r}")
@@ -164,11 +189,18 @@ def write_positions_json(
     root: Path | None = None,
 ) -> Path:
     validate_fixture(fixture)
+    from core.batman_mode import workspace_root
+    from core.uat_positions import positions_json_path, sync_positions_mirrors_from_canonical
+
+    root = root or workspace_root()
     out = positions_json_path(root)
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w", encoding="utf-8") as fh:
         json.dump(fixture, fh, indent=2)
         fh.write("\n")
+    # One-way only — never let reconcile promote an older repo-local book
+    # back over the file we just wrote (that resurrected 23000 PE BUY legs).
+    sync_positions_mirrors_from_canonical(root)
     logger.info("UAT cursor_chat positions.json written (%s)", out)
     return out
 

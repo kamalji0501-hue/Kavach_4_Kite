@@ -247,7 +247,7 @@ def main() -> int:
 
     report = {
         "schema_version": "shadow_p0_v2_8leg",
-        "fixture": str(fixture_path.relative_to(ROOT)),
+        "fixture": str(fixture_path.relative_to(ROOT)) if fixture_path.is_relative_to(ROOT) else str(fixture_path),
         "expiry_date": expiry.isoformat(),
         "spot_at_capture": spot,
         "lot_size": _NIFTY_LOT_SIZE,

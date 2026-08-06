@@ -14,10 +14,16 @@ from bat_telegram.bots.kavach2 import bot as kavach2_bot
 from bat_telegram.bots.kavach2.register_wizard import (
     WIZARD_CE_EXIT_CUSTOM,
     WIZARD_PE_BUY,
+    WIZARD_PE_DYN_HEDGE,
+    WIZARD_PE_MARGIN_HEDGE,
+    WIZARD_PE_SELL,
     _buffer_kind_label,
     _buffer_step_title,
     wizard_buffer_mode,
+    wizard_pe_buy,
+    wizard_pe_dyn_hedge,
     wizard_pe_intent,
+    wizard_pe_margin_hedge,
 )
 from core.buffer_config.schema import BufferKind, serialize_buffer_field
 
@@ -357,6 +363,93 @@ async def test_wizard_pe_intent_enable_shows_long_pe() -> None:
     assert "Core PE BUY" in text
     # All LONG PE candidates available for Core pick (keyboard is mocked in this suite)
     assert len(ctx.user_data.get("_pe_pick_pool") or []) == 3
+
+
+@pytest.mark.asyncio
+async def test_wizard_pe_buy_then_margin_then_dyn_hedge() -> None:
+    """Core PE BUY → Margin Hedge (2 left) → 30% Dyn Hedge (1 left) → PE SELL."""
+    positions = _sample_positions()
+    long_pe = [p for p in positions if p["opt_type"] == "PE" and p["direction"] == "LONG"]
+    assert len(long_pe) == 3
+
+    # Pick first LONG PE as Core BUY
+    query = _query_mock("wiz_leg:0")
+    update = _FakeUpdate(10, callback_query=query)
+    ctx = _context_mock(
+        user_data={
+            "wiz_positions": positions,
+            "pe_enabled": True,
+            "ce_enabled": True,
+            "_pe_pick_pool": long_pe,
+            "wiz_plan": [
+                "pe_buy",
+                "pe_margin_hedge",
+                "pe_dyn_hedge",
+                "pe_sell",
+                "poll",
+                "confirm",
+            ],
+        }
+    )
+    edit = AsyncMock()
+    with (
+        patch.object(kavach2_bot, "_safe_answer_callback", new=AsyncMock(return_value=True)),
+        patch.object(kavach2_bot, "_wizard_edit_step", edit),
+        patch.object(kavach2_bot, "_require_query", return_value=query),
+        patch.object(kavach2_bot, "_selected_header", return_value=""),
+        patch.object(kavach2_bot, "_md2", side_effect=lambda s: str(s)),
+    ):
+        state = await wizard_pe_buy(update, ctx)
+
+    assert state == WIZARD_PE_MARGIN_HEDGE
+    assert ctx.user_data["pe_buy"]["symbol"] == long_pe[0]["symbol"]
+    assert len(ctx.user_data["_pe_hedge_pool"]) == 2
+    assert "Margin Hedge" in edit.await_args.args[2]
+
+    # Pick first remaining as Margin Hedge
+    query2 = _query_mock("wiz_leg:0")
+    update2 = _FakeUpdate(11, callback_query=query2)
+    edit2 = AsyncMock()
+    with (
+        patch.object(kavach2_bot, "_safe_answer_callback", new=AsyncMock(return_value=True)),
+        patch.object(kavach2_bot, "_wizard_edit_step", edit2),
+        patch.object(kavach2_bot, "_require_query", return_value=query2),
+        patch.object(kavach2_bot, "_selected_header", return_value=""),
+        patch.object(kavach2_bot, "_md2", side_effect=lambda s: str(s)),
+    ):
+        state2 = await wizard_pe_margin_hedge(update2, ctx)
+
+    assert state2 == WIZARD_PE_DYN_HEDGE
+    assert ctx.user_data["pe_margin_hedge"]["symbol"] == long_pe[1]["symbol"]
+    assert len(ctx.user_data["_pe_hedge_pool"]) == 1
+    assert "30% Dynamic Hedge" in edit2.await_args.args[2] or "Dynamic Hedge" in edit2.await_args.args[2]
+
+    # Confirm last as Dyn Hedge → PE SELL
+    query3 = _query_mock("wiz_leg:0")
+    update3 = _FakeUpdate(12, callback_query=query3)
+    edit3 = AsyncMock()
+    with (
+        patch.object(kavach2_bot, "_safe_answer_callback", new=AsyncMock(return_value=True)),
+        patch.object(kavach2_bot, "_wizard_edit_step", edit3),
+        patch.object(kavach2_bot, "_require_query", return_value=query3),
+        patch.object(kavach2_bot, "_selected_header", return_value=""),
+        patch.object(kavach2_bot, "_md2", side_effect=lambda s: str(s)),
+    ):
+        state3 = await wizard_pe_dyn_hedge(update3, ctx)
+
+    assert state3 == WIZARD_PE_SELL
+    assert ctx.user_data["pe_dyn_hedge"]["symbol"] == long_pe[2]["symbol"]
+    assert "PE SELL" in edit3.await_args.args[2]
+
+
+def test_wizard_plan_includes_hedge_steps() -> None:
+    from core.wizard_plan import build_wizard_plan
+
+    plan = build_wizard_plan(pe_enabled=True, ce_enabled=True)
+    assert plan.index("pe_margin_hedge") == plan.index("pe_buy") + 1
+    assert plan.index("pe_dyn_hedge") == plan.index("pe_margin_hedge") + 1
+    assert plan.index("ce_margin_hedge") == plan.index("ce_buy") + 1
+    assert plan.index("ce_dyn_hedge") == plan.index("ce_margin_hedge") + 1
 
 
 @pytest.mark.asyncio

@@ -7,14 +7,19 @@ from typing import Literal
 Section = Literal["PE", "CE", "Shared"]
 
 _STEP_META: dict[str, tuple[Section, str]] = {
+    "order_mode": ("Shared", "Paper or Live trade"),
     "pe_intent": ("PE", "PE side"),
     "pe_buy": ("PE", "Select Core PE BUY leg"),
+    "pe_margin_hedge": ("PE", "Select Margin Hedge"),
+    "pe_dyn_hedge": ("PE", "30% Dynamic Hedge"),
     "pe_sell": ("PE", "Select PE SELL leg"),
     "pe_ato_strike": ("PE", "ATO strike"),
     "pe_entry": ("PE", "Entry NIFTY level"),
     "pe_exit": ("PE", "Exit NIFTY level (retrace)"),
     "ce_intent": ("CE", "CE side"),
     "ce_buy": ("CE", "Select Core CE BUY leg"),
+    "ce_margin_hedge": ("CE", "Select Margin Hedge"),
+    "ce_dyn_hedge": ("CE", "30% Dynamic Hedge"),
     "ce_sell": ("CE", "Select CE SELL leg"),
     "ce_ato_strike": ("CE", "ATO strike"),
     "ce_entry": ("CE", "Entry NIFTY level"),
@@ -25,6 +30,8 @@ _STEP_META: dict[str, tuple[Section, str]] = {
 
 _PE_BLOCK = (
     "pe_buy",
+    "pe_margin_hedge",
+    "pe_dyn_hedge",
     "pe_sell",
     "pe_ato_strike",
     "pe_entry",
@@ -32,11 +39,14 @@ _PE_BLOCK = (
 )
 _CE_BLOCK = (
     "ce_buy",
+    "ce_margin_hedge",
+    "ce_dyn_hedge",
     "ce_sell",
     "ce_ato_strike",
     "ce_entry",
     "ce_exit",
 )
+_SHARED_LEADING = ("order_mode",)
 _SHARED = ("poll", "confirm")
 
 
@@ -55,7 +65,7 @@ def build_wizard_plan(
     PE/CE enable prompts are skipped in Kavach 2.0 — sides are auto-detected
     from open legs, so the plan starts at leg pick.
     """
-    steps: list[str] = []
+    steps: list[str] = list(_SHARED_LEADING)
     if pe_enabled:
         steps.extend(_PE_BLOCK)
     if ce_enabled:
@@ -100,5 +110,5 @@ def register_intro_text() -> str:
     return (
         "🦇 *Register wizard*\n\n"
         f"Up to *{n} questions* —\n"
-        "Starting PE side"
+        "First: Paper or Live — then PE/CE legs"
     )

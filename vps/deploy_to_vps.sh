@@ -78,8 +78,12 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
-# Ensure remote dirs
-"${SSH[@]}" "mkdir -p '$BATMAN_ROOT' '~/Batman Executed Data/Logs' '~/Batman Executed Data/Data and Reports' '~/Batman-Secrets'"
+# Ensure remote dirs (code + Trading_Runtime outside the code tree)
+TR_ROOT="${TRADING_RUNTIME_ROOT:-/home/ubuntu/Trading_Runtime}"
+"${SSH[@]}" "mkdir -p '$BATMAN_ROOT' \
+  '$TR_ROOT'/{Logs,Data,Credentials,Temp,Cache,Backups,Health,Exports,Screenshots,Database,User,Config} \
+  '$TR_ROOT'/Credentials/{config,Tokens,telegram/bots} \
+  '$TR_ROOT'/Data/data/shared"
 
 # Sync code (exclude heavy/runtime/secrets + PNL Summary local-only paths)
 RSYNC_EXCLUDES=(
@@ -88,6 +92,9 @@ RSYNC_EXCLUDES=(
   --exclude '.git/'
   --exclude 'logs_runtime/'
   --exclude 'data_runtime/'
+  --exclude 'secrets_runtime/'
+  --exclude 'backtest_engine/cache/'
+  --exclude 'kavach-2.0/backtest_engine/cache/'
   --exclude 'vps/deploy.env'
   --exclude '*.pyc'
   --exclude '.pytest_cache/'
@@ -106,23 +113,56 @@ rsync -az --delete \
   -e "$RSYNC_SSH" \
   "$REPO_ROOT/" "${VPS_USER}@${VPS_HOST}:${BATMAN_ROOT}/"
 
-# Secrets: copy if present locally (never fail hard if missing — operator may scp later)
+# Secrets → Trading_Runtime/Credentials (canonical) + in-repo fallback copies
+TR_ROOT="${TRADING_RUNTIME_ROOT:-/home/ubuntu/Trading_Runtime}"
 if [[ -f "$REPO_ROOT/config/.env" ]]; then
+  scp -i "$KEY_PATH" -o IdentitiesOnly=yes \
+    "$REPO_ROOT/config/.env" "${VPS_USER}@${VPS_HOST}:${TR_ROOT}/Credentials/config/.env"
   scp -i "$KEY_PATH" -o IdentitiesOnly=yes \
     "$REPO_ROOT/config/.env" "${VPS_USER}@${VPS_HOST}:${BATMAN_ROOT}/config/.env"
 fi
-for bot in drishti kavach kavach2 jagran saransh; do
-  tok="$REPO_ROOT/telegram/bots/$bot/token.env"
-  if [[ -f "$tok" ]]; then
-    "${SSH[@]}" "mkdir -p '$BATMAN_ROOT/telegram/bots/$bot'"
+# Prefer local Trading_Runtime credentials if present
+LOCAL_TR="${LOCAL_TRADING_RUNTIME:-/home/kamalji0501e/Batman Algo Files/Trading_Runtime}"
+if [[ -f "$LOCAL_TR/Credentials/config/.env" ]]; then
+  scp -i "$KEY_PATH" -o IdentitiesOnly=yes \
+    "$LOCAL_TR/Credentials/config/.env" "${VPS_USER}@${VPS_HOST}:${TR_ROOT}/Credentials/config/.env"
+fi
+
+for bot in drishti kavach kavach2 jagran saransh ratripal lakshmi go; do
+  tok=""
+  if [[ -f "$LOCAL_TR/Credentials/telegram/bots/$bot/token.env" ]]; then
+    tok="$LOCAL_TR/Credentials/telegram/bots/$bot/token.env"
+  elif [[ -f "$REPO_ROOT/telegram/bots/$bot/token.env" ]]; then
+    tok="$REPO_ROOT/telegram/bots/$bot/token.env"
+  elif [[ -f "$REPO_ROOT/kavach-2.0/telegram/bots/$bot/token.env" ]]; then
+    tok="$REPO_ROOT/kavach-2.0/telegram/bots/$bot/token.env"
+  elif [[ -f "$REPO_ROOT/GO/telegram/bots/$bot/token.env" ]]; then
+    tok="$REPO_ROOT/GO/telegram/bots/$bot/token.env"
+  fi
+  if [[ -n "$tok" ]]; then
+    "${SSH[@]}" "mkdir -p '$TR_ROOT/Credentials/telegram/bots/$bot' '$BATMAN_ROOT/telegram/bots/$bot'"
     scp -i "$KEY_PATH" -o IdentitiesOnly=yes "$tok" \
-      "${VPS_USER}@${VPS_HOST}:${BATMAN_ROOT}/telegram/bots/$bot/token.env"
+      "${VPS_USER}@${VPS_HOST}:${TR_ROOT}/Credentials/telegram/bots/$bot/token.env"
+    # In-repo fallback for loader
+    if [[ "$bot" == "kavach2" ]]; then
+      "${SSH[@]}" "mkdir -p '$BATMAN_ROOT/kavach-2.0/telegram/bots/kavach2'"
+      scp -i "$KEY_PATH" -o IdentitiesOnly=yes "$tok" \
+        "${VPS_USER}@${VPS_HOST}:${BATMAN_ROOT}/kavach-2.0/telegram/bots/kavach2/token.env"
+    elif [[ "$bot" == "go" ]]; then
+      "${SSH[@]}" "mkdir -p '$BATMAN_ROOT/GO/telegram/bots/go'"
+      scp -i "$KEY_PATH" -o IdentitiesOnly=yes "$tok" \
+        "${VPS_USER}@${VPS_HOST}:${BATMAN_ROOT}/GO/telegram/bots/go/token.env"
+    else
+      scp -i "$KEY_PATH" -o IdentitiesOnly=yes "$tok" \
+        "${VPS_USER}@${VPS_HOST}:${BATMAN_ROOT}/telegram/bots/$bot/token.env" 2>/dev/null || true
+    fi
   fi
 done
 
-# Access token if present
+# Access token → Trading_Runtime shared data
 TOK_SRC=""
 for cand in \
+  "$LOCAL_TR/Data/data/shared/access_token.json" \
   "$REPO_ROOT/data_runtime/data/shared/access_token.json" \
   "$HOME/Batman-Secrets/access_token.json"; do
   if [[ -f "$cand" ]]; then
@@ -131,10 +171,32 @@ for cand in \
   fi
 done
 if [[ -n "$TOK_SRC" ]]; then
-  "${SSH[@]}" "mkdir -p '$BATMAN_ROOT/data_runtime/data/shared'"
+  "${SSH[@]}" "mkdir -p '$TR_ROOT/Data/data/shared'"
   scp -i "$KEY_PATH" -o IdentitiesOnly=yes "$TOK_SRC" \
-    "${VPS_USER}@${VPS_HOST}:${BATMAN_ROOT}/data_runtime/data/shared/access_token.json"
+    "${VPS_USER}@${VPS_HOST}:${TR_ROOT}/Data/data/shared/access_token.json"
 fi
+
+# VPS local_runtime.json (absolute Trading_Runtime — overrides any laptop paths from rsync)
+"${SSH[@]}" bash -s <<EOF
+set -euo pipefail
+python3 - <<PY
+import json
+from pathlib import Path
+tr = Path("$TR_ROOT")
+root = Path("$BATMAN_ROOT")
+payload = {
+    "_comment": "VPS — runtime outside code tree",
+    "logs_root": str(tr / "Logs"),
+    "data_reports_root": str(tr / "Data"),
+    "secrets_root": str(tr / "Credentials"),
+}
+for rel in ("config/local_runtime.json", "kavach-2.0/config/local_runtime.json"):
+    p = root / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(payload, indent=2) + "\\n", encoding="utf-8")
+    print("wrote", p)
+PY
+EOF
 
 # Monitor telegram env
 if [[ -n "${VPS_MONITOR_TELEGRAM_ENV:-}" && -f "${VPS_MONITOR_TELEGRAM_ENV/#\~/$HOME}" ]]; then
@@ -152,6 +214,8 @@ python3 -m venv .venv
 .venv/bin/pip install -q -r requirements.txt
 # UAT mode (Stage A)
 .venv/bin/python scripts/set_batman_mode.py '$BATMAN_MODE'
+# Ensure Trading_Runtime layout via path API
+.venv/bin/python -c "from core.batman_mode import ensure_runtime_layout; print(ensure_runtime_layout())"
 # Stop any ad-hoc phase1 processes before systemd takes over
 .venv/bin/python scripts/phase1_stop_all.py --silent --no-popup 2>/dev/null || true
 export BATMAN_ROOT='$BATMAN_ROOT'
@@ -165,4 +229,5 @@ systemctl is-active batman-drishti.service batman-kavach2.service batman-jagran.
 .venv/bin/python scripts/bot_status.py all || true
 REMOTE
 
-echo "OK: deploy finished. Next: bash vps/smoke_live_ticks.sh (or scripts/vps_smoke_live_ticks.py --remote)"
+echo "OK: deploy finished. Trading_Runtime=$TR_ROOT"
+echo "Next: bash vps/smoke_live_ticks.sh (or scripts/vps_smoke_live_ticks.py --remote)"

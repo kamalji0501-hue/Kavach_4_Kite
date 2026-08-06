@@ -14,7 +14,18 @@ from core.utils import get_venv_python
 
 _IST = ZoneInfo("Asia/Kolkata")
 _ROOT = Path(__file__).resolve().parents[1]
-_REPORT_DIR = _ROOT / "data" / "analytics" / "incidents"
+
+
+def _report_dir() -> Path:
+    try:
+        from core.batman_mode import data_root
+
+        return data_root(_ROOT) / "analytics" / "incidents"
+    except Exception:
+        return _ROOT / "data" / "analytics" / "incidents"
+
+
+_REPORT_DIR = _report_dir()
 
 
 @dataclass

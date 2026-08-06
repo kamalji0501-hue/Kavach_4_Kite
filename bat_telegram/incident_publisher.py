@@ -67,10 +67,28 @@ def _jagran_params_path() -> Path:
 
 
 def _jagran_token_path() -> Path:
+    """Prefer consolidated desktop bots.env; else legacy token.env paths."""
+    try:
+        from core.telegram_credentials import secrets_telegram_bots_env_path
+
+        cons = secrets_telegram_bots_env_path()
+        if cons.is_file():
+            return cons
+    except Exception:
+        pass
+    try:
+        from core.batman_mode import secrets_bot_dir
+
+        secret = secrets_bot_dir("jagran") / "token.env"
+        if secret.is_file():
+            return secret
+    except Exception:
+        pass
     phase1 = _phase1_root() / "telegram" / "bots" / "jagran" / "token.env"
     if phase1.is_file():
         return phase1
     return Path(__file__).resolve().parent.parent / "telegram" / "bots" / "jagran" / "token.env"
+
 
 
 def _incident_ledger_dir() -> Path:

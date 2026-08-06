@@ -1,18 +1,20 @@
 # Hedge Box Design (RATRIPAL Input Spec)
 
 Status: CODED_PENDING_VALIDATION
-Last Updated: 2026-05-14
-Owner Bot Domain: KAVACH -> RATRIPAL
+Last Updated: 2026-07-25
+Owner Bot Domain: KAVACH 2.0 -> RATRIPAL -> ADITYA
 Purpose: Preserve the full Hedge Box context and examples in one place so implementation can proceed without losing continuity.
 
 ## Working Principle (Locked Direction)
 
-1. KAVACH computes and user-confirms break-even values.
-2. KAVACH persists break-even in deployment file and runtime state.
-3. RATRIPAL consumes these confirmed values for Hedge Box decisions.
-4. Hedge Box decisions are made at a daily checkpoint and then carried.
-5. All tunables are configuration-driven under a dedicated hedge_box config block.
-6. Runtime v1 is implemented in `modules/ratripal.py` with KAVACH confirmation callbacks and broker-verified handoff persistence.
+1. **KAVACH 2.0** arms the Batman deployment (core sell/buy legs) and owns Hedge Box HITL confirm/deny.
+2. **Standard break-even is fixed:** CE = `ce_sell_strike + 200`, PE = `pe_sell_strike − 200` (config: `hedge_box.standard_break_even_offset_points`, default 200), then rounded to the 50-pt strike grid.
+3. RATRIPAL derives this fixed BE from sell legs — it does **not** use Register-confirmed `risk.break_even.*` for strike math.
+4. Color-box (Green/Orange/Blue/Yellow) inside depths are measured from that fixed BE; White zone buys at the fixed BE strike.
+5. Hedge Box decisions are made at a daily checkpoint (default 15:15 IST) and then carried overnight.
+6. All tunables are configuration-driven under `hedge_box`.
+7. Runtime v1 is in `modules/ratripal.py` with KAVACH 2.0 confirmation callbacks and broker-verified handoff to **ADITYA**.
+
 
 ## User-Confirmed Locks (2026-05-10)
 
@@ -28,36 +30,31 @@ The following points are now locked from user answers:
 9. Daily run time is 15:15 IST and must remain config-driven.
 10. Hedge strike selected by box-depth logic must never collide with sold strike mechanics.
 11. DTE is working-days only (Indian market calendar; Saturday and Sunday are excluded).
-12. If break-even is missing/skipped for one side, Hedge Box must skip that side only with alert; opposite side remains independently evaluable.
-13. If missing-BE side is also breached, Hedge Box still skips that side (no Hedge Box order); ATO/KAVACH handles breach protection.
+12. If a sell leg is missing for one side, Hedge Box skips that side only; opposite side remains independently evaluable.
+13. If a side has no sell strike, Hedge Box skips that side; ATO/KAVACH 2.0 handles breach protection.
 
 ## 1) Scope and Intent
 
-Hedge Box is a decision framework that uses KAVACH-confirmed break-even levels to decide what hedge should be carried into overnight risk windows.
+Hedge Box is a decision framework that uses fixed sell-leg break-even levels (200 pts outside) to decide what hedge should be carried into overnight risk windows.
 
 This document is intentionally separate from generic design docs because:
 1. Hedge Box logic is stateful and day-sensitive (4DTE to 0DTE).
-2. Inputs come from KAVACH deployment artifacts, not ad-hoc recalculation.
-3. This logic will be consumed by the future RATRIPAL runtime.
+2. Sell/buy legs come from the KAVACH 2.0 deployment; BE is derived as sell ± 200.
+3. Runtime is `modules/ratripal.py`; overnight exit handoff goes to ADITYA.
 
 ## 2) Upstream Source of Truth
 
-Break-even values are captured and confirmed in KAVACH, then persisted to deployment JSON and synced into runtime state.
+**KAVACH 2.0** provides the armed deployment (sell/buy strikes and qty). RATRIPAL computes fixed standard break-even from sell strikes:
 
-Expected deployment JSON source:
-1. data/deployments/batman_*.json
-2. risk.break_even.pe
-3. risk.break_even.ce
-4. risk.break_even.rounding_rule = nearest_50_tie_down
-5. risk.break_even.skipped
+1. CE fixed BE = `positions.ce_sell.strike + hedge_box.standard_break_even_offset_points` (default 200)
+2. PE fixed BE = `positions.pe_sell.strike − hedge_box.standard_break_even_offset_points` (default 200)
+3. Round to 50-pt grid (`nearest_50_tie_down` via `_round_to_strike`)
 
-Expected runtime state keys:
-1. risk.break_even.pe
-2. risk.break_even.ce
-3. risk.break_even.confirmed
-4. risk.break_even.skipped
+Legacy deployment fields `risk.break_even.*` may still exist from older Register flows but are **ignored** by RATRIPAL strike selection.
 
-RATRIPAL must consume these values and must not independently override user-confirmed break-even levels.
+ADITYA morning-exit reads the handoff CSV written by RATRIPAL:
+`data/analytics/hedge_box/aditya_handoff.csv`
+
 
 ## 3) Core Hedge Box Rules Captured So Far
 
@@ -169,7 +166,7 @@ This frame is now locked for runtime implementation:
 5. Green side mode means one strike inside on that side and standard on opposite side.
 6. If breached side has already engaged ATO hedge and override is enabled, carry engaged hedge on breached side.
 7. If breached side is outside short strike and ATO is not engaged, buy breach protection on that side.
-8. Standard hedge strike on a side equals confirmed break-even strike of that side.
+8. Standard hedge strike on a side equals fixed standard break-even strike of that side (sell ± 200).
 9. One-strike-inside mapping:
 	CE side inside strike = ce_break_even - strike_step.
 	PE side inside strike = pe_break_even + strike_step.
@@ -259,7 +256,7 @@ Proposed config section to add under settings:
 1. If only one side is eligible for Hedge Box action, the confirmation prompt must show only that side.
 2. Confirm, deny, and timeout behavior stays identical whether one side or both sides are shown.
 3. If broker execution or post-order verification fails for a Hedge Box buy, raise JAGRAN immediately and do not retry automatically.
-4. Only successfully executed and broker-verified buys are persisted to the PRABHAT MUKTI handoff CSV.
+4. Only successfully executed and broker-verified buys are persisted to the ADITYA handoff CSV.
 
 ## 8) Remaining Clarifications / Future Options
 
@@ -272,12 +269,12 @@ Implemented now:
 1. `modules/ratripal.py` computes Hedge Box side plans, waits for KAVACH confirm/deny for up to 2 minutes, auto-proceeds on timeout, and buys verified hedge orders.
 2. `bat_telegram/bots/kavach/bot.py` now sends Hedge Box prompts and records confirm/deny responses through inline buttons.
 3. `main.py` wires RATRIPAL into the active runtime.
-4. Verified buys are written to `data/analytics/hedge_box/prabhat_mukti_handoff.csv`.
+4. Verified buys are written to `data/analytics/hedge_box/aditya_handoff.csv`.
 5. Broker execution/verification failures raise KAVACH/JAGRAN incidents without retry.
 
 Still pending:
 1. Optional second-checkpoint support remains undecided and is not implemented.
-2. PRABHAT MUKTI exit module is still not coded; only the handoff CSV contract is implemented.
+2. ADITYA exit module is still not coded; only the handoff CSV contract is implemented.
 3. Simulator/manual validation of confirm, deny, timeout, and failure paths is still required.
 
 ## 8A) Final Question Set (Unresolved Only)
@@ -319,9 +316,9 @@ The following execution features are design-locked and must be implemented toget
 	- After placing Hedge Box buy orders, verify corresponding broker positions are actually present.
 	- Only verified buys are considered successful Hedge Box carries.
 
-2. RATRIPAL -> PRABHAT MUKTI handoff artifact:
+2. RATRIPAL -> ADITYA handoff artifact:
 	- RATRIPAL must create a dedicated handoff file for next-day exit workflow.
-	- File purpose: tell PRABHAT MUKTI which overnight hedges were bought and must be exited next session.
+	- File purpose: tell ADITYA which overnight hedges were bought and must be exited next session.
 	- Scope: include only successfully verified bought hedges.
 
 3. Telegram confirmation after successful buys:
@@ -329,7 +326,7 @@ The following execution features are design-locked and must be implemented toget
 	- Confirmation must identify the hedges bought for overnight protection.
 
 4. Failure behavior:
-	- If order is placed but broker verification fails, do not write it into PRABHAT MUKTI handoff as successful carry.
+	- If order is placed but broker verification fails, do not write it into ADITYA handoff as successful carry.
 	- Emit alert/exception message flow (final wording to be locked during implementation).
 
 5. Implementation timing lock:
@@ -349,10 +346,10 @@ The following execution features are design-locked and must be implemented toget
 	- If both sides are ineligible (for example both BE missing/skipped or 0DTE), do not send buy confirmation prompt for that cycle.
 	- This is an additional safety layer; final audit messages must record user response path: confirmed / timed_out_auto / denied.
 
-7. PRABHAT MUKTI handoff file format and write timing:
+7. ADITYA handoff file format and write timing:
 	- Handoff artifact format is CSV (user-facing and easy to inspect).
 	- Update/write handoff rows only after successful execution + broker verification.
-	- Handoff rows represent overnight hedges to be exited by PRABHAT MUKTI next morning.
+	- Handoff rows represent overnight hedges to be exited by ADITYA next morning.
 
 8. Deny behavior policy (HITL):
 	- If user taps deny/cancel in the 15:15 cycle, skip Hedge Box buys for that cycle/day.
@@ -382,9 +379,9 @@ The following execution features are design-locked and must be implemented toget
 ---
 
 Change log:
-1. 2026-05-10: Created dedicated Hedge Box design document with upstream KAVACH break-even dependency, DTE layering, sample scenario capture, config-first contract, and lock-pending questions.
+1. 2026-05-10: Created dedicated Hedge Box design document with upstream fixed sell-leg break-even dependency, DTE layering, sample scenario capture, config-first contract, and lock-pending questions.
 2. 2026-05-10: Added working principle, interim formula frame, default config values, and final-lock question set.
 3. 2026-05-10: Locked user-confirmed rules for White boundaries, inside-strike, ATO override, quantity source, side independence, and 0DTE no-action.
 4. 2026-05-10: Corrected DTE behavior lock: no holiday-driven DTE shifting for Hedge Box; Thursday keeps Thursday box set even if Friday is holiday.
 4. 2026-05-10: Added critical short-strike guardrail section and unresolved formula lock questions based on deep-box edge case explanation.
-5. 2026-05-10: Added pre-coding execution lock for broker-verified Hedge Box buys, RATRIPAL->PRABHAT MUKTI handoff file, and Telegram success confirmation flow.
+5. 2026-05-10: Added pre-coding execution lock for broker-verified Hedge Box buys, RATRIPAL->ADITYA handoff file, and Telegram success confirmation flow.

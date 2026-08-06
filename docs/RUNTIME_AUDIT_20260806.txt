@@ -1,0 +1,152 @@
+=== AUDIT rahul_Changes runtime leftovers ===
+host=KamaljiAlgo time=2026-08-06T13:28:29+05:30
+
+=== local_runtime.json ===
+{
+  "_comment": "VPS \u2014 runtime outside code tree",
+  "logs_root": "/home/ubuntu/Trading_Runtime/Logs",
+  "data_reports_root": "/home/ubuntu/Trading_Runtime/Data",
+  "secrets_root": "/home/ubuntu/Trading_Runtime/Credentials"
+}
+
+-rw-r--r-- 1 ubuntu ubuntu 231 Jul 28 00:17 config/local_runtime.json
+-rw-r--r-- 1 ubuntu ubuntu 231 Jul 28 00:17 kavach-2.0/config/local_runtime.json
+
+=== in-tree runtime-ish dirs (sizes) ===
+absent: logs
+absent: logs_uat
+absent: logs_prod
+12K	logs_runtime
+224K	data
+absent: data_runtime
+absent: secrets_runtime
+absent: credentials
+absent: Credentials
+252K	screenshots
+absent: Screenshots
+68K	uat/deployed_positions
+16K	daily_test_execution
+536K	Prod Data
+
+=== secret-like under code tree (paths only, max 80) ===
+./kavach-2.0/data/access_token.json
+./kavach-2.0/config/.env
+./kavach-2.0/telegram/bots/ratripal/token.env
+./kavach-2.0/telegram/bots/kavach2/token.env
+./kavach-2.0/Dhan/Fetch LTP Working Code 09 Apr 26/NIFTY LTP With Access token only 09 Mar 26/config/client_id.txt
+./data/access_token.json
+./config/.env
+./telegram/bots/jagran/token.env
+./telegram/bots/lakshmi/token.env
+./telegram/bots/kavach/token.env
+./telegram/bots/ratripal/token.env
+./telegram/bots/saransh/token.env
+./telegram/bots/drishti/token.env
+./Dhan/Fetch LTP Working Code 09 Apr 26/NIFTY LTP With Access token only 09 Mar 26/config/client_id.txt
+./GO/telegram/bots/go/token.env
+
+=== hardcoded /home or Desktop or Batman Executed in py/json (sample) ===
+./backtest_engine/fixtures/resolved/positions_resolved.json:3:  "fixture": "/home/ubuntu/Trading_Runtime/Data/data/uat/deployed_positions/positions.json",
+./kavach-2.0/core/state.py:146:        # Default / legacy relative path → mode-aware runtime (Trading_Runtime/Data/...)
+./kavach-2.0/core/uat_positions.py:39:    """Repo-relative books agents/docs still write by habit (not Trading_Runtime)."""
+./kavach-2.0/core/uat_positions.py:74:    """Overwrite repo-local uat/ copies from Trading_Runtime (one-way)."""
+./kavach-2.0/core/uat_positions.py:101:    """Make Trading_Runtime the only live book; absorb newer repo-local writes.
+./kavach-2.0/core/uat_positions.py:104:    while ShadowBroker/Register read ``Trading_Runtime/.../positions.json``. When those
+./kavach-2.0/core/uat_positions.py:135:                "(repo-local write was ahead of Trading_Runtime — this caused stale "
+./kavach-2.0/core/batman_mode.py:20:_EXECUTED_DATA_DIR = "Batman Executed Data"
+./kavach-2.0/core/batman_mode.py:111:    """Parent of Logs + Data and Reports (Desktop/Batman Executed Data)."""
+./kavach-2.0/core/batman_mode.py:160:    """External logs root (default: Desktop/Batman Executed Data/Logs)."""
+./kavach-2.0/core/batman_mode.py:330:    """Parent of Logs/Data/Credentials when using split Trading_Runtime layout."""
+./kavach-2.0/data/README.md:5:`%USERPROFILE%/Desktop/Batman-Runtime/data/`
+./kavach-2.0/scripts/migrate_runtime_off_repo.py:4:to Desktop/Batman Executed Data (Logs + Data and Reports) and Batman-Secrets.
+./kavach-2.0/scripts/migrate_to_executed_data.py:3:Move runtime from Desktop/Batman-Runtime to Desktop/Batman Executed Data.
+./kavach-2.0/scripts/migrate_to_executed_data.py:5:  Logs            -> Batman Executed Data/Logs
+./kavach-2.0/scripts/migrate_to_executed_data.py:6:  data + reports  -> Batman Executed Data/Data and Reports
+./kavach-2.0/scripts/migrate_to_executed_data.py:48:        description="Migrate Batman-Runtime -> Batman Executed Data folders"
+./kavach-2.0/scripts/migrate_to_executed_data.py:54:        help="Legacy runtime root (default: %%USERPROFILE%%/Desktop/Batman-Runtime)",
+./kavach-2.0/scripts/migrate_to_trading_runtime.py:3:One-time migration: copy in-repo logs/data/secrets into Trading_Runtime.
+./kavach-2.0/scripts/migrate_to_trading_runtime.py:22:TR_DEFAULT = Path("/home/kamalji0501e/Batman Algo Files/Trading_Runtime")
+./kavach-2.0/scripts/migrate_to_trading_runtime.py:74:    parser = argparse.ArgumentParser(description="Migrate runtime into Trading_Runtime")
+./kavach-2.0/scripts/migrate_to_trading_runtime.py:80:        help="Trading_Runtime root (default: Batman Algo Files/Trading_Runtime)",
+./kavach-2.0/scripts/migrate_to_trading_runtime.py:99:    print(f"Trading_Runtime: {tr}")
+./kavach-2.0/scripts/prune_repo_runtime.py:34:`%USERPROFILE%/Desktop/Batman Executed Data/Data and Reports/data/uat/deployed_positions/`
+./kavach-2.0/scripts/prune_repo_runtime.py:43:`%USERPROFILE%/Desktop/Batman Executed Data/Data and Reports/data/`
+./kavach-2.0/uat/deployed_positions/README.md:5:`%USERPROFILE%/Desktop/Batman Executed Data/Data and Reports/data/uat/deployed_positions/`
+./kavach-2.0/runtime_context.md:1:# Runtime Context — Trading_Runtime Separation
+./kavach-2.0/runtime_context.md:5:**Runtime root:** `/home/kamalji0501e/Batman Algo Files/Trading_Runtime`
+./kavach-2.0/runtime_context.md:13:**Goal:** distributable **application only**; everything generated at runtime lives under **Trading_Runtime**.
+./kavach-2.0/runtime_context.md:24:│   ├── config/local_runtime.json                 ← absolute paths → Trading_Runtime
+./kavach-2.0/runtime_context.md:29:└── Trading_Runtime/                              ← RUNTIME (outside code)
+./kavach-2.0/runtime_context.md:105:4. Optional: re-copy newer files from Trading_Runtime back into `logs_runtime`/`data_runtime` if needed.
+./kavach-2.0/runtime_context.md:109:## Moving Trading_Runtime later
+./kavach-2.0/runtime_context.md:112:2. `mv` or `rsync` the whole `Trading_Runtime` tree to the new location.  
+./kavach-2.0/runtime_context.md:124:| Runtime | `…/Batman Algo Files/Trading_Runtime` | `/home/ubuntu/Trading_Runtime` (proposed) |
+./kavach-2.0/runtime_context.md:151:- `MIGRATION_REPORT_Trading_Runtime.md`  
+./kavach-2.0/config/local_runtime.json:3:  "logs_root": "/home/ubuntu/Trading_Runtime/Logs",
+./kavach-2.0/config/local_runtime.json:4:  "data_reports_root": "/home/ubuntu/Trading_Runtime/Data",
+./kavach-2.0/config/local_runtime.json:5:  "secrets_root": "/home/ubuntu/Trading_Runtime/Credentials"
+./kavach-2.0/config/batman_mode.json:4:  "logs_root": "/home/ubuntu/Trading_Runtime/Logs",
+./kavach-2.0/config/batman_mode.json:5:  "data_reports_root": "/home/ubuntu/Trading_Runtime/Data",
+./kavach-2.0/config/batman_mode.json:6:  "secrets_root": "/home/ubuntu/Trading_Runtime/Credentials",
+./kavach-2.0/LOGGING_LAYOUT.md:5:- Logs: `%USERPROFILE%/Desktop/Batman Executed Data/Logs`  
+./kavach-2.0/LOGGING_LAYOUT.md:6:- Data + reports: `%USERPROFILE%/Desktop/Batman Executed Data/Data and Reports`  
+./kavach-2.0/LOGGING_LAYOUT.md:16:Desktop/Batman Executed Data/Logs/{mode}/runtime/YYYY-MM/YYYY-MM-DD/
+./kavach-2.0/LOGGING_LAYOUT.md:19:(e.g. UAT: `Batman Executed Data/Logs/uat/runtime/2026-07/2026-07-11/`)
+./kavach-2.0/AGENTS.md:105:| NIFTY LTP cache | `Desktop/Batman Executed Data/Data and Reports/data/shared/nifty_ltp_cache.json` |
+./kavach-2.0/AGENTS.md:106:| Runtime state | `Desktop/Batman Executed Data/Data and Reports/data/uat/batman_state.json` (UAT) |
+./kavach-2.0/AGENTS.md:107:| Access token | `Desktop/Batman Executed Data/Data and Reports/data/shared/access_token.json` |
+./kavach-2.0/AGENTS.md:108:| UAT logs | `Desktop/Batman Executed Data/Logs/uat/runtime/...` |
+./kavach-2.0/AGENTS.md:109:| Reports / Excel | `Desktop/Batman Executed Data/Data and Reports/reports/` |
+./kavach-2.0/docs/MULTI_DEV_SETUP.md:10:%USERPROFILE%\Desktop\Batman Executed Data\
+./kavach-2.0/docs/MULTI_DEV_SETUP.md:38:Defaults are in `config/batman_mode.json` (`%USERPROFILE%/Desktop/...`).
+./kavach-2.0/docs/MULTI_DEV_SETUP.md:72:| Today’s KAVACH log | `Desktop\Batman Executed Data\Logs\uat\runtime\YYYY-MM\YYYY-MM-DD\kavach\logs\all.log` |
+./kavach-2.0/docs/MULTI_DEV_SETUP.md:73:| UAT state / deployment | `Desktop\Batman Executed Data\Data and Reports\data\uat\` |
+./kavach-2.0/docs/MULTI_DEV_SETUP.md:74:| Sensibull book | `Desktop\Batman Executed Data\Data and Reports\data\uat\deployed_positions\` |
+./kavach-2.0/docs/MULTI_DEV_SETUP.md:75:| Daily test Excel | `Desktop\Batman Executed Data\Data and Reports\reports\daily_test_execution\` |
+./kavach-2.0/docs/MULTI_DEV_SETUP.md:76:| JWT | `Desktop\Batman Executed Data\Data and Reports\data\shared\access_token.json` |
+./kavach-2.0/NEW_CHAT_HANDOFF.md:7:`/home/kamalji0501e/Batman Algo Files/15 July 26 DEV Batman Algo/DEV Batman Algo`  
+./kavach-2.0/CONTEXT.md:1215:Desktop/Batman Executed Data/Logs/uat/runtime/2026-07/2026-07-11/kavach/logs/all.log
+
+=== large files >5MB under rahul_Changes (excl venv/git) ===
+./backtest_engine/cache/api-scrip-master-detailed_2026-07-31.csv
+./backtest_engine/cache/api-scrip-master-detailed_2026-07-30.csv
+./backtest_engine/cache/api-scrip-master-detailed_2026-08-01.csv
+./backtest_engine/cache/api-scrip-master-detailed_2026-07-29.csv
+./backtest_engine/cache/api-scrip-master-detailed_2026-07-28.csv
+./backtest_engine/cache/api-scrip-master-detailed_2026-08-03.csv
+./Dependencies\all_instrument 2026-07-16.csv
+./kavach-2.0/backtest_engine/cache/api-scrip-master-detailed_2026-07-31.csv
+./kavach-2.0/backtest_engine/cache/api-scrip-master-detailed_2026-07-30.csv
+./kavach-2.0/backtest_engine/cache/api-scrip-master-detailed_2026-08-01.csv
+./kavach-2.0/backtest_engine/cache/api-scrip-master-detailed_2026-07-29.csv
+./kavach-2.0/backtest_engine/cache/api-scrip-master-detailed_2026-07-28.csv
+./kavach-2.0/backtest_engine/cache/api-scrip-master-detailed_2026-08-03.csv
+./kavach-2.0/Dependencies\all_instrument 2026-07-16.csv
+./kavach-2.0/Dependencies/all_instrument 2026-07-11.csv
+./kavach-2.0/security_id_list.csv
+./kavach-2.0/Dependencies\all_instrument 2026-07-15.csv
+./kavach-2.0/Dependencies\all_instrument 2026-07-30.csv
+./Dependencies/all_instrument 2026-07-11.csv
+./security_id_list.csv
+./Dependencies\all_instrument 2026-07-21.csv
+./Dependencies\all_instrument 2026-07-28.csv
+./Dependencies\all_instrument 2026-07-25.csv
+./Dependencies\all_instrument 2026-07-15.csv
+./Dependencies\all_instrument 2026-07-23.csv
+./Dependencies\all_instrument 2026-07-31.csv
+./Dependencies\all_instrument 2026-07-27.csv
+./Dependencies\all_instrument 2026-07-17.csv
+./Dependencies\all_instrument 2026-07-30.csv
+./Dependencies\all_instrument 2026-07-19.csv
+
+=== Dependencies / instrument dumps ===
+total 26920
+drwxr-xr-x  3 ubuntu ubuntu     4096 Jul 31 09:25 .
+drwxr-xr-x 41 ubuntu ubuntu     4096 Aug  6 03:05 ..
+-rw-r--r--  1 ubuntu ubuntu 27437306 Jul 15 23:14 all_instrument 2026-07-11.csv
+drwxr-xr-x  2 ubuntu ubuntu     4096 Jul 31 11:04 log_files
+Dependencies\all_instrument 2026-07-15.csv
+Dependencies\all_instrument 2026-07-16.csv
+Dependencies\all_instrument 2026-07-17.csv
+Dependencies\all_instrument 2026-07-19.csv
+Dependencies\all_instrument 2026-07-21.csv

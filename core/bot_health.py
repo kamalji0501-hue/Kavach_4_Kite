@@ -20,7 +20,12 @@ _ROOT = Path(__file__).resolve().parent.parent
 
 
 def health_path(root: Path, bot: str) -> Path:
-    return root / "data" / "runtime" / bot.lower() / "health.json"
+    try:
+        from core.batman_mode import data_root
+
+        return data_root(root) / "runtime" / bot.lower() / "health.json"
+    except Exception:
+        return root / "data" / "runtime" / bot.lower() / "health.json"
 
 
 def write_bot_health(

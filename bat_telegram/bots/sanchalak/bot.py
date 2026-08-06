@@ -458,6 +458,18 @@ def build_application(broker=None, state=None, event_bus=None, config=None) -> A
         ).lower(),
     )
 
+    try:
+
+        from bat_telegram.update_audit import attach_update_audit
+
+        attach_update_audit(app)
+
+    except Exception as _audit_exc:
+
+        logging.getLogger(__name__).warning("update audit attach failed: %s", _audit_exc)
+
+    
+
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("start_all", cmd_start_all))
     app.add_handler(CommandHandler("stop_all", cmd_stop_all))

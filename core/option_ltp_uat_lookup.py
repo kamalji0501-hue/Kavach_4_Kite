@@ -121,6 +121,27 @@ def role_for_protect_symbol(symbol: str) -> str | None:
     return None
 
 
+def _strike_from_symbol(symbol: str) -> int | None:
+    """Parse NIFTY strike from symbols like ``NIFTY-Jul2026-24050-CE``."""
+    import re
+
+    match = re.search(r"(?:^|[-_])(\d{4,5})(?:[-_]?(?:CE|PE))?$", symbol.upper())
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
+    # Fallback: any 4–5 digit token in the symbol
+    for part in re.findall(r"\d{4,5}", symbol):
+        try:
+            value = int(part)
+            if 10000 <= value <= 80000:
+                return value
+        except ValueError:
+            continue
+    return None
+
+
 def lookup_protect_premium(
     *,
     symbol: str,
@@ -128,22 +149,44 @@ def lookup_protect_premium(
     replay_market_time: datetime | time | None,
     day: datetime | None = None,
 ) -> float | None:
-    """Return protect-leg premium at replay market time, or None if unavailable."""
+    """Return protect-leg premium at replay/wall-clock market time, or None.
+
+    Preference order for quote keys:
+    1. Strike-specific ``ce_24050`` / ``pe_23800`` (excel / multi-strike logs)
+    2. Role ``ce_protect`` / ``pe_protect`` (ATO protect audit logs)
+
+    When ``replay_market_time`` is None, uses current IST wall clock so live UAT
+    can fall back to DRISHTI option_ltp audit when Dhan REST is 429/unavailable.
+    """
     role = role_for_protect_symbol(symbol)
-    if not role or replay_market_time is None:
+    if not role:
         return None
-    path = resolve_option_ltp_log_path(root, day=day)
+    market_t = replay_market_time
+    if market_t is None:
+        market_t = datetime.now(_IST)
+    path = resolve_option_ltp_log_path(root, day=day or (
+        market_t if isinstance(market_t, datetime) else datetime.now(_IST)
+    ))
     if path is None:
         return None
     ticks = load_option_ltp_ticks(str(path.resolve()))
-    quotes = lookup_quotes_at(ticks, replay_market_time)
+    quotes = lookup_quotes_at(ticks, market_t)
     if not quotes:
         return None
-    raw = quotes.get(role)
-    if raw is None:
-        return None
-    value = float(raw)
-    return value if value > 0 else None
+    strike = _strike_from_symbol(symbol)
+    candidates: list[str] = []
+    if strike is not None:
+        prefix = "ce" if role.startswith("ce") else "pe"
+        candidates.append(f"{prefix}_{strike}")
+    candidates.append(role)
+    for key in candidates:
+        raw = quotes.get(key)
+        if raw is None:
+            continue
+        value = float(raw)
+        if value > 0:
+            return value
+    return None
 
 
 def replay_market_time_from_cache(root: Path | None = None) -> datetime | None:

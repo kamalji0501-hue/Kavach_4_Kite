@@ -58,6 +58,11 @@ _TOKEN_WATCH_STOP: threading.Event | None = None
 
 def _configure_logging() -> None:
     configure_bot_logging(workspace_root=ROOT, bot_name="kavach")
+    try:
+        from core.money_audit import audit
+        audit("kavach.boot", runner=str(Path(__file__).name), root=str(ROOT))
+    except Exception:
+        pass
 
 
 def _load_dhan_client_code() -> str:

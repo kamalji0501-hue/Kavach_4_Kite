@@ -345,6 +345,13 @@ class NiftyLtpWebSocketFeedService:
 
                         self._log_writer.append_tick(now, ltp)
 
+                    try:
+                        from core.ato_nifty_tick_csv import record_nifty_tick
+
+                        record_nifty_tick(now, float(ltp), source="nifty_ws")
+                    except Exception:
+                        pass
+
             except asyncio.CancelledError:
 
                 raise

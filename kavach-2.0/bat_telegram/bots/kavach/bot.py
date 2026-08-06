@@ -88,9 +88,11 @@ from telegram import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, 
 logger = logging.getLogger("batman.kavach")
 
 # ── Deployment paths ──────────────────────────────────────────────────────────
-_DEPLOY_DIR = Path("data/deployments")
-_ARCHIVE_DIR = Path("data/deployments/archive")
-_DEPLOY_LOG = Path("data/deployments/deploy_log.jsonl")
+from core.batman_mode import data_root as _batman_data_root  # noqa: E402
+
+_DEPLOY_DIR = _batman_data_root() / "deployments"
+_ARCHIVE_DIR = _DEPLOY_DIR / "archive"
+_DEPLOY_LOG = _DEPLOY_DIR / "deploy_log.jsonl"
 _AUDIT_ROOT = Path.home() / "Desktop" / "batman execution"
 
 # ── Wizard conversation states (legacy BE/buffer constants kept for future release) ──

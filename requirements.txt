@@ -3,6 +3,7 @@
 
 # Broker
 Dhan-Tradehull>=3.2.0          # Dhan broker API wrapper (pin_totp auto-auth)
+pyotp>=2.9.0                    # Dhan PIN/TOTP (Tradehull pin_totp)
 dhanhq==2.2.0rc1               # NIFTY LTP websocket feed (Phase 1)
 
 # Telegram

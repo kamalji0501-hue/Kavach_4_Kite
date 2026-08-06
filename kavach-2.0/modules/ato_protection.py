@@ -64,6 +64,22 @@ from core.deployment_lock import DeploymentLockBusy, deployment_session
 from core.event_bus import Event
 from core.module_base import ModuleBase
 from core.nifty_ltp_feed import consumer_max_age_for_trading, resolve_nifty_ltp_from_cache
+
+try:
+    from core.money_audit import audit, audit_span, new_correlation_id
+except Exception:  # pragma: no cover
+    def audit(*_a, **_k):  # type: ignore
+        return None
+
+    def new_correlation_id(prefix: str = "c") -> str:  # type: ignore
+        return prefix
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def audit_span(event, **fields):  # type: ignore
+        yield dict(fields)
+
 from core.positions import build_ato_protect_symbol
 from core.saransh_paths import ato_analytics_dir, legacy_telemetry_csv_path
 
@@ -291,6 +307,10 @@ class ATOProtection(ModuleBase):
         self._book_recovery_notified: bool = False
         self._consecutive_ltp_failures: int = 0
         self._ltp_failure_alerted: bool = False
+        self._last_replay_market_time = None
+        self._ce_exit_streak: int = 0
+        self._pe_exit_streak: int = 0
+        self._cross_side_gap_warned: bool = False
 
         self._startup_scan()
 
@@ -388,6 +408,153 @@ class ATOProtection(ModuleBase):
         self._consecutive_ltp_failures = 0
         return Decimal(str(spot))
 
+    def _replay_market_time_from_cache(self):
+        """UAT replay clock from DRISHTI cache, or None for live."""
+        from datetime import datetime
+
+        from core.nifty_ltp_feed import read_nifty_ltp_cache
+
+        snap = read_nifty_ltp_cache()
+        raw = getattr(snap, "replay_market_time", None) if snap is not None else None
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(str(raw))
+        except (TypeError, ValueError):
+            return None
+
+    def _should_skip_for_replay_jump(self) -> bool:
+        """Skip entry/exit when UAT replay leaps (loop reset / file seek).
+
+        At 3x with 1-minute ticks, normal polls advance ~1–2 minutes of market
+        time. A jump of several minutes (or hours on loop) is not a real
+        retrace — it caused false CE exits (user saw 14:42/24260 on DRISHTI
+        while ATO exited on post-loop 09:15/24187).
+        """
+        import time as time_mod
+
+        now_mkt = self._replay_market_time_from_cache()
+        last = getattr(self, "_last_replay_market_time", None)
+        self._last_replay_market_time = now_mkt
+        if now_mkt is None or last is None:
+            return False
+        delta = (now_mkt - last).total_seconds()
+        abs_delta = abs(delta)
+        max_jump = 180  # 3 minutes of market time
+        if abs_delta <= max_jump:
+            return False
+        self._ce_exit_streak = 0
+        self._pe_exit_streak = 0
+        # Hold ATO frozen long enough that 2-poll exit confirm cannot fire on
+        # the first morning ticks after an EOD→open loop.
+        self._replay_resync_until = time_mod.monotonic() + 60.0
+        # Backfill entry clock from pre-jump time so an already-open ATO
+        # (no stamp yet) cannot exit on morning open after a loop rewind.
+        if delta < 0 and last is not None:
+            for side in ("ce", "pe"):
+                if self.state.get(f"ato.{side}_ato_active") and not self.state.get(
+                    f"ato.{side}_entry_replay_market_time"
+                ):
+                    self.state.set(
+                        f"ato.{side}_entry_replay_market_time",
+                        last.isoformat(),
+                    )
+        direction = "backward (loop)" if delta < 0 else "forward (seek)"
+        self.log.warning(
+            "ATO skip — UAT replay market time jumped %.0fs %s (%s → %s); "
+            "freezing entry/exit for 60s wall-clock",
+            abs_delta,
+            direction,
+            last.isoformat(timespec="seconds"),
+            now_mkt.isoformat(timespec="seconds"),
+        )
+        return True
+
+    def _in_replay_resync(self) -> bool:
+        import time as time_mod
+
+        until = float(getattr(self, "_replay_resync_until", 0.0) or 0.0)
+        return time_mod.monotonic() < until
+
+    def _record_side_entry_replay_time(self, side: str) -> None:
+        """Stamp UAT replay clock when ATO opens — blocks exit after a loop reset."""
+        mkt = self._replay_market_time_from_cache()
+        key = f"ato.{side.lower()}_entry_replay_market_time"
+        if mkt is None:
+            self.state.set(key, None)
+            return
+        self.state.set(key, mkt.isoformat())
+
+    def _exit_blocked_by_replay_loop(self, side: str) -> bool:
+        """True when replay clock went backward vs this side's entry time.
+
+        Example: CE entered at replay 14:10 / spot 24240; file loops to 09:15 /
+        24166. Spot ≤ exit looks like a retrace, but market time rewound — not a
+        real session retrace. User still sees last DRISHTI card (~14:42/24260).
+        """
+        raw = self.state.get(f"ato.{side.lower()}_entry_replay_market_time")
+        if not raw:
+            return False
+        now_mkt = self._replay_market_time_from_cache()
+        if now_mkt is None:
+            return False
+        from datetime import datetime
+
+        try:
+            entered = datetime.fromisoformat(str(raw))
+        except (TypeError, ValueError):
+            return False
+        if now_mkt.tzinfo is None and entered.tzinfo is not None:
+            now_mkt = now_mkt.replace(tzinfo=entered.tzinfo)
+        if entered.tzinfo is None and now_mkt.tzinfo is not None:
+            entered = entered.replace(tzinfo=now_mkt.tzinfo)
+        if now_mkt >= entered:
+            return False
+        self.log.warning(
+            "%s exit blocked — UAT replay rewound (%s → %s); "
+            "not a real retrace vs entry clock. Holding ATO until replay "
+            "passes entry time again.",
+            side,
+            entered.isoformat(timespec="seconds"),
+            now_mkt.isoformat(timespec="seconds"),
+        )
+        return True
+
+    def _apply_cross_side_level_gap(
+        self,
+        ce_settings: dict[str, Any] | None,
+        pe_settings: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """Warn when PE entry sits inside the CE exit band — never rewrite levels.
+
+        Operator Buffer Manager / Register NIFTY levels are authoritative. Silently
+        clamping PE entry (old ``ce_exit − 5`` rule) made ATO Status and the engine
+        fire at a different level than Buffer Manager showed.
+        """
+        if not ce_settings or not pe_settings:
+            return ce_settings, pe_settings
+        gap = Decimal("5")
+        ce_exit = Decimal(str(ce_settings["exit_level"]))
+        pe_trig = Decimal(str(pe_settings["trigger_level"]))
+        if pe_trig > ce_exit - gap and not getattr(self, "_cross_side_gap_warned", False):
+            self._cross_side_gap_warned = True
+            self.log.warning(
+                "ATO cross-side note — PE entry %s is within %s pts of CE exit %s; "
+                "keeping operator levels (Buffer Manager is source of truth). "
+                "Widen CE exit or lower PE entry in Buffer Manager if undesired.",
+                pe_trig,
+                gap,
+                ce_exit,
+            )
+        return ce_settings, pe_settings
+
+    def _exit_confirm_polls(self) -> int:
+        cfg_ato = self.config.get("ato", {}) if isinstance(self.config, dict) else {}
+        try:
+            return max(1, int(cfg_ato.get("exit_confirm_polls", 2)))
+        except (TypeError, ValueError):
+            return 2
+
     def _maybe_alert_ltp_failures(self, cfg_ato: dict[str, Any]) -> None:
         threshold = int(cfg_ato.get("ltp_failure_alert_threshold", 5))
         failures = getattr(self, "_consecutive_ltp_failures", 0)
@@ -444,31 +611,221 @@ class ATOProtection(ModuleBase):
         side: str,
         product: str,
     ) -> str:
-        """ATO protect entry/exit — SEBI-safe marketable LIMIT (not MARKET)."""
+        """ATO protect entry/exit — SEBI-safe marketable LIMIT (not MARKET).
+
+        If ``self.order_manager`` is attached, punch via backend Place Order
+        workflow immediately (no Telegram questions). Otherwise keep legacy
+        broker.place_aggressive_limit / place_market_order path.
+        """
+        corr = new_correlation_id("ato")
+        om = getattr(self, "order_manager", None)
+        try:
+            mode = getattr(om, "mode", None) if om is not None else None
+            audit(
+                "ato.order_sink.decision",
+                corr=corr,
+                via="order_manager" if om is not None else "legacy_broker",
+                om_mode=mode,
+                symbol=str(symbol),
+                qty=int(qty),
+                side=str(side),
+                product=str(product),
+            )
+            self.log.info(
+                "ATO order sink via=%s om_mode=%s symbol=%s side=%s qty=%s corr=%s",
+                "order_manager" if om is not None else "legacy_broker",
+                mode,
+                symbol,
+                side,
+                qty,
+                corr,
+            )
+        except Exception:
+            pass
+        audit(
+            "ato.place_aggressive.request",
+            corr=corr,
+            symbol=str(symbol),
+            qty=int(qty),
+            side=str(side),
+            product=str(product),
+            via="order_manager" if om is not None else "legacy_broker",
+        )
+        if om is not None:
+            with audit_span(
+                "ato.place_aggressive.om",
+                corr=corr,
+                symbol=str(symbol),
+                qty=int(qty),
+                side=str(side),
+                product=str(product),
+            ) as span:
+                oid = str(
+                    om.punch_ato(
+                        symbol=symbol,
+                        qty=int(qty),
+                        side=side,
+                        product=product,
+                        reason="ato_protect",
+                    )
+                )
+                span["order_id"] = oid
+                self.log.info(
+                    "ATO punch via OrderManager symbol=%s side=%s qty=%s product=%s id=%s corr=%s",
+                    symbol,
+                    side,
+                    qty,
+                    product,
+                    oid,
+                    corr,
+                )
+                return oid
         op = self._operator_settings()
         place = getattr(self.broker, "place_aggressive_limit", None)
         if callable(place):
-            return str(
-                place(
+            with audit_span(
+                "ato.place_aggressive.broker_limit",
+                corr=corr,
+                symbol=str(symbol),
+                qty=int(qty),
+                side=str(side),
+                product=str(product),
+                buffer_pct=float(op.get("limit_buffer_pct", 10.0)),
+                chase_timeout_sec=float(op.get("limit_chase_timeout_sec", 45.0)),
+            ) as span:
+                oid = str(
+                    place(
+                        symbol=symbol,
+                        qty=qty,
+                        side=side,
+                        buffer_pct=float(op.get("limit_buffer_pct", 10.0)),
+                        tick_size=float(op.get("limit_tick_size", 0.05)),
+                        chase_timeout_sec=float(op.get("limit_chase_timeout_sec", 45.0)),
+                        chase_interval_sec=float(op.get("limit_chase_interval_sec", 5.0)),
+                        trade_type=product,
+                    )
+                )
+                span["order_id"] = oid
+                self.log.info(
+                    "ATO punch via broker.place_aggressive_limit symbol=%s side=%s qty=%s id=%s corr=%s",
+                    symbol,
+                    side,
+                    qty,
+                    oid,
+                    corr,
+                )
+                return oid
+        # Legacy test doubles without place_aggressive_limit.
+        with audit_span(
+            "ato.place_aggressive.broker_market_legacy",
+            corr=corr,
+            symbol=str(symbol),
+            qty=int(qty),
+            side=str(side),
+            product=str(product),
+        ) as span:
+            oid = str(
+                self.broker.place_market_order(
                     symbol=symbol,
                     qty=qty,
                     side=side,
-                    buffer_pct=float(op.get("limit_buffer_pct", 10.0)),
-                    tick_size=float(op.get("limit_tick_size", 0.05)),
-                    chase_timeout_sec=float(op.get("limit_chase_timeout_sec", 45.0)),
-                    chase_interval_sec=float(op.get("limit_chase_interval_sec", 5.0)),
                     trade_type=product,
                 )
             )
-        # Legacy test doubles without place_aggressive_limit.
-        return str(
-            self.broker.place_market_order(
+            span["order_id"] = oid
+            self.log.warning(
+                "ATO punch via LEGACY place_market_order symbol=%s side=%s qty=%s id=%s corr=%s",
+                symbol,
+                side,
+                qty,
+                oid,
+                corr,
+            )
+            return oid
+
+    def _maybe_exit_dyn_hedge(self, side: str) -> None:
+        """Exit the side's 30% dynamic hedge once on first ATO trigger of the day.
+
+        Full qty of ``positions.{pe|ce}_dyn_hedge`` — no re-entry.
+        Requires ``dyn_hedge.exit_enabled`` (operator Yes on menu).
+        """
+        from datetime import date
+
+        side_u = str(side).upper()
+        prefix = "pe" if side_u == "PE" else "ce"
+        if not bool(self.state.get("dyn_hedge.exit_enabled", False)):
+            self.log.info(
+                "30%% dynamic hedge skip side=%s — exit_enabled=False "
+                "(enable via KAVACH 2.0 menu 🛡 or re-Register with dyn legs)",
+                side_u,
+            )
+            return
+        today = date.today().isoformat()
+        exited_key = f"dyn_hedge.{prefix}_exited_date"
+        if str(self.state.get(exited_key) or "") == today:
+            self.log.info(
+                "30%% dynamic hedge skip side=%s — already exited today (%s)",
+                side_u,
+                today,
+            )
+            return
+        leg = self.state.get(f"positions.{prefix}_dyn_hedge")
+        if not isinstance(leg, dict):
+            self.log.info(
+                "30%% dynamic hedge skip side=%s — no positions.%s_dyn_hedge leg",
+                side_u,
+                prefix,
+            )
+            return
+        symbol = str(leg.get("symbol") or "").strip()
+        qty = abs(int(leg.get("qty") or 0))
+        if not symbol or qty <= 0:
+            self.log.info(
+                "30%% dynamic hedge skip side=%s — blank symbol or qty<=0 "
+                "(symbol=%r qty=%s)",
+                side_u,
+                symbol,
+                qty,
+            )
+            return
+        product = self.config.get("strategy.product_type", "MARGIN")
+        try:
+            order_id = self._place_ato_aggressive_limit(
                 symbol=symbol,
                 qty=qty,
-                side=side,
-                trade_type=product,
+                side="SELL",
+                product=product,
             )
+        except Exception as exc:
+            self.log.error(
+                "30%% dynamic hedge exit FAILED side=%s symbol=%s qty=%d: %s",
+                side_u,
+                symbol,
+                qty,
+                exc,
+            )
+            return
+        self.state.set(exited_key, today)
+        self.log.info(
+            "30%% dynamic hedge exited: side=%s symbol=%s qty=%d order=%s",
+            side_u,
+            symbol,
+            qty,
+            order_id,
         )
+        try:
+            self.events.publish(
+                Event.DYN_HEDGE_EXITED,
+                {
+                    "symbol": symbol,
+                    "qty": qty,
+                    "order_id": order_id,
+                    "reason": "dyn_hedge_first_ato",
+                    "side": side_u,
+                },
+            )
+        except Exception as exc:
+            self.log.warning("dyn hedge exit notify publish failed: %s", exc)
 
     def _manual_protect_adopt_enabled(self) -> bool:
         """Q81/26A adopt path — operator can disable via config/settings.json → ato."""
@@ -612,33 +969,45 @@ class ATOProtection(ModuleBase):
             self.state.get(f"ato.{side.lower()}_retrace_points", legacy_retrace)
         )
         strike = Decimal(sell_strike)
+        min_hyst = Decimal("1")
         if side == "CE":
             trigger_level = strike + entry_buffer
             exit_level = strike - retrace_points
-            # Negative entry can place exit above trigger → enter-then-immediate-exit risk.
+            # Exit must be strictly below entry or we exit before/at trigger.
             if exit_level >= trigger_level:
-                self.log.warning(
-                    "ATO hysteresis warn CE: sell=%s entry_buf=%s exit_buf=%s "
-                    "→ trigger=%s exit=%s (exit ≥ trigger; may whipsaw)",
-                    sell_strike,
-                    entry_buffer,
-                    retrace_points,
-                    trigger_level,
-                    exit_level,
-                )
+                fixed = trigger_level - min_hyst
+                if not getattr(self, "_hyst_fix_ce", False):
+                    self._hyst_fix_ce = True
+                    self.log.warning(
+                        "ATO hysteresis FIX CE: sell=%s entry_buf=%s exit_buf=%s "
+                        "→ trigger=%s exit %s→%s (exit must be < trigger)",
+                        sell_strike,
+                        entry_buffer,
+                        retrace_points,
+                        trigger_level,
+                        exit_level,
+                        fixed,
+                    )
+                exit_level = fixed
         else:
             trigger_level = strike - entry_buffer
             exit_level = strike + retrace_points
+            # Exit must be strictly above entry or we exit while still in entry zone.
             if exit_level <= trigger_level:
-                self.log.warning(
-                    "ATO hysteresis warn PE: sell=%s entry_buf=%s exit_buf=%s "
-                    "→ trigger=%s exit=%s (exit ≤ trigger; may whipsaw)",
-                    sell_strike,
-                    entry_buffer,
-                    retrace_points,
-                    trigger_level,
-                    exit_level,
-                )
+                fixed = trigger_level + min_hyst
+                if not getattr(self, "_hyst_fix_pe", False):
+                    self._hyst_fix_pe = True
+                    self.log.warning(
+                        "ATO hysteresis FIX PE: sell=%s entry_buf=%s exit_buf=%s "
+                        "→ trigger=%s exit %s→%s (exit must be > trigger)",
+                        sell_strike,
+                        entry_buffer,
+                        retrace_points,
+                        trigger_level,
+                        exit_level,
+                        fixed,
+                    )
+                exit_level = fixed
         return {
             "entry_buffer": entry_buffer,
             "retrace_points": retrace_points,
@@ -793,19 +1162,43 @@ class ATOProtection(ModuleBase):
     def _resolve_option_premium(
         self, symbol: str | None, order_id: str | None = None, *, spot: float | None = None
     ) -> float | None:
-        """Live/UAT option premium: prefer order fill, else market quote LTP.
+        """Live/UAT option premium: prefer DRISHTI audit, then order fill, then quote.
 
-        In UAT, if both fail, use a reporting-only fallback so SARANSH Buy/Sell
-        columns are never blank (does not change order placement).
+        Never invents synthetic premiums (old intrinsic+5 / 5.00 floor) — missing
+        values stay None so SARANSH can show blank rather than fake Buy/Sell.
         """
+        _ = spot  # call-site compatibility; audit uses market clock
         fill = self._fill_price_from_order(order_id)
-        if fill is not None:
+        # UAT: prefer DRISHTI option_ltp audit (replay clock or live wall clock)
+        # over sticky REST/fill prices — otherwise Buy/Sell collapse to the same
+        # number (observed: entry fill 42.0 kept on exit while pe_protect≈37.85).
+        try:
+            from core.batman_mode import is_uat
+            from core.option_ltp_uat_lookup import (
+                lookup_protect_premium,
+                replay_market_time_from_cache,
+            )
+
+            if is_uat(_ROOT) and symbol:
+                replay_t = replay_market_time_from_cache(_ROOT)
+                audit_px = lookup_protect_premium(
+                    symbol=symbol,
+                    root=_ROOT,
+                    replay_market_time=replay_t,
+                    day=replay_t,
+                )
+                if audit_px is not None and audit_px > 0:
+                    return float(audit_px)
+        except Exception as exc:
+            self.log.debug("Option_ltp audit premium lookup failed: %s", exc)
+
+        if fill is not None and float(fill) > 0 and abs(float(fill) - 5.0) > 1e-9:
             return fill
         if not symbol:
-            return None
+            return fill if fill is not None else None
         strike, opt = _parse_protect_strike_opt(symbol)
         if not strike or not opt:
-            return None
+            return fill if fill is not None else None
         getter = getattr(self.broker, "get_nifty_option_ltps", None)
         if callable(getter):
             try:
@@ -826,31 +1219,22 @@ class ATOProtection(ModuleBase):
             except Exception as exc:
                 self.log.debug("Option premium quote failed for %s: %s", symbol, exc)
 
-        # UAT shadow: never leave SARANSH Buy/Sell empty when quotes are unavailable.
+        # UAT: try wall-clock audit once more before giving up (no synthetic floor).
         try:
             from core.batman_mode import is_uat
+            from core.option_ltp_uat_lookup import lookup_protect_premium
 
-            if is_uat(_ROOT):
-                from backtest_engine.shadow.order_ledger import _uat_fallback_premium
-
-                px = float(spot) if spot and spot > 0 else None
-                if px is None:
-                    get_spot = getattr(self.broker, "get_nifty_ltp", None)
-                    if callable(get_spot):
-                        try:
-                            px = float(get_spot())
-                        except Exception:
-                            px = None
-                estimated = _uat_fallback_premium(symbol, spot=px)
-                self.log.warning(
-                    "ATO premium unresolved for %s — UAT fallback %.2f for SARANSH",
-                    symbol,
-                    estimated,
+            if is_uat(_ROOT) and symbol:
+                audit_px = lookup_protect_premium(
+                    symbol=symbol, root=_ROOT, replay_market_time=None
                 )
-                return estimated
+                if audit_px is not None and audit_px > 0:
+                    return float(audit_px)
         except Exception as exc:
-            self.log.debug("UAT premium fallback failed: %s", exc)
-        return None
+            self.log.debug("Live option_ltp audit fallback failed: %s", exc)
+
+        # Do not invent premiums (old intrinsic+5 / 5.00 floor) — SARANSH shows blank.
+        return fill if fill is not None else None
 
     def _ensure_ledger_state(self) -> None:
         if not hasattr(self, "_open_ato_entries"):
@@ -892,6 +1276,7 @@ class ATOProtection(ModuleBase):
         }
         prefix = side.lower()
         self.state.set(f"ato.{prefix}_entry_option_premium", buy_premium, save=False)
+        self._record_side_entry_replay_time(side)
         lot_size = int(self.config.get("strategy.lot_size", 65))
         lots = float(qty) / float(lot_size) if lot_size > 0 else 0.0
         try:
@@ -1071,6 +1456,7 @@ class ATOProtection(ModuleBase):
                 sell_nifty_ltp=float(spot),
                 lots=round(lots, 2),
                 timestamp_ist=row["sell_timestamp_ist"],
+                buy_timestamp_ist=row.get("buy_timestamp_ist") or None,
                 deployment_file=row["deployment_file"],
                 root=_ROOT,
                 buy_option_premium=buy_premium,
@@ -1164,18 +1550,24 @@ class ATOProtection(ModuleBase):
     def _validate_broker_positions(
         self, dep: dict[str, Any]
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """Compare deployment file positions against live broker positions.
+        """Compare deployment core legs against live broker positions.
 
-        Returns:
-            confirmed — list of leg dicts that are confirmed open at broker
-            missing   — list of leg dicts that are NOT found at broker
+        Only the iron-condor core 4 (pe_buy/pe_sell/ce_buy/ce_sell) are required.
+        Margin / 30% dyn hedge legs are optional — they may be exited intentionally
+        and must not clear deployment.confirmed on restart.
         """
+        _CORE_ROLES = ("pe_buy", "pe_sell", "ce_buy", "ce_sell")
         try:
             broker_df = self.broker.get_positions()
         except Exception as exc:
             self.log.error("ATO restore: broker position fetch failed — %s", exc)
-            missing_legs = list(cast(dict[str, Any], dep.get("positions", {})).values())
-            return [], cast(list[dict[str, Any]], missing_legs)
+            positions = cast(dict[str, Any], dep.get("positions", {}))
+            missing_legs = [
+                {"role": role, **leg}
+                for role in _CORE_ROLES
+                if isinstance((leg := positions.get(role)), dict) and leg
+            ]
+            return [], missing_legs
 
         broker_symbols: set[str] = set()
         if broker_df is not None and not broker_df.empty:
@@ -1186,7 +1578,9 @@ class ATOProtection(ModuleBase):
 
         confirmed: list[dict[str, Any]] = []
         missing: list[dict[str, Any]] = []
-        for role, leg in dep.get("positions", {}).items():
+        positions = cast(dict[str, Any], dep.get("positions", {}))
+        for role in _CORE_ROLES:
+            leg = positions.get(role)
             if not leg:
                 continue
             sym = leg.get("symbol", "")
@@ -1807,6 +2201,9 @@ class ATOProtection(ModuleBase):
             self._maybe_alert_ltp_failures(self.config.get("ato", {}))
             return
 
+        if self._should_skip_for_replay_jump() or self._in_replay_resync():
+            return
+
         self._apply_resume_reevaluate_flags()
 
         sym_qty, had_book_failure = self._read_symbol_qty_with_retry()
@@ -1828,6 +2225,7 @@ class ATOProtection(ModuleBase):
         pe_ato_active = self.state.get("ato.pe_ato_active", False)
         ce_settings = self._side_settings("CE", ce_strike) if ce_sell else None
         pe_settings = self._side_settings("PE", pe_strike) if pe_sell else None
+        ce_settings, pe_settings = self._apply_cross_side_level_gap(ce_settings, pe_settings)
         self._update_reentry_clearance("CE", float(spot), ce_settings)
         self._update_reentry_clearance("PE", float(spot), pe_settings)
 
@@ -1856,7 +2254,88 @@ class ATOProtection(ModuleBase):
         ce_book_qty = sym_qty.get(str(ce_protect_sym or ""), 0) if ce_protect_sym else 0
         pe_book_qty = sym_qty.get(str(pe_protect_sym or ""), 0) if pe_protect_sym else 0
 
-        # ── CE side ──────────────────────────────────────────
+        exited_ce_this_poll = False
+        exited_pe_this_poll = False
+        need_exit_polls = self._exit_confirm_polls()
+
+        # ── Exits first (both sides) — then entries ───────────
+        if (
+            ce_sell
+            and manage_sides in ("ce", "both")
+            and ce_settings
+            and not is_side_halted(self.state, "CE")
+            and ce_ato_active
+            and ce_strike
+        ):
+            if self._exit_blocked_by_replay_loop("CE"):
+                self._ce_exit_streak = 0
+            else:
+                ce_exit_hit = bool(spot <= ce_settings["exit_level"])
+                if ce_exit_hit:
+                    self._ce_exit_streak = getattr(self, "_ce_exit_streak", 0) + 1
+                else:
+                    self._ce_exit_streak = 0
+                if ce_exit_hit and self._ce_exit_streak >= need_exit_polls:
+                    self.log.info(
+                        "↩ CE RETRACE — Spot %s ≤ CE retrace exit %s "
+                        "(confirmed %s/%s polls) → exiting ATO",
+                        spot,
+                        ce_settings["exit_level"],
+                        self._ce_exit_streak,
+                        need_exit_polls,
+                    )
+                    self._exit_ce_ato(float(spot), ce_strike, ce_settings)
+                    exited_ce_this_poll = True
+                    ce_ato_active = False
+                    self._ce_exit_streak = 0
+                elif ce_exit_hit:
+                    self.log.info(
+                        "CE retrace pending — Spot %s ≤ exit %s (%s/%s polls)",
+                        spot,
+                        ce_settings["exit_level"],
+                        self._ce_exit_streak,
+                        need_exit_polls,
+                    )
+
+        if (
+            pe_sell
+            and manage_sides in ("pe", "both")
+            and pe_settings
+            and not is_side_halted(self.state, "PE")
+            and pe_ato_active
+            and pe_strike
+        ):
+            if self._exit_blocked_by_replay_loop("PE"):
+                self._pe_exit_streak = 0
+            else:
+                pe_exit_hit = bool(spot >= pe_settings["exit_level"])
+                if pe_exit_hit:
+                    self._pe_exit_streak = getattr(self, "_pe_exit_streak", 0) + 1
+                else:
+                    self._pe_exit_streak = 0
+                if pe_exit_hit and self._pe_exit_streak >= need_exit_polls:
+                    self.log.info(
+                        "↩ PE RETRACE — Spot %s ≥ PE retrace exit %s "
+                        "(confirmed %s/%s polls) → exiting ATO",
+                        spot,
+                        pe_settings["exit_level"],
+                        self._pe_exit_streak,
+                        need_exit_polls,
+                    )
+                    self._exit_pe_ato(float(spot), pe_strike, pe_settings)
+                    exited_pe_this_poll = True
+                    pe_ato_active = False
+                    self._pe_exit_streak = 0
+                elif pe_exit_hit:
+                    self.log.info(
+                        "PE retrace pending — Spot %s ≥ exit %s (%s/%s polls)",
+                        spot,
+                        pe_settings["exit_level"],
+                        self._pe_exit_streak,
+                        need_exit_polls,
+                    )
+
+        # ── CE entry ─────────────────────────────────────────
         if (
             ce_sell
             and manage_sides in ("ce", "both")
@@ -1864,13 +2343,13 @@ class ATOProtection(ModuleBase):
             and not is_side_halted(self.state, "CE")
         ):
             ce_breach = bool(ce_strike and spot >= ce_settings["trigger_level"])
-            # Only a long protect blocks entry (short ledger phantoms must not).
             ce_has_long_protect = ce_book_qty > 0
             if (
                 ce_breach
                 and not ce_has_long_protect
                 and not self.state.get("ato.ce_awaiting_clearance", False)
                 and (not ce_triggered or (ce_triggered and not ce_ato_active))
+                and not exited_pe_this_poll
             ):
                 trigger_reason = (
                     "buffer_trigger_hit"
@@ -1891,15 +2370,8 @@ class ATOProtection(ModuleBase):
                     ce_book_qty,
                     ce_protect_sym,
                 )
-            elif ce_ato_active and ce_strike and spot <= ce_settings["exit_level"]:
-                self.log.info(
-                    "↩ CE RETRACE — Spot %s ≤ CE retrace exit %s → exiting ATO",
-                    spot,
-                    ce_settings["exit_level"],
-                )
-                self._exit_ce_ato(float(spot), ce_strike, ce_settings)
 
-        # ── PE side ──────────────────────────────────────────
+        # ── PE entry (never same poll as CE exit — mid-box flip) ─
         if (
             pe_sell
             and manage_sides in ("pe", "both")
@@ -1913,6 +2385,7 @@ class ATOProtection(ModuleBase):
                 and not pe_has_long_protect
                 and not self.state.get("ato.pe_awaiting_clearance", False)
                 and (not pe_triggered or (pe_triggered and not pe_ato_active))
+                and not exited_ce_this_poll
             ):
                 trigger_reason = (
                     "buffer_trigger_hit"
@@ -1927,19 +2400,23 @@ class ATOProtection(ModuleBase):
                     pe_settings["trigger_level"],
                 )
                 self._place_pe_protection(pe_strike, float(spot), pe_settings, trigger_reason)
+            elif (
+                pe_breach
+                and not pe_has_long_protect
+                and exited_ce_this_poll
+            ):
+                self.log.info(
+                    "PE entry deferred — CE exited this poll at spot=%s "
+                    "(avoid mid-box CE→PE flip); PE trigger=%s",
+                    spot,
+                    pe_settings["trigger_level"],
+                )
             elif pe_breach and pe_has_long_protect and not pe_ato_active:
                 self.log.info(
                     "PE breach skipped — long protect already in book qty=%s (%s)",
                     pe_book_qty,
                     pe_protect_sym,
                 )
-            elif pe_ato_active and pe_strike and spot >= pe_settings["exit_level"]:
-                self.log.info(
-                    "↩ PE RETRACE — Spot %s ≥ PE retrace exit %s → exiting ATO",
-                    spot,
-                    pe_settings["exit_level"],
-                )
-                self._exit_pe_ato(float(spot), pe_strike, pe_settings)
 
         # Re-read book after any entry/exit this tick — stale pre-trade qty must not
         # trip manual_protect_full_exit (ato_active + protect_seen + qty 0).
@@ -2101,6 +2578,7 @@ class ATOProtection(ModuleBase):
             self.state.set("ato.ce_triggered", True)
             self.state.set("ato.ce_ato_active", True)
             self._set_registered_exit_qty("CE", ato_qty)
+            self._record_side_entry_replay_time("CE")
             return
 
         idem_key = ato_order_key("CE", "BUY", symbol)
@@ -2116,6 +2594,7 @@ class ATOProtection(ModuleBase):
                 self.state.set("ato.ce_order_id", existing_id)
                 self.state.set("ato.ce_ato_active", True)
                 self._set_registered_exit_qty("CE", ato_qty)
+                self._record_side_entry_replay_time("CE")
                 return
             self.log.warning(
                 "CE ATO stale idempotency — key %s order %s but book qty 0; clearing for re-entry",
@@ -2145,6 +2624,7 @@ class ATOProtection(ModuleBase):
         self.state.set("ato.ce_ato_exit_order_id", None, save=False)
         self._ce_cycles = getattr(self, "_ce_cycles", 0) + 1
         self._maybe_soft_cap_warn("CE", spot)
+        self._maybe_exit_dyn_hedge("CE")
         self.log.info(
             "✅ CE ATO placed: BUY %d × %s (strike %d) → %s [cycle %d]",
             ato_qty,
@@ -2262,6 +2742,7 @@ class ATOProtection(ModuleBase):
             self.state.set("ato.pe_triggered", True)
             self.state.set("ato.pe_ato_active", True)
             self._set_registered_exit_qty("PE", ato_qty)
+            self._record_side_entry_replay_time("PE")
             return
 
         idem_key = ato_order_key("PE", "BUY", symbol)
@@ -2277,6 +2758,7 @@ class ATOProtection(ModuleBase):
                 self.state.set("ato.pe_order_id", existing_id)
                 self.state.set("ato.pe_ato_active", True)
                 self._set_registered_exit_qty("PE", ato_qty)
+                self._record_side_entry_replay_time("PE")
                 return
             self.log.warning(
                 "PE ATO stale idempotency — key %s order %s but book qty 0; clearing for re-entry",
@@ -2306,6 +2788,7 @@ class ATOProtection(ModuleBase):
         self.state.set("ato.pe_ato_exit_order_id", None, save=False)
         self._pe_cycles = getattr(self, "_pe_cycles", 0) + 1
         self._maybe_soft_cap_warn("PE", spot)
+        self._maybe_exit_dyn_hedge("PE")
         self.log.info(
             "✅ PE ATO placed: BUY %d × %s (strike %d) → %s [cycle %d]",
             ato_qty,
@@ -2377,6 +2860,7 @@ class ATOProtection(ModuleBase):
             self.state.set("ato.ce_ato_active", False)
             self.state.set("ato.ce_triggered", False)
             self.state.set("ato.ce_ato_exit_order_id", existing_id)
+            self.state.set("ato.ce_entry_replay_market_time", None)
             self._mark_awaiting_clearance_after_exit("CE", spot, settings)
             return
 
@@ -2395,6 +2879,7 @@ class ATOProtection(ModuleBase):
             self.state.set("ato.ce_ato_active", False)
             self.state.set("ato.ce_triggered", False)  # reset — breach can re-fire after clearance
             self.state.set("ato.ce_ato_exit_order_id", order_id)
+            self.state.set("ato.ce_entry_replay_market_time", None)
             self._mark_awaiting_clearance_after_exit("CE", spot, settings)
             self.log.info(
                 "✅ CE ATO exited on retracement — Spot %.1f, SELL %d × %s → %s",
@@ -2466,6 +2951,7 @@ class ATOProtection(ModuleBase):
             self.state.set("ato.pe_ato_active", False)
             self.state.set("ato.pe_triggered", False)
             self.state.set("ato.pe_ato_exit_order_id", existing_id)
+            self.state.set("ato.pe_entry_replay_market_time", None)
             self._mark_awaiting_clearance_after_exit("PE", spot, settings)
             return
 
@@ -2484,6 +2970,7 @@ class ATOProtection(ModuleBase):
             self.state.set("ato.pe_ato_active", False)
             self.state.set("ato.pe_triggered", False)  # reset — breach can re-fire after clearance
             self.state.set("ato.pe_ato_exit_order_id", order_id)
+            self.state.set("ato.pe_entry_replay_market_time", None)
             self._mark_awaiting_clearance_after_exit("PE", spot, settings)
             self.log.info(
                 "✅ PE ATO exited on retracement — Spot %.1f, SELL %d × %s → %s",

@@ -1,0 +1,38 @@
+{
+  "services": {
+    "batman-drishti.service": {
+      "restarts": 2,
+      "pid": 85176,
+      "status": "active",
+      "checked_at": "2026-07-29T17:01:02.074073+00:00",
+      "last_crash": "2026-07-29T17:01:17.103759+00:00",
+      "last_reason": "inactive:inactive"
+    },
+    "batman-kavach2.service": {
+      "restarts": 8,
+      "pid": 85188,
+      "status": "active",
+      "checked_at": "2026-07-29T17:01:02.082077+00:00",
+      "last_crash": "2026-07-29T17:01:22.132315+00:00",
+      "last_reason": "inactive:inactive"
+    },
+    "batman-jagran.service": {
+      "restarts": 1,
+      "pid": 53540,
+      "status": "active",
+      "checked_at": "2026-07-29T17:01:02.090860+00:00",
+      "last_crash": "2026-07-29T17:01:35.173652+00:00",
+      "last_reason": "inactive:inactive"
+    },
+    "batman-saransh.service": {
+      "restarts": 7,
+      "pid": 115619,
+      "status": "active",
+      "checked_at": "2026-07-29T17:01:02.098491+00:00",
+      "last_crash": "2026-07-29T17:01:45.210610+00:00",
+      "last_reason": "inactive:inactive"
+    }
+  },
+  "last_updated": "2026-07-29T17:02:00.249135+00:00",
+  "total_restarts": 18
+}

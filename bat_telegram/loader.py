@@ -23,9 +23,11 @@ File layout per bot:
         token.env.example  ← safe template  (committed)
         params.json        ← all tunable parameters  (committed)
 
-Secrets resolution order (first match wins):
-  1. token.env file  — preferred, isolated per bot
-  2. System environment variable  — useful for CI / Docker deployments
+Secrets resolution order (first usable match wins):
+  1. Desktop ``<secrets_root>/telegram/bots.env`` (consolidated — preferred)
+  2. Per-bot ``<secrets_root>/telegram/bots/<name>/token.env``
+  3. Repo ``telegram/bots/<name>/token.env`` (legacy)
+  4. Process environment variables
 
 Usage::
 
@@ -62,8 +64,20 @@ _ROOT = Path(__file__).resolve().parent.parent
 _BOTS_DIR = _ROOT / "telegram" / "bots"
 # KAVACH 2.0 lives in the kavach-2.0 sub-project (Phase 1 active robot).
 _KAVACH2_BOTS_DIR = _ROOT / "kavach-2.0" / "telegram" / "bots"
+# GO is an independent bot — all files under top-level GO/ (not Phase 1).
+_GO_BOTS_DIR = _ROOT / "GO" / "telegram" / "bots"
 _KNOWN_BOTS = frozenset(
-    {"drishti", "jagran", "kavach", "kavach2", "lakshmi", "sanchalak", "saransh"}
+    {
+        "drishti",
+        "go",
+        "jagran",
+        "kavach",
+        "kavach2",
+        "lakshmi",
+        "ratripal",
+        "sanchalak",
+        "saransh",
+    }
 )
 
 
@@ -71,6 +85,8 @@ def _bots_dir_for(name: str) -> Path:
     """Return the telegram/bots directory that owns *name*."""
     if name == "kavach2":
         return _KAVACH2_BOTS_DIR
+    if name == "go":
+        return _GO_BOTS_DIR
     return _BOTS_DIR
 
 # In-process cache:  bot_name → BotConfig
@@ -101,44 +117,73 @@ class BotConfig:
 
 
 def _load_token(name: str) -> tuple[str, str]:
-    """Read bot_token and chat_id — external secrets dir first, then repo (legacy)."""
-    from core.batman_mode import secrets_bot_dir, workspace_root
+    """Read bot_token and chat_id.
+
+    Resolution order (first usable token wins):
+      1. Desktop consolidated ``<secrets_root>/telegram/bots.env``
+      2. Per-bot ``<secrets_root>/telegram/bots/<name>/token.env``
+      3. Repo ``telegram/bots/<name>/token.env`` (legacy)
+      4. Process environment variables
+    """
+    from core.batman_mode import secrets_bot_dir
+    from core.telegram_credentials import (
+        get_bot_credentials,
+        is_placeholder,
+        secrets_telegram_bots_env_path,
+    )
 
     prefix = name.upper()
     token_key = f"{prefix}_BOT_TOKEN"
     chat_key = f"{prefix}_CHAT_ID"
 
+    bot_token, chat_id, _source = get_bot_credentials(name)
+    if bot_token and not is_placeholder(bot_token):
+        if not chat_id or is_placeholder(chat_id):
+            chat_id = (chat_id or os.environ.get(chat_key, "") or "").strip()
+        if chat_id and not is_placeholder(chat_id):
+            return bot_token, chat_id
+
     bots_dir = _bots_dir_for(name)
     candidates = [
+        secrets_telegram_bots_env_path(),
         secrets_bot_dir(name) / "token.env",
         bots_dir / name / "token.env",
-        # Legacy / parent-tree fallback (pre-kavach-2.0 layout)
         _BOTS_DIR / name / "token.env",
     ]
-    env_file = next((p for p in candidates if p.exists()), candidates[0])
+    for env_file in candidates:
+        if not env_file.exists():
+            continue
+        file_vals = dotenv_values(env_file)
+        tok = (
+            file_vals.get(token_key)
+            or os.environ.get(token_key, "")
+            or bot_token
+            or ""
+        ).strip()
+        chat = (
+            file_vals.get(chat_key)
+            or os.environ.get(chat_key, "")
+            or chat_id
+            or ""
+        ).strip()
+        if tok and not is_placeholder(tok) and chat and not is_placeholder(chat):
+            return tok, chat
 
-    if not env_file.exists():
-        raise FileNotFoundError(
-            f"Missing secrets file: {env_file}\n"
-            f"Create secrets_runtime/telegram/bots/{name}/token.env "
-            f"(or copy token.env.example from the repo)."
-        )
+    if bot_token and not is_placeholder(bot_token) and chat_id and not is_placeholder(chat_id):
+        return bot_token, chat_id
 
-    file_vals = dotenv_values(env_file)
-    bot_token = file_vals.get(token_key) or os.environ.get(token_key, "")
-    chat_id = file_vals.get(chat_key) or os.environ.get(chat_key, "")
-
-    if not bot_token:
+    cons = secrets_telegram_bots_env_path()
+    hint = cons if cons.exists() else (secrets_bot_dir(name) / "token.env")
+    if not bot_token or is_placeholder(bot_token):
         raise KeyError(
-            f"{token_key} is not set in {env_file}. "
-            f"Open that file and paste your Telegram bot token."
+            f"{token_key} is not set in desktop credentials. "
+            f"Add it to {cons} (preferred) or {hint}."
         )
-    if not chat_id:
-        raise KeyError(
-            f"{chat_key} is not set in {env_file}. "
-            f"Open that file and paste your Telegram chat ID."
-        )
-    return bot_token, chat_id
+    raise KeyError(
+        f"{chat_key} is not set in desktop credentials. "
+        f"Add it to {cons} (preferred) or per-bot token.env."
+    )
+
 
 
 def _load_params(name: str) -> dict[str, Any]:
@@ -171,8 +216,8 @@ def load_bot_config(
     """Load (or return cached) config for a named bot.
 
     Args:
-        bot_name:      One of "drishti", "jagran", "kavach", "kavach2", "lakshmi",
-                       "sanchalak", "saransh" (case-insensitive).
+        bot_name:      One of "drishti", "go", "jagran", "kavach", "kavach2", "lakshmi",
+                       "sanchalak", "saransh", "ratripal" (case-insensitive).
         reload_token:  Re-read token.env from disk, keeping params unchanged.
                        Use after editing token.env (token update).
         reload_params: Re-read params.json from disk, keeping token unchanged.

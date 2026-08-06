@@ -43,6 +43,7 @@ class Event(StrEnum):
     ATO_STARTUP_QTY_MISMATCH = "ato.startup_qty_mismatch"
     ATO_MAX_CYCLES_REACHED = "ato.max_cycles_reached"
     ATO_MONITOR_BREACH = "ato.monitor_breach"
+    DYN_HEDGE_EXITED = "dyn_hedge.exited"
 
     # Trailing
     TRAILING_ACTIVATED = "trailing.activated"

@@ -55,3 +55,8 @@ Thumbs.db
 .pytest_cache/
 .ruff_cache/
 **/.slingshot/
+
+logs_runtime/
+data_runtime/
+secrets_runtime/
+

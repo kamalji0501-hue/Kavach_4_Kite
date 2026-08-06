@@ -63,8 +63,18 @@ UNITS=(
   batman-phase1.target
 )
 
+# Independent bots — installed/enabled separately; NOT WantedBy batman-phase1.target
+INDEPENDENT_UNITS=(
+  batman-go.service
+)
+
 for u in "${UNITS[@]}"; do
   render "$UNIT_SRC/$u" "$OUT_DIR/$u"
+done
+for u in "${INDEPENDENT_UNITS[@]}"; do
+  if [[ -f "$UNIT_SRC/$u" ]]; then
+    render "$UNIT_SRC/$u" "$OUT_DIR/$u"
+  fi
 done
 
 if [[ "$INSTALL_MONITOR" -eq 1 ]]; then
@@ -75,7 +85,8 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "=== DRY RUN — units written to $OUT_DIR ==="
   ls -la "$OUT_DIR"
   if command -v systemd-analyze >/dev/null 2>&1; then
-    for u in "${UNITS[@]}"; do
+    for u in "${UNITS[@]}" "${INDEPENDENT_UNITS[@]}"; do
+      [[ -f "$OUT_DIR/$u" ]] || continue
       systemd-analyze verify "$OUT_DIR/$u" 2>&1 || true
     done
   fi
@@ -93,6 +104,11 @@ fi
 for u in "${UNITS[@]}"; do
   $SUDO cp "$OUT_DIR/$u" "/etc/systemd/system/$u"
 done
+for u in "${INDEPENDENT_UNITS[@]}"; do
+  if [[ -f "$OUT_DIR/$u" ]]; then
+    $SUDO cp "$OUT_DIR/$u" "/etc/systemd/system/$u"
+  fi
+done
 if [[ "$INSTALL_MONITOR" -eq 1 ]]; then
   $SUDO cp "$OUT_DIR/vps-monitor-batman.service" /etc/systemd/system/vps-monitor-batman.service
 fi
@@ -104,6 +120,7 @@ ${BATMAN_USER} ALL=NOPASSWD: /bin/systemctl restart batman-drishti.service
 ${BATMAN_USER} ALL=NOPASSWD: /bin/systemctl restart batman-kavach2.service
 ${BATMAN_USER} ALL=NOPASSWD: /bin/systemctl restart batman-jagran.service
 ${BATMAN_USER} ALL=NOPASSWD: /bin/systemctl restart batman-saransh.service
+${BATMAN_USER} ALL=NOPASSWD: /bin/systemctl restart batman-go.service
 ${BATMAN_USER} ALL=NOPASSWD: /bin/systemctl restart batman-phase1.target
 EOF
 $SUDO cp "$SUDOERS_TMP" /etc/sudoers.d/batman-vps-monitor
@@ -115,6 +132,11 @@ $SUDO systemctl daemon-reload
 if [[ "$ENABLE_NOW" -eq 1 ]]; then
   $SUDO systemctl enable batman-phase1.target
   $SUDO systemctl start batman-phase1.target
+  # Independent GO — enable/start without attaching to phase1
+  if [[ -f /etc/systemd/system/batman-go.service ]]; then
+    $SUDO systemctl enable batman-go.service
+    $SUDO systemctl restart batman-go.service
+  fi
   if [[ "$INSTALL_MONITOR" -eq 1 ]]; then
     # Ensure vps_ops venv exists for monitor
     if [[ ! -x "$VPS_OPS_DIR/venv/bin/python" ]]; then
@@ -130,4 +152,5 @@ fi
 echo "=== status ==="
 systemctl is-enabled batman-phase1.target 2>/dev/null || true
 systemctl is-active batman-drishti.service batman-kavach2.service batman-jagran.service batman-saransh.service 2>/dev/null || true
+systemctl is-active batman-go.service 2>/dev/null || true
 echo "OK: systemd units installed under /etc/systemd/system/"

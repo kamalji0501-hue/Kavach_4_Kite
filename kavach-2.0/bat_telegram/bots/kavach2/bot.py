@@ -47,6 +47,7 @@ from telegram.helpers import escape_markdown
 
 from bat_telegram.bots.kavach2.register_wizard import (
     WIZARD_CONFIRM,
+    WIZARD_ORDER_MODE,
     WIZARD_PE_INTENT,
     build_wizard_handler,
     pe_intent_keyboard,
@@ -94,10 +95,12 @@ from telegram import (
 
 logger = logging.getLogger("batman.kavach2")
 
-# ── Deployment paths ──────────────────────────────────────────────────────────
-_DEPLOY_DIR = Path("data/deployments")
-_ARCHIVE_DIR = Path("data/deployments/archive")
-_DEPLOY_LOG = Path("data/deployments/deploy_log.jsonl")
+# ── Deployment paths (mode-aware runtime under Trading_Runtime/Data) ───────────
+from core.batman_mode import data_root as _batman_data_root  # noqa: E402
+
+_DEPLOY_DIR = _batman_data_root() / "deployments"
+_ARCHIVE_DIR = _DEPLOY_DIR / "archive"
+_DEPLOY_LOG = _DEPLOY_DIR / "deploy_log.jsonl"
 _AUDIT_ROOT = Path.home() / "Desktop" / "batman execution"
 
 # ── Wizard conversation states (legacy BE/buffer constants kept for future release) ──
@@ -119,6 +122,7 @@ _CB_ATO_MON = "wiz_ato_mon"  # ATO monitor side picker (Step 6/6)
 _CB_HOL = "wiz_hol"  # holiday selection review (Step 7/7)
 _CB_CONF = "wiz_conf"  # final confirm/cancel
 _CB_DONE = "kav2_done"  # batman_complete confirm
+_CB_DYN_HEDGE = "kav2_dynhedge"  # 30% dynamic hedge Yes/No
 _CB_BE = "wiz_be"  # break-even confirm/edit/skip
 _CB_BUF = "wiz_buf"  # side-wise ATO trigger buffers
 _CB_POLL = "wiz_poll"  # per-deployment poll interval
@@ -126,7 +130,8 @@ _CB_HB = "hb"  # Hedge Box confirm / deny
 _CB_MENU = "kav2_menu"  # main alive menu buttons
 
 # ── Phase 1 wizard feature gates (re-enable in future releases) ───────────────
-# Break-even capture — feeds RATRIPAL / PRABHAT MUKTI (deferred phase).
+# Break-even capture — legacy Register wizard (deferred). RATRIPAL now uses
+# fixed sell±200 BE; ADITYA is the morning hedge-exit module (formerly PRABHAT MUKTI).
 # Set True to restore PE/CE break-even prompts + skip-confirm in /register.
 _WIZARD_BREAK_EVEN_ENABLED = False
 
@@ -166,18 +171,16 @@ def _read_algo_pause_reason() -> str | None:
 
 
 def _main_menu_keyboard() -> InlineKeyboardMarkup:
-    """LOCKED KAVACH 2.0 home menu — do not change unless operator explicitly requests.
+    """KAVACH 2.0 home menu.
 
-    Layout (fixed):
+    Layout:
       Kavach Status | ATO Status
       ATO           | Buffer Manager
       Core Legs     | Environment
       Pause         | Resume
+      30% Dynamic Hedge
       Register Batman
       Complete Batman
-
-    Feed-recovery controls stay off this keyboard; handlers remain for legacy
-    callbacks only.
     """
     return InlineKeyboardMarkup(
         [
@@ -200,6 +203,11 @@ def _main_menu_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton("⏸️ Pause", callback_data=f"{_CB_MENU}:pause"),
                 InlineKeyboardButton("▶️ Resume", callback_data=f"{_CB_MENU}:resume"),
+            ],
+            [
+                InlineKeyboardButton(
+                    "🛡 30% Dynamic Hedge", callback_data=f"{_CB_MENU}:dyn_hedge"
+                ),
             ],
             [
                 InlineKeyboardButton(
@@ -1100,15 +1108,25 @@ async def _wizard_edit_step(
 
 
 def _selected_header(selected: dict[str, dict]) -> str:
-    """Build the '✅ Core PE BUY: ...' confirmation header for wizard steps.
-
-    Locked display order: Core PE BUY → PE SELL → Core CE BUY → CE SELL.
-    """
-    order = ["pe_buy", "pe_sell", "ce_buy", "ce_sell"]
+    """Build the confirmation header for wizard steps."""
+    order = [
+        "pe_buy",
+        "pe_margin_hedge",
+        "pe_dyn_hedge",
+        "pe_sell",
+        "ce_buy",
+        "ce_margin_hedge",
+        "ce_dyn_hedge",
+        "ce_sell",
+    ]
     labels = {
         "pe_buy": "Core PE BUY",
+        "pe_margin_hedge": "Margin Hedge PE",
+        "pe_dyn_hedge": "30% Dyn Hedge PE",
         "pe_sell": "PE SELL",
         "ce_buy": "Core CE BUY",
+        "ce_margin_hedge": "Margin Hedge CE",
+        "ce_dyn_hedge": "30% Dyn Hedge CE",
         "ce_sell": "CE SELL",
     }
     return "\n".join(
@@ -1136,6 +1154,7 @@ def _write_deployment_file(
     break_even: dict[str, Any] | None = None,
     trading_calendar: dict[str, Any] | None = None,
     profile: dict[str, Any] | None = None,
+    order_mode: str = "paper",
 ) -> Path:
     """Write batman_YYYY-MM-DD_HH-MM.json and return its path."""
     _DEPLOY_DIR.mkdir(parents=True, exist_ok=True)
@@ -1178,8 +1197,12 @@ def _write_deployment_file(
     filename = f"batman_{now.strftime('%Y-%m-%d_%H-%M')}.json"
     filepath = _DEPLOY_DIR / filename
 
+    from core.order_mode import normalize_order_mode
+
+    omode = normalize_order_mode(order_mode)
     data: dict[str, Any] = {
         "schema_version": 1.1,
+        "order_mode": omode,
         "deployed_at": now.astimezone().isoformat(),
         "registered_at": now.strftime("%A %d-%b-%Y at %H:%M"),
         "file_name": filename,
@@ -1189,8 +1212,12 @@ def _write_deployment_file(
         "registration_scope": registration_scope,
         "positions": {
             "pe_buy": selected.get("pe_buy"),
+            "pe_margin_hedge": selected.get("pe_margin_hedge"),
+            "pe_dyn_hedge": selected.get("pe_dyn_hedge"),
             "pe_sell": pe_sell,
             "ce_buy": selected.get("ce_buy"),
+            "ce_margin_hedge": selected.get("ce_margin_hedge"),
+            "ce_dyn_hedge": selected.get("ce_dyn_hedge"),
             "ce_sell": ce_sell,
         },
         "ato": {
@@ -1256,14 +1283,20 @@ def _state_reset(state) -> None:
     nones = [
         "positions.ce_sell",
         "positions.ce_buy",
+        "positions.ce_margin_hedge",
+        "positions.ce_dyn_hedge",
         "positions.pe_sell",
         "positions.pe_buy",
+        "positions.pe_margin_hedge",
+        "positions.pe_dyn_hedge",
         "ato.ce_protect_symbol",
         "ato.ce_protect_strike",
         "ato.pe_protect_symbol",
         "ato.pe_protect_strike",
         "ato.ce_order_id",
         "ato.pe_order_id",
+        "dyn_hedge.pe_exited_date",
+        "dyn_hedge.ce_exited_date",
     ]
     for key in nones:
         state.set(key, None, save=False)
@@ -1287,13 +1320,13 @@ def _state_reset(state) -> None:
     state.set("risk.break_even.source.ce", None, save=False)
     state.set("risk.break_even.skipped", False, save=False)
     state.set("modules.ratripal.enabled", False, save=False)
-    state.set("modules.prabhat_mukti.enabled", False, save=False)
+    state.set("modules.aditya.enabled", False, save=False)
     state.set("ratripal.last_run_date", None, save=False)
     state.set("ratripal.last_decision", None, save=False)
     state.set("ratripal.pending.request_id", None, save=False)
     state.set("ratripal.pending.response", None, save=False)
     state.set("ratripal.pending.sent_at", None, save=False)
-    state.set("prabhat_mukti.handoff_file", None, save=False)
+    state.set("aditya.handoff_file", None, save=False)
     state.set("deployment.confirmed", False, save=False)
     state.set("deployment.file", None, save=False)
     state.set("deployment.registration_scope", None, save=False)
@@ -1304,6 +1337,7 @@ def _state_reset(state) -> None:
     state.set("ato.ce_halt_reason", None, save=False)
     state.set("ato.pe_halt_reason", None, save=False)
     state.set("deployment.cleanup_failed", False, save=False)
+    state.set("dyn_hedge.exit_enabled", False, save=False)
 
 
 def _clear_wizard_data(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1318,8 +1352,12 @@ def _clear_wizard_data(context: ContextTypes.DEFAULT_TYPE) -> None:
         "pe_enabled",
         "ce_enabled",
         "pe_buy",
+        "pe_margin_hedge",
+        "pe_dyn_hedge",
         "pe_sell",
         "ce_buy",
+        "ce_margin_hedge",
+        "ce_dyn_hedge",
         "ce_sell",
         "pe_managed_lots",
         "ce_managed_lots",
@@ -1336,6 +1374,8 @@ def _clear_wizard_data(context: ContextTypes.DEFAULT_TYPE) -> None:
         "_ce_ato_suggested",
         "_pe_pick_pool",
         "_ce_pick_pool",
+        "_pe_hedge_pool",
+        "_ce_hedge_pool",
         "_pe_max_lots",
         "_ce_max_lots",
         "_buf_custom_target",
@@ -1613,13 +1653,18 @@ def _sync_state_from_deployment_file(filepath: Path, state) -> None:
         save=False,
     )
     state.set("risk.break_even.skipped", bool(break_even.get("skipped", False)), save=False)
-    state.set(
-        "modules.ratripal.enabled",
-        not bool(break_even.get("skipped", False))
-        and (break_even.get("pe") is not None or break_even.get("ce") is not None),
-        save=False,
-    )
-    state.set("modules.prabhat_mukti.enabled", False, save=False)
+    # RATRIPAL uses fixed sell±200 BE — enable whenever core sell legs exist.
+    positions = dep.get("positions") or {}
+    has_sell = bool(positions.get("pe_sell") or positions.get("ce_sell"))
+    state.set("modules.ratripal.enabled", has_sell, save=False)
+    state.set("modules.aditya.enabled", False, save=False)
+
+    # 30% Dynamic Hedge: auto-arm exit when Register persisted dyn legs.
+    # Operator can still turn OFF via menu; do not leave legs stranded at default No.
+    has_dyn = bool(positions.get("pe_dyn_hedge") or positions.get("ce_dyn_hedge"))
+    state.set("dyn_hedge.pe_exited_date", None, save=False)
+    state.set("dyn_hedge.ce_exited_date", None, save=False)
+    state.set("dyn_hedge.exit_enabled", has_dyn, save=False)
 
     state.set("ato.ce_triggered", False, save=False)
     state.set("ato.pe_triggered", False, save=False)
@@ -1749,10 +1794,25 @@ def _set_register_conversation_state(
 
 
 def _is_batman_armed(context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Armed only when a live deployment file exists.
+
+    A leftover ``deployment.confirmed=True`` after the file was archived used to
+    block Register while the alive card still showed \"Not deployed\".
+    """
     if _find_active_deployment() is not None:
         return True
     state = context.bot_data.get("state")
-    return bool(state and state.get("deployment.confirmed", False))
+    if state and state.get("deployment.confirmed", False):
+        try:
+            state.set("deployment.confirmed", False, save=False)
+            state.set("deployment.file", None, save=False)
+            state.save()
+            logger.warning(
+                "KAVACH2: healed ghost deployment.confirmed (no active batman_*.json)"
+            )
+        except Exception as exc:
+            logger.warning("KAVACH2: ghost armed heal failed: %s", exc)
+    return False
 
 
 def _try_bootstrap_uat_broker(context: ContextTypes.DEFAULT_TYPE):
@@ -1842,7 +1902,36 @@ async def wizard_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         read_only_commands=_READ_ONLY_COMMANDS,
     ):
         return ConversationHandler.END
+
+    # Prevent double Environment + double Question 1 when:
+    # - two getUpdates clients race the same Register tap (Telegram 409), or
+    # - allow_reentry + concurrent tap / Batman Complete auto-start overlap.
+    import time as _time
+
+    now = _time.monotonic()
+    last = float(context.application.bot_data.get("_register_entry_mono") or 0.0)
+    if now - last < 8.0:
+        logger.warning(
+            "Register entry ignored — duplicate within %.1fs (anti double-wizard)",
+            now - last,
+        )
+        return ConversationHandler.END
+    context.application.bot_data["_register_entry_mono"] = now
+
+    # Drop any previous wizard keyboard so stale PE BUY buttons cannot be tapped.
+    prev_ui = (_wizard_data(context) or {}).get("wiz_ui_message_id")
     message = _require_message(update)
+    if prev_ui and message is not None:
+        try:
+            await context.bot.delete_message(chat_id=message.chat_id, message_id=int(prev_ui))
+        except Exception:
+            try:
+                await context.bot.edit_message_reply_markup(
+                    chat_id=message.chat_id, message_id=int(prev_ui), reply_markup=None
+                )
+            except Exception:
+                pass
+
     prefer_edit = bool(context.user_data.pop("_register_prefer_edit", False))
     _clear_wizard_data(context)
     try:
@@ -1878,9 +1967,71 @@ async def wizard_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     if blocked is not None:
         return blocked
 
+    # ── First question: Paper vs Live (rest of wizard unchanged after this) ──
+    from bat_telegram.bots.kavach2.register_wizard import _CB_ORDER_MODE
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    mode_kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "📄 Paper trade (no exchange orders)",
+                    callback_data=f"{_CB_ORDER_MODE}:paper",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "💰 Live trade (real Dhan orders)",
+                    callback_data=f"{_CB_ORDER_MODE}:live",
+                )
+            ],
+        ]
+    )
+    body = (
+        "🦇 *" + _md2("Register - Trading mode") + "*\n\n"
+        + _md2("How should this deployment place orders?") + "\n\n"
+        + "• *Paper trade* — " + _md2("Live market data; Kavach/ATO fully runs; no exchange orders.") + "\n"
+        + "• *Live trade* — " + _md2("Real money on Dhan (existing live order path).") + "\n\n"
+        + "_" + _md2("Everything after this question is the same as before.") + "_"
+    )
+    await message.reply_text(
+        body,
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=mode_kb,
+    )
+    return WIZARD_ORDER_MODE
+
+
+async def _wizard_continue_after_order_mode(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Resume classic /register flow after Paper/Live is chosen."""
+    query = update.callback_query
+    message = query.message if query is not None else _require_message(update)
+    prefer_edit = bool(context.user_data.pop("_register_prefer_edit", False))
+    broker = context.bot_data.get("broker")
+    from core.batman_mode import is_uat, workspace_root
     from core.environment_display import register_preamble
 
-    await message.reply_text(register_preamble())
+    mode = str(_wizard_data(context).get("order_mode") or "paper").upper()
+    mode_line = f"Mode: *{_md2(mode)}*\n\n"
+    if query is not None:
+        try:
+            await query.edit_message_text(
+                mode_line + register_preamble(),
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+        except Exception:
+            await message.reply_text(
+                mode_line + register_preamble(),
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+    else:
+        await message.reply_text(
+            mode_line + register_preamble(),
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+
 
     try:
         from core.uat_ingest import (
@@ -1977,6 +2128,59 @@ async def wizard_pre_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return await _wizard_fetch_step1(context, reply_target=query.message, prefer_edit=True)
 
 
+async def _uat_refresh_book_for_register(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    broker: Any | None = None,
+) -> str | None:
+    """Reload cursor_chat / OCR book into ShadowBroker before Register leg pick.
+
+    Batman Complete used to call ``_wizard_fetch_step1`` alone — skipping ingest —
+    so a newly written Sensibull book (or a repo-local uat/ copy) never replaced
+    the in-session \"cache\" PE BUY list.
+    """
+    from core.batman_mode import is_uat, workspace_root
+
+    if not is_uat():
+        return None
+
+    root = workspace_root()
+    broker = broker if broker is not None else context.bot_data.get("broker")
+    state = context.bot_data.get("state")
+
+    try:
+        from core.uat_ingest import UATIngestError, ingest_uat_for_register
+        from core.uat_positions import reconcile_uat_positions_books
+        from core.uat_register_cleanup import prepare_uat_register_fresh
+
+        reconcile_uat_positions_books(root)
+        await asyncio.to_thread(
+            prepare_uat_register_fresh,
+            root,
+            state=state,
+            broker=broker,
+        )
+        result = await asyncio.to_thread(ingest_uat_for_register, root)
+        refresh = getattr(broker, "refresh_fixture_positions", None) if broker else None
+        if callable(refresh):
+            await asyncio.to_thread(refresh)
+        method = str((result or {}).get("method") or "positions")
+        path = str((result or {}).get("positions_path") or "")
+        logger.info(
+            "UAT register book refresh — method=%s path=%s",
+            method,
+            path,
+        )
+        return None
+    except Exception as exc:
+        from core.uat_ingest import UATIngestError
+
+        if isinstance(exc, UATIngestError):
+            return str(exc)
+        logger.warning("UAT register book refresh soft-failed: %s", exc)
+        return None
+
+
 async def _wizard_fetch_step1(
     context: ContextTypes.DEFAULT_TYPE,
     reply_target,
@@ -1999,11 +2203,65 @@ async def _wizard_fetch_step1(
         return ConversationHandler.END
 
     try:
+        from core.batman_mode import is_uat, workspace_root
+        from core.uat_positions import load_positions_fixture, reconcile_uat_positions_books
+
+        if is_uat():
+            reconcile_uat_positions_books(workspace_root())
         refresh = getattr(broker, "refresh_fixture_positions", None)
         if callable(refresh):
             await asyncio.to_thread(refresh)
         df = await asyncio.to_thread(broker.get_positions)
         positions = _enrich_positions_list(context, _filter_nifty_positions(df))
+        if is_uat():
+            try:
+                fx = load_positions_fixture(workspace_root())
+                pe_buys = sorted(
+                    {
+                        int(leg["strike"])
+                        for leg in (fx.get("legs") or [])
+                        if str(leg.get("type", "")).upper() == "PE"
+                        and str(leg.get("side", "BUY")).upper() == "BUY"
+                    }
+                )
+                shown = sorted(
+                    {
+                        int(p.get("strike") or 0)
+                        for p in positions
+                        if str(p.get("opt_type") or "").upper() == "PE"
+                        and str(p.get("direction") or "").upper() == "LONG"
+                    }
+                )
+                from core.uat_positions import positions_json_path as _pos_path
+
+                logger.info(
+                    "Register PE BUY candidates — fixture=%s shown=%s path=%s captured=%s",
+                    pe_buys,
+                    shown,
+                    _pos_path(workspace_root()),
+                    fx.get("captured_at"),
+                )
+                if pe_buys and shown and pe_buys != shown:
+                    logger.error(
+                        "Register ABORT — PE BUY book mismatch fixture=%s shown=%s",
+                        pe_buys,
+                        shown,
+                    )
+                    await _wizard_show(
+                        context,
+                        reply_target,
+                        "⚠️ *UAT book mismatch*\n\n"
+                        f"Fixture PE BUY: `{_md2_code(', '.join(str(x) for x in pe_buys))}`\n"
+                        f"Broker showed: `{_md2_code(', '.join(str(x) for x in shown))}`\n\n"
+                        "Stale ShadowBroker / positions\\.json drift\\. "
+                        "Re\\-run FAST UAT write, then /register again\\.",
+                        prefer_edit=False,
+                    )
+                    _append_log("wizard_cancelled", reason="uat_pe_buy_mismatch")
+                    _clear_wizard_data(context)
+                    return ConversationHandler.END
+            except Exception as exc:
+                logger.warning("Register PE BUY audit soft-failed: %s", exc)
     except Exception as exc:
         logger.error("Wizard Step 1 — broker error: %s", exc)
         await _wizard_show(
@@ -2239,8 +2497,8 @@ async def wizard_be_pe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         await query.edit_message_text(
             r"⚠️ *Skip break\-even?*\n\n"
             r"Break\-even will not be stored for this deployment\.\n"
-            r"RATRIPAL and PRABHAT MUKTI will remain disabled\.\n"
-            r"Core KAVACH and ATO flow continues normally\.",
+            r"RATRIPAL and ADITYA will remain disabled\.\n"
+            r"Core KAVACH 2\.0 and ATO flow continues normally\.",
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=_break_even_skip_confirm_keyboard(),
         )
@@ -2310,8 +2568,8 @@ async def wizard_be_ce(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         await query.edit_message_text(
             r"⚠️ *Skip break\-even?*\n\n"
             r"Break\-even will not be stored for this deployment\.\n"
-            r"RATRIPAL and PRABHAT MUKTI will remain disabled\.\n"
-            r"Core KAVACH and ATO flow continues normally\.",
+            r"RATRIPAL and ADITYA will remain disabled\.\n"
+            r"Core KAVACH 2\.0 and ATO flow continues normally\.",
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=_break_even_skip_confirm_keyboard(),
         )
@@ -2693,15 +2951,23 @@ def _full_selected_from_wizard(wizard_data: dict[str, Any]) -> dict[str, dict | 
     """Build deployment positions map with null legs for skipped sides."""
     out: dict[str, dict | None] = {
         "pe_buy": None,
+        "pe_margin_hedge": None,
+        "pe_dyn_hedge": None,
         "pe_sell": None,
         "ce_buy": None,
+        "ce_margin_hedge": None,
+        "ce_dyn_hedge": None,
         "ce_sell": None,
     }
     if wizard_data.get("pe_enabled"):
         out["pe_buy"] = wizard_data.get("pe_buy")
+        out["pe_margin_hedge"] = wizard_data.get("pe_margin_hedge")
+        out["pe_dyn_hedge"] = wizard_data.get("pe_dyn_hedge")
         out["pe_sell"] = wizard_data.get("pe_sell")
     if wizard_data.get("ce_enabled"):
         out["ce_buy"] = wizard_data.get("ce_buy")
+        out["ce_margin_hedge"] = wizard_data.get("ce_margin_hedge")
+        out["ce_dyn_hedge"] = wizard_data.get("ce_dyn_hedge")
         out["ce_sell"] = wizard_data.get("ce_sell")
     return out
 
@@ -2796,8 +3062,12 @@ async def _wizard_show_summary(query: CallbackQuery, context: ContextTypes.DEFAU
         summary += (
             f"`PE BUY  : {_fmt_leg(selected['pe_buy'])}`\n"
             f"`PE SELL : {_fmt_leg(pe_sell)}`\n"
-            f"ATO PE: `{_md2_code(pe_ato_sym)}`\n\n"
         )
+        if selected.get("pe_margin_hedge"):
+            summary += f"`PE MARGIN: {_fmt_leg(selected['pe_margin_hedge'])}`\n"
+        if selected.get("pe_dyn_hedge"):
+            summary += f"`PE 30%DYN: {_fmt_leg(selected['pe_dyn_hedge'])}`\n"
+        summary += f"ATO PE: `{_md2_code(pe_ato_sym)}`\n\n"
     else:
         summary += f"`{_md2_code('PE side: not registered')}`\n\n"
 
@@ -2814,8 +3084,12 @@ async def _wizard_show_summary(query: CallbackQuery, context: ContextTypes.DEFAU
         summary += (
             f"`CE BUY  : {_fmt_leg(selected['ce_buy'])}`\n"
             f"`CE SELL : {_fmt_leg(ce_sell)}`\n"
-            f"ATO CE: `{_md2_code(ce_ato_sym)}`\n\n"
         )
+        if selected.get("ce_margin_hedge"):
+            summary += f"`CE MARGIN: {_fmt_leg(selected['ce_margin_hedge'])}`\n"
+        if selected.get("ce_dyn_hedge"):
+            summary += f"`CE 30%DYN: {_fmt_leg(selected['ce_dyn_hedge'])}`\n"
+        summary += f"ATO CE: `{_md2_code(ce_ato_sym)}`\n\n"
     else:
         summary += f"`{_md2_code('CE side: not registered')}`\n\n"
 
@@ -2960,6 +3234,7 @@ async def wizard_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             },
             trading_calendar=trading_calendar,
             profile=profile,
+            order_mode=str(wizard_data.get("order_mode") or "paper"),
         )
     except Exception as exc:
         logger.error("Failed to write deployment file: %s", exc)
@@ -3072,8 +3347,12 @@ async def cmd_ato_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     state = context.bot_data.get("state")
-    ce_trig = state.get("ato.ce_triggered", False) if state else False
-    pe_trig = state.get("ato.pe_triggered", False) if state else False
+    ce_trig = state.get("ato.ce_ato_active", False) if state else False
+    pe_trig = state.get("ato.pe_ato_active", False) if state else False
+    if state and not ce_trig:
+        ce_trig = bool(state.get("ato.ce_triggered", False))
+    if state and not pe_trig:
+        pe_trig = bool(state.get("ato.pe_triggered", False))
     ce_sym = state.get("ato.ce_protect_symbol", "N/A") if state else "N/A"
     pe_sym = state.get("ato.pe_protect_symbol", "N/A") if state else "N/A"
     ce_entry_buffer = state.get("ato.ce_entry_buffer_points", 0) if state else 0
@@ -3153,10 +3432,20 @@ async def cmd_ato_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     ce_exit_pts = _buffer_points(ce_retrace_points, 5)
     pe_exit_pts = _buffer_points(pe_retrace_points, 5)
 
-    ce_trigger_level = (ce_sell_strike + ce_entry) if ce_sell_strike is not None else None
-    pe_trigger_level = (pe_sell_strike - pe_entry) if pe_sell_strike is not None else None
-    ce_exit_level = (ce_sell_strike - ce_exit_pts) if ce_sell_strike is not None else None
-    pe_exit_level = (pe_sell_strike + pe_exit_pts) if pe_sell_strike is not None else None
+    from core.buffer_config.levels import ato_absolute_levels
+
+    levels = ato_absolute_levels(
+        pe_sell_strike=pe_sell_strike,
+        ce_sell_strike=ce_sell_strike,
+        pe_entry_buffer=pe_entry,
+        ce_entry_buffer=ce_entry,
+        pe_exit_buffer=pe_exit_pts,
+        ce_exit_buffer=ce_exit_pts,
+    )
+    pe_trigger_level = levels["pe_trigger"]
+    ce_trigger_level = levels["ce_trigger"]
+    pe_exit_level = levels["pe_exit"]
+    ce_exit_level = levels["ce_exit"]
 
     poll_label = _md2(str(poll_interval if poll_interval is not None else "config default"))
     from core.ato_monitoring_schedule import format_monitoring_schedule_line
@@ -3432,9 +3721,13 @@ async def cmd_legs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     p = dep.get("positions", {})
     order = [
         ("pe_buy", "PE BUY "),
+        ("pe_margin_hedge", "PE MARGIN"),
+        ("pe_dyn_hedge", "PE 30%DYN"),
         ("pe_sell", "PE SELL"),
-        ("ce_sell", "CE SELL"),
         ("ce_buy", "CE BUY "),
+        ("ce_margin_hedge", "CE MARGIN"),
+        ("ce_dyn_hedge", "CE 30%DYN"),
+        ("ce_sell", "CE SELL"),
     ]
     lines = ["🦇 *Core Batman Legs*\n"]
     for key, label in order:
@@ -3593,6 +3886,77 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 # ── /batman_complete ──────────────────────────────────────────────────────────
+
+
+async def cmd_dyn_hedge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show Yes/No toggle for exiting 30% dynamic hedge on first ATO trigger."""
+    message = _require_message(update)
+    state = context.bot_data.get("state")
+    enabled = bool(state.get("dyn_hedge.exit_enabled", False)) if state else False
+    current = "YES" if enabled else "NO"
+    # Explain the opposite choice (what changes if they flip the setting).
+    if enabled:
+        help_line = (
+            "_When No : On the first ATO trigger of the day for a side, "
+            "that side’s 30% dynamic hedge leg will not be exited\\._"
+        )
+    else:
+        help_line = (
+            "_When YES: On the first ATO trigger of the day for a side, "
+            "that side’s 30% dynamic hedge leg is exited in full — no re\\-entry\\._"
+        )
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "✅ Yes", callback_data=f"{_CB_DYN_HEDGE}:yes"
+                ),
+                InlineKeyboardButton(
+                    "❌ No", callback_data=f"{_CB_DYN_HEDGE}:no"
+                ),
+            ],
+            [InlineKeyboardButton("« Main menu", callback_data=f"{_CB_MENU}:main")],
+        ]
+    )
+    await _reply_md2(
+        message,
+        "🛡 *30% Dynamic Hedge*\n\n"
+        "Do you want to exit 30% Qty when ATO triggered\\?\n\n"
+        f"Current Setting: *{_md2(current)}*\n\n"
+        f"{help_line}",
+        reply_markup=keyboard,
+    )
+
+
+async def on_dyn_hedge_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = _require_query(update)
+    await _safe_answer_callback(query)
+    message = query.message
+    if message is None:
+        return
+    action = (query.data or "").split(":")[-1]
+    state = context.bot_data.get("state")
+    if state is None:
+        await _reply_md2(
+            message,
+            "⚠️ State store unavailable\\.",
+            reply_markup=_main_menu_keyboard(),
+        )
+        return
+    if action == "yes":
+        state.set("dyn_hedge.exit_enabled", True)
+        label = "YES"
+    elif action == "no":
+        state.set("dyn_hedge.exit_enabled", False)
+        label = "NO"
+    else:
+        await _send_alive_menu(message)
+        return
+    await _reply_md2(
+        message,
+        f"✅ 30% Dynamic Hedge exit set to *{_md2(label)}*\\.",
+        reply_markup=_main_menu_keyboard(),
+    )
 
 
 async def cmd_batman_complete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3801,8 +4165,19 @@ async def on_batman_complete_callback(update: Update, context: ContextTypes.DEFA
 
     if query.message is not None:
         _clear_wizard_data(context)
+        ingest_err = await _uat_refresh_book_for_register(context)
+        if ingest_err:
+            await _wizard_show(
+                context,
+                query.message,
+                f"⚠️ UAT book refresh failed after Batman Complete\\.\n\n"
+                f"{_md2(ingest_err)}\n\n"
+                "Fix positions\\.json \\(FAST UAT\\), then tap *Register*\\.",
+                prefer_edit=True,
+            )
+            return
         next_state = await _wizard_fetch_step1(
-            context, reply_target=query.message, prefer_edit=True
+            context, reply_target=query.message, prefer_edit=False
         )
         _set_register_conversation_state(context, update, next_state)
 
@@ -3864,6 +4239,7 @@ def _menu_action_handlers() -> dict[str, Any]:
         "recovery_auto": cmd_recovery_auto,
         "recovery_auto_confirm": cmd_recovery_auto_confirm,
         "batman_complete": cmd_batman_complete,
+        "dyn_hedge": cmd_dyn_hedge,
     }
 
 
@@ -3975,30 +4351,79 @@ def register_event_subscriptions(app: Application) -> None:
             logger.warning("KAVACH: event loop not available — push skipped")
 
     def _on_ato_ce(event, payload):
+        del event
+        spot = payload.get("spot")
+        spot_txt = (
+            f"\nSpot `{_md2_code(f'{float(spot):,.2f}')}`" if spot is not None else ""
+        )
         _fire(
             _push(
                 app,
                 chat_id,
                 "🔴 *CE \\- ATO TRIGGERED*\n"
-                "Box Breached",
+                f"Spot ≥ CE trigger{spot_txt}",
             )
         )
 
     def _on_ato_pe(event, payload):
+        del event
+        spot = payload.get("spot")
+        spot_txt = (
+            f"\nSpot `{_md2_code(f'{float(spot):,.2f}')}`" if spot is not None else ""
+        )
         _fire(
             _push(
                 app,
                 chat_id,
                 "🔴 *PE \\- ATO TRIGGERED*\n"
-                "Box Breached",
+                f"Spot ≤ PE trigger{spot_txt}",
             )
         )
 
     def _on_ato_ce_exited(event, payload):
-        _fire(_push(app, chat_id, "🟢 *CE \\- ATO EXITED*\nBack Inside Box"))
+        del event
+        spot = payload.get("spot")
+        spot_txt = (
+            f"\nSpot `{_md2_code(f'{float(spot):,.2f}')}`" if spot is not None else ""
+        )
+        _fire(
+            _push(
+                app,
+                chat_id,
+                "🟢 *CE \\- ATO EXITED*\n"
+                f"Retrace exit met{spot_txt}",
+            )
+        )
 
     def _on_ato_pe_exited(event, payload):
-        _fire(_push(app, chat_id, "🟢 *PE \\- ATO EXITED*\nBack Inside Box"))
+        del event
+        spot = payload.get("spot")
+        spot_txt = (
+            f"\nSpot `{_md2_code(f'{float(spot):,.2f}')}`" if spot is not None else ""
+        )
+        _fire(
+            _push(
+                app,
+                chat_id,
+                "🟢 *PE \\- ATO EXITED*\n"
+                f"Retrace exit met{spot_txt}",
+            )
+        )
+
+    def _on_dyn_hedge_exited(event, payload):
+        del event
+        side = str(payload.get("side", "")).upper()
+        symbol = str(payload.get("symbol", "?"))
+        qty = payload.get("qty", "?")
+        _fire(
+            _push(
+                app,
+                chat_id,
+                f"🛡 *{_md2(side)} \\- 30% Dynamic Hedge EXITED*\n"
+                f"`{_md2_code(f'{symbol}  qty={qty}')}`\n"
+                "One\\-shot exit on first ATO trigger — no re\\-entry today\\.",
+            )
+        )
 
     def _on_max_cycles(event, payload):
         del event
@@ -4218,6 +4643,7 @@ def register_event_subscriptions(app: Application) -> None:
     bus.subscribe(Event.ATO_PE_TRIGGERED, _on_ato_pe)
     bus.subscribe(Event.ATO_CE_EXITED, _on_ato_ce_exited)
     bus.subscribe(Event.ATO_PE_EXITED, _on_ato_pe_exited)
+    bus.subscribe(Event.DYN_HEDGE_EXITED, _on_dyn_hedge_exited)
     bus.subscribe(Event.ATO_MAX_CYCLES_REACHED, _on_max_cycles)
     bus.subscribe(Event.ATO_MONITOR_BREACH, _on_monitor_breach)
     bus.subscribe(Event.MODULE_ERROR, _on_module_error)
@@ -4268,13 +4694,14 @@ def build_application(broker=None, state=None, event_bus=None) -> Application:
     app = (
         Application.builder()
         .token(cfg.bot_token)
-        .concurrent_updates(True)
+        .concurrent_updates(False)
         .connect_timeout(30.0)
         .read_timeout(30.0)
         .write_timeout(60.0)
         .media_write_timeout(60.0)
         .get_updates_connect_timeout(30.0)
-        .get_updates_read_timeout(30.0)
+        .get_updates_read_timeout(60.0)
+        .get_updates_write_timeout(30.0)
         .build()
     )
 
@@ -4312,6 +4739,7 @@ def build_application(broker=None, state=None, event_bus=None) -> Application:
 
     # ── Inline keyboard callbacks ─────────────────────────────────────────────
     app.add_handler(CallbackQueryHandler(on_batman_complete_callback, pattern=f"^{_CB_DONE}:"))
+    app.add_handler(CallbackQueryHandler(on_dyn_hedge_callback, pattern=f"^{_CB_DYN_HEDGE}:"))
     app.add_handler(CallbackQueryHandler(on_hedge_box_callback, pattern=f"^{_CB_HB}:"))
     app.add_handler(CallbackQueryHandler(on_menu_callback, pattern=f"^{_CB_MENU}:"))
 

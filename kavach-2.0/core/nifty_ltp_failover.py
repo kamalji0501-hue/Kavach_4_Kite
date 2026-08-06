@@ -138,6 +138,36 @@ def reset_failover_for_new_session(bot_data: dict[str, Any], *, today: date | No
     return True
 
 
+def apply_operator_transport_choice(bot_data: dict[str, Any], mode: str) -> None:
+    """Honor LTP Feed Setup choice — clears sticky same-day REST failover lock.
+
+    Without this, selecting WebSocket only rewrote ``nifty_ltp_feed_config.json``
+    while ``session_rest_lock_date`` kept ``resolve_active_transport`` on REST.
+    """
+    mode = str(mode or "").strip().lower()
+    state = get_failover_state(bot_data)
+    if mode == "websocket":
+        state.active_transport = "websocket"
+        state.session_rest_lock_date = None
+        state.degraded = False
+        state.failover_in_progress = False
+        state.pause_reason = None
+        state.ws_retry_count = 0
+        state.last_switch_at = datetime.now(_IST).isoformat()
+        save_failover_state(bot_data, state)
+        logger.info("NIFTY operator chose WebSocket — cleared REST failover lock")
+        return
+    if mode == "rest":
+        state.active_transport = "rest"
+        state.session_rest_lock_date = None
+        state.degraded = False
+        state.failover_in_progress = False
+        state.pause_reason = None
+        state.last_switch_at = datetime.now(_IST).isoformat()
+        save_failover_state(bot_data, state)
+        logger.info("NIFTY operator chose REST — runtime transport set to REST")
+
+
 def _websocket_retry_due(state: NiftyFeedFailoverState) -> bool:
     if state.ws_retry_count >= _WS_REST_RETRY_MAX_PER_DAY:
         return False
@@ -191,12 +221,14 @@ def resolve_active_transport(
     reset_failover_for_new_session(bot_data, today=today)
     state = get_failover_state(bot_data)
 
+    # While degraded, honor the alternating transport (WS ↔ REST recovery).
     if state.degraded and state.active_transport in ("websocket", "rest"):
         return state.active_transport
+    # Same-day auto-failover lock keeps REST until next day or operator override.
     if state.session_rest_lock_date == today.isoformat():
         return "rest"
-    if state.active_transport in ("websocket", "rest"):
-        return state.active_transport
+    # Config is websocket and no session lock — always prefer WS (ignore stale
+    # active_transport=rest left behind after a partial clear / restart).
     return "websocket"
 
 
@@ -205,6 +237,8 @@ def cache_transport_label(snap: NiftyLtpCacheSnapshot | None) -> str:
     if snap is None:
         return "Cache — unknown"
     src = (snap.source or "").lower()
+    if "uat_replay" in src or src == "uat":
+        return "Cache — UAT Replay"
     if "websocket" in src:
         return "Cache — WebSocket"
     if "rest" in src:

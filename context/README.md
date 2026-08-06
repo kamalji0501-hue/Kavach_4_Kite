@@ -1,17 +1,28 @@
-# DEV Batman Algo — Context Docs
+# Context folder — index (2026-08-06)
 
-> **Project root:** `H:\RK Data\Algo Trading Parent\DEV Batman Algo`  
-> **Last updated:** 2026-07-19 (parked KAVACH2 Register / Enable PE fix)
+## Start here (Kamalji)
 
 | File | Purpose |
 |------|---------|
-| [VPS_CONTEXT.md](VPS_CONTEXT.md) | **Start here** — SSH, test VPS, architecture, session log, production spec |
-| [VPS_OPS.md](VPS_OPS.md) | Monitor, retry, stability test, deploy commands, cleanup done |
-| [AGENT_QUICKSTART.md](AGENT_QUICKSTART.md) | Quick agent onboarding — goals, checklist, paths |
-| [BROKER_MULTI_ZERODHA_PARKED.md](BROKER_MULTI_ZERODHA_PARKED.md) | **Parked** — Dhan vs Zerodha / multi-broker decision; resume only on explicit user command |
-| [KAVACH2_REGISTER_WIZARD_PARKED.md](KAVACH2_REGISTER_WIZARD_PARKED.md) | **Parked 2026-07-19** — Batman Complete skipped Enable PE; resume UAT Register from PE BUY |
+| [`KAMALJI_HANDOFF.md`](KAMALJI_HANDOFF.md) | **Primary ownership handoff** |
+| [`CURSOR_AI_GUIDE_FOR_KAMALJI.md`](CURSOR_AI_GUIDE_FOR_KAMALJI.md) | How to use Cursor without being a Python expert |
+| [`MLG_DHAN_PIN_TOTP_INTEGRATION.md`](MLG_DHAN_PIN_TOTP_INTEGRATION.md) | Optional Dhan PIN/TOTP enablement |
+| [`NEW_CHAT_HANDOFF.md`](NEW_CHAT_HANDOFF.md) | Bridge + historical notes |
 
-**VPS integration:** read [VPS_CONTEXT.md](VPS_CONTEXT.md) then [VPS_OPS.md](VPS_OPS.md).  
-**AWS always-on (Phase-1 systemd):** [../docs/AWS_ALWAYS_ON_DEPLOY.md](../docs/AWS_ALWAYS_ON_DEPLOY.md) + `vps/` package.
-**Broker change (Zerodha):** read [BROKER_MULTI_ZERODHA_PARKED.md](BROKER_MULTI_ZERODHA_PARKED.md) — do not implement until user commands.
-**KAVACH2 Register UI:** read [KAVACH2_REGISTER_WIZARD_PARKED.md](KAVACH2_REGISTER_WIZARD_PARKED.md) to continue from the Enable PE skip fix.
+## Ops / VPS
+
+| File | Purpose |
+|------|---------|
+| [`VPS_CONTEXT.md`](VPS_CONTEXT.md) | Host / path notes |
+| [`VPS_OPS.md`](VPS_OPS.md) | Ops cheat sheet |
+| [`AGENT_QUICKSTART.md`](AGENT_QUICKSTART.md) | Older agent quickstart |
+
+## Parked / historical
+
+| File | Purpose |
+|------|---------|
+| `BROKER_MULTI_ZERODHA_PARKED.md` | Parked multi-broker |
+| `KAVACH2_REGISTER_WIZARD_PARKED.md` | Parked wizard notes |
+| `BACKTEST_JUL23_SUCCESS.md` | July-23 backtest success |
+
+Repo-root companions: `../RAHUL_CHANGES_README.md`, `../NEW_CHAT_HANDOFF.md`, `../AGENTS.md`, `../docs/RAHUL_TO_KAMALJI_HANDOVER.md`.

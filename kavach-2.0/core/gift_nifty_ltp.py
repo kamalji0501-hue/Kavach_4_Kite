@@ -20,7 +20,18 @@ logger = logging.getLogger("batman.gift_nifty_ltp")
 
 _IST = zoneinfo.ZoneInfo("Asia/Kolkata")
 _ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_CACHE_PATH = _ROOT / "data" / "gift_nifty_ltp_cache.json"
+
+
+def _default_gift_cache_path() -> Path:
+    try:
+        from core.batman_mode import shared_data_dir
+
+        return shared_data_dir(_ROOT) / "gift_nifty_ltp_cache.json"
+    except Exception:
+        return _ROOT / "data" / "gift_nifty_ltp_cache.json"
+
+
+_DEFAULT_CACHE_PATH = _default_gift_cache_path()
 _DHAN_LTP_URL = "https://api.dhan.co/v2/marketfeed/ltp"
 
 # NSE index segment — from ``Dependencies/all_instrument *.csv`` (SEM_SMST_SECURITY_ID).

@@ -120,6 +120,28 @@ class OptionLtpAuditService:
                 quotes[role] = float(px)
 
         await asyncio.to_thread(append_option_ltp_log, self.log_dir, ist_now, quotes)
+        try:
+            from core.ato_nifty_tick_csv import record_option_quotes
+
+            # Prefer live NIFTY from shared cache when available
+            try:
+                from core.nifty_ltp_feed import read_nifty_ltp_cache
+
+                snap = read_nifty_ltp_cache()
+                if snap is not None and getattr(snap, "ltp", None):
+                    from core.ato_nifty_tick_csv import record_nifty_tick
+
+                    record_nifty_tick(ist_now, float(snap.ltp), source="nifty_cache")
+            except Exception:
+                pass
+            record_option_quotes(
+                ist_now,
+                quotes,
+                items=list(watch.items),
+                source="option_poll",
+            )
+        except Exception as csv_exc:
+            logger.debug("ATO tick CSV option hook failed: %s", csv_exc)
         logger.debug(
             "Option LTP audit wrote %d/%d quotes source=%s",
             len(quotes),

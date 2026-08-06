@@ -1,0 +1,6 @@
+{
+  "_bot": "RATRIPAL",
+  "_purpose": "Hedge Box HITL + lean Status",
+  "_file_role": "Tunable bot parameters only. Secrets live in token.env.",
+  "enabled": true
+}

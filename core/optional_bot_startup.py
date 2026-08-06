@@ -34,17 +34,16 @@ def optional_bot_enabled(bot_name: str, *, root: Path | None = None) -> tuple[bo
     if not params.get("enabled", True):
         return False, f"{name}: disabled in params.json"
 
-    if not token_path.is_file():
-        return False, f"{name}: token.env missing"
+    from core.telegram_credentials import get_bot_credentials, is_placeholder as _cred_ph
 
-    env = dotenv_values(token_path)
-    prefix = name.upper()
-    token = (env.get(f"{prefix}_BOT_TOKEN") or env.get("BOT_TOKEN") or "").strip()
-    chat = (env.get(f"{prefix}_CHAT_ID") or env.get("CHAT_ID") or "").strip()
-    if _is_placeholder(token):
+    token, chat, src = get_bot_credentials(name, base)
+    if _cred_ph(token):
+        # legacy path check for clearer message
+        if not token_path.is_file():
+            return False, f"{name}: token missing (no bots.env / token.env)"
         return False, f"{name}: token placeholder"
-    if _is_placeholder(chat):
-        return False, f"{name}: chat_id placeholder"
+    if _cred_ph(chat):
+        return False, f"{name}: chat_id placeholder (source={src})"
 
     start_dir = base / "Execution" / "Start Bots"
     if name == "saransh":

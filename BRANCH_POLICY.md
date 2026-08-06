@@ -38,3 +38,7 @@ rahul    ──PR/merge──┘
 ## Naming note
 
 Legacy branch `Batman-Algo-Kamalji` was retired (2026-08-02) in favor of `main` / `kamalji` / `rahul`.
+
+## Ownership note (2026-08-06)
+
+The `rahul` branch tip is the handoff baseline after Rahul’s architecture pass. **Kamalji** owns continued work on this branch/folder. See `context/KAMALJI_HANDOFF.md`.

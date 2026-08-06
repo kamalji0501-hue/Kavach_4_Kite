@@ -100,10 +100,12 @@
     "cutoff_time": "15:15"
   },
   "hedge_box": {
-    "enabled": false,
+    "enabled": true,
     "check_time_ist": "15:15",
+    "buy_time_ist": "15:20",
     "box_width_points": 75,
     "strike_step_points": 50,
+    "standard_break_even_offset_points": 200,
     "use_ato_engaged_override": true,
     "ato_override_requires_outside_short": true,
     "default_opposite_side_mode": "standard_break_even",
@@ -148,8 +150,11 @@
   "log_file": "logs/batman.log",
   "logging": {
     "enabled": true,
-    "level": "INFO",
-    "root_dir": "logs/runtime"
+    "level": "DEBUG",
+    "root_dir": "logs/runtime",
+    "audit_jsonl": true,
+    "detail_jsonl": true,
+    "debug_trading": true
   },
   "operations": {
     "prompt_time": "09:00",

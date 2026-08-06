@@ -80,7 +80,7 @@ async def batman_main() -> None:
     from core.broker import BatmanBroker
     from core.token_store import TokenStore
 
-    token_store = TokenStore(path=Path(__file__).parent / "data" / "access_token.json")
+    token_store = TokenStore()
     client_code = config.get("broker.client_code", "")
 
     stored_token, saved_at = token_store.load()
@@ -91,14 +91,37 @@ async def batman_main() -> None:
         logger.info("Broker: using access_token from config/env")
         broker = BatmanBroker.connect_with_token(client_code, config.get("broker.access_token"))
     else:
-        logger.warning(
-            "No Dhan access token found. "
-            "Send a fresh token to DRISHTI bot before market opens. "
-            "Batman will arm as soon as the token is hot-loaded."
-        )
-        from unittest.mock import MagicMock
+        pin_broker = None
+        try:
+            from core.dhan_pin_totp import load_pin_totp_credentials_from_env, pin_totp_env_present
 
-        broker = BatmanBroker(MagicMock(), auth_time=None)
+            if pin_totp_env_present():
+                creds = load_pin_totp_credentials_from_env(require=True)
+                assert creds is not None
+                logger.info("Broker: connecting via PIN/TOTP (env)")
+                pin_broker = BatmanBroker.connect_with_pin_totp(
+                    creds.client_code, creds.pin, creds.totp_secret
+                )
+                if pin_broker._access_token:
+                    try:
+                        token_store.save(pin_broker._access_token)
+                    except Exception:
+                        pass
+        except Exception as exc:
+            logger.warning("PIN/TOTP broker connect failed: %s", exc)
+            pin_broker = None
+
+        if pin_broker is not None:
+            broker = pin_broker
+        else:
+            logger.warning(
+                "No Dhan access token found. "
+                "Send a fresh token to DRISHTI, or set DHAN_PIN+DHAN_TOTP_SECRET. "
+                "Batman will arm as soon as the token is hot-loaded."
+            )
+            from unittest.mock import MagicMock
+
+            broker = BatmanBroker(MagicMock(), auth_time=None)
 
     logger.info("Broker ready")
 
@@ -106,7 +129,7 @@ async def batman_main() -> None:
     from core.event_bus import EventBus
     from core.state import StateManager
 
-    state = StateManager(path=Path(__file__).parent / "data" / "batman_state.json")
+    state = StateManager()
     events = EventBus()
     state.set("control.global_enabled", False)
     state.set("control.paused_apps", {})
@@ -239,7 +262,9 @@ async def batman_main() -> None:
     async def _startup_notify() -> None:
         from core import utils as _u
 
-        dep_files = sorted((Path(__file__).parent / "data" / "deployments").glob("batman_*.json"))
+        from core.batman_mode import data_root as _dr
+
+        dep_files = sorted((_dr() / "deployments").glob("batman_*.json"))
         deploy_str = f"ARMED ({dep_files[-1].name})" if dep_files else "idle - send /register"
         token_str = (
             "token valid" if not broker.needs_reauth() else "STALE - send fresh token to DRISHTI"

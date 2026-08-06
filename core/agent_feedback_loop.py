@@ -15,7 +15,18 @@ from core.utils import get_venv_python
 _IST = ZoneInfo("Asia/Kolkata")
 _ROOT = Path(__file__).resolve().parents[1]
 _PYTHON = get_venv_python(_ROOT)
-_OUT_DIR = _ROOT / "data" / "analytics" / "feedback_loop"
+
+
+def _out_dir() -> Path:
+    try:
+        from core.batman_mode import data_root
+
+        return data_root(_ROOT) / "analytics" / "feedback_loop"
+    except Exception:
+        return _ROOT / "data" / "analytics" / "feedback_loop"
+
+
+_OUT_DIR = _out_dir()
 _START_BATS = _ROOT / "Execution" / "Start Bots"
 
 

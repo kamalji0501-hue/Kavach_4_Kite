@@ -76,7 +76,20 @@ class TokenStore:
     """
 
     def __init__(self, path: Path | str | None = None) -> None:
-        self._path = Path(path) if path else Path("data") / "access_token.json"
+        # None or legacy data/access_token.json → shared runtime token path
+        use_runtime = path is None
+        if path is not None:
+            raw = str(path).replace("\\", "/")
+            use_runtime = raw == "data/access_token.json" or raw.endswith("/data/access_token.json")
+        if use_runtime:
+            try:
+                from core.batman_mode import access_token_path
+
+                self._path = Path(access_token_path())
+            except Exception:
+                self._path = Path(path) if path else Path("data") / "access_token.json"
+        else:
+            self._path = Path(path)  # type: ignore[arg-type]
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
 

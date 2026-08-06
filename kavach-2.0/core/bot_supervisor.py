@@ -40,7 +40,12 @@ def _runner_script(root: Path, robot: str) -> Path:
 
 
 def supervisor_state_path(root: Path) -> Path:
-    return root / "data" / "supervisor" / "state.json"
+    try:
+        from core.batman_mode import data_root
+
+        return data_root(root) / "supervisor" / "state.json"
+    except Exception:
+        return root / "data" / "supervisor" / "state.json"
 
 
 def _load_state(root: Path) -> dict:

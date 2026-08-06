@@ -80,7 +80,7 @@ async def batman_main() -> None:
     from core.broker import BatmanBroker
     from core.token_store import TokenStore
 
-    token_store = TokenStore(path=Path(__file__).parent / "data" / "access_token.json")
+    token_store = TokenStore()
     client_code = config.get("broker.client_code", "")
 
     stored_token, saved_at = token_store.load()
@@ -106,7 +106,7 @@ async def batman_main() -> None:
     from core.event_bus import EventBus
     from core.state import StateManager
 
-    state = StateManager(path=Path(__file__).parent / "data" / "batman_state.json")
+    state = StateManager()
     events = EventBus()
     state.set("control.global_enabled", False)
     state.set("control.paused_apps", {})

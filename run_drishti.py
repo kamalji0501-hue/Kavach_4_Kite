@@ -43,26 +43,61 @@ def _configure_logging() -> None:
 
 def _load_dhan_client_code() -> str:
     """Load broker client code without requiring full Batman config."""
-    load_dotenv(_dhan_env_path())
-    return __import__("os").environ.get("DHAN_CLIENT_CODE", "").strip()
+    try:
+        from core.dhan_credentials import apply_dhan_secrets_env
+
+        apply_dhan_secrets_env(ROOT)
+    except Exception:
+        load_dotenv(_dhan_env_path())
+    return __import__("os").environ.get("DHAN_CLIENT_CODE", "").strip() or (
+        __import__("os").environ.get("DHAN_CLIENT_ID", "").strip()
+    )
 
 
 def _seed_token_store_from_env(token_store: TokenStore, logger: logging.Logger) -> None:
-    """If JWT is in config/.env but not yet on disk, persist it once for DRISHTI/ATO."""
+    """Seed TokenStore JWT from env: prefer DHAN_ACCESS_TOKEN, else PIN/TOTP.
+
+    PIN/TOTP secrets are never written to disk — only the resulting daily JWT.
+    """
     import os
 
-    load_dotenv(_dhan_env_path())
-    jwt = (os.environ.get("DHAN_ACCESS_TOKEN") or "").strip()
-    if not jwt:
-        return
+    try:
+        from core.dhan_credentials import apply_dhan_secrets_env
+
+        apply_dhan_secrets_env(ROOT)
+    except Exception:
+        load_dotenv(_dhan_env_path())
     existing, _saved = token_store.load()
     if existing and not token_store.is_expired():
         return
+
+    jwt = (os.environ.get("DHAN_ACCESS_TOKEN") or "").strip()
+    if jwt:
+        try:
+            token_store.save(jwt)
+            logger.info("Seeded Dhan JWT from DHAN_ACCESS_TOKEN into %s", token_store._path)
+            return
+        except Exception as exc:
+            logger.warning("Could not seed Dhan JWT from DHAN_ACCESS_TOKEN: %s", exc)
+
     try:
-        token_store.save(jwt)
-        logger.info("Seeded Dhan JWT from config/.env into %s", token_store._path)
+        from core.dhan_pin_totp import obtain_access_token_via_pin_totp, pin_totp_env_present
     except Exception as exc:
-        logger.warning("Could not seed Dhan JWT from env: %s", exc)
+        logger.debug("PIN/TOTP helper unavailable: %s", exc)
+        return
+
+    if not pin_totp_env_present():
+        return
+    try:
+        _client, token = obtain_access_token_via_pin_totp()
+        token_store.save(token)
+        logger.info(
+            "Seeded Dhan JWT via PIN/TOTP into %s (token_len=%s; PIN/TOTP not stored)",
+            token_store._path,
+            len(token),
+        )
+    except Exception as exc:
+        logger.warning("PIN/TOTP token refresh failed: %s", exc)
 
 
 def main() -> None:
@@ -100,7 +135,7 @@ def main() -> None:
         logger.info("Valid Dhan token on disk — broker connects on first LTP/token action")
     else:
         logger.warning(
-            "No valid token on disk — send JWT via Telegram; LTP fetch will connect on demand"
+            "No valid token on disk — send JWT via Telegram or set DHAN_PIN+DHAN_TOTP_SECRET; LTP fetch will connect on demand"
         )
 
     restart_policy = PollingRestartPolicy()

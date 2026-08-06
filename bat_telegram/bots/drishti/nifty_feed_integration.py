@@ -57,6 +57,7 @@ from core.kavach_telegram import send_kavach_html
 from core.nifty_ltp import fetch_nifty_ltp_websocket
 from core.nifty_ltp_failover import (
     active_transport_label,
+    apply_operator_transport_choice,
     cache_transport_label,
     get_failover_state,
     is_failover_eligible,
@@ -223,12 +224,30 @@ def deactivate_ltp_feed(app: Application) -> None:
 
 
 async def feed_watchdog_loop(app: Application, token_store: TokenStore) -> None:
-    """Restart the REST poller if its asyncio task dies or stops unexpectedly."""
+    """Restart the REST poller if its asyncio task dies or stops unexpectedly.
+
+    In force_uat_mode / UAT replay window, live WS/REST is intentionally off —
+    do **not** restart the live poller or spam Telegram every 60s.
+    """
     while True:
         await asyncio.sleep(60)
         try:
             if load_feed_config() is None:
                 continue
+
+            params = app.bot_data.get("params") if app.bot_data else None
+            uat_cfg = load_uat_replay_config_from_params(
+                params if isinstance(params, dict) else None
+            )
+            from core.market_data_provider import live_feed_should_run
+
+            if not live_feed_should_run(uat_cfg):
+                # Replay owns the shared cache. Keep UAT running; never "recover"
+                # a live poller that was deliberately skipped.
+                if not is_uat_market_replay_running(app):
+                    sync_uat_market_replay(app)
+                continue
+
             service = app.bot_data.get("nifty_ltp_feed_service")
             needs_restart = not is_background_feed_running(app)
             if (
@@ -2286,6 +2305,8 @@ async def on_feed_setup_callback(
             return
 
         save_feed_config(cfg)
+        # Clear sticky same-day REST failover lock so WebSocket selection sticks.
+        apply_operator_transport_choice(context.application.bot_data, feed_mode)
         for key in (
             "feed_setup_poll",
             "feed_setup_mode",

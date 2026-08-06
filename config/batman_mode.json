@@ -1,9 +1,9 @@
 {
   "_comment": "Single switch: dev | uat | prod. Prefer Mode/*.bat on laptop \u2014 do not edit by hand unless needed. Logs + data/reports live outside repo (see logs_root, data_reports_root).",
-  "mode": "prod",
-  "logs_root": "logs_runtime",
-  "data_reports_root": "data_runtime",
-  "secrets_root": "secrets_runtime",
+  "mode": "uat",
+  "logs_root": "/home/ubuntu/Trading_Runtime_Rahul/Logs",
+  "data_reports_root": "/home/ubuntu/Trading_Runtime_Rahul/Data",
+  "secrets_root": "/home/ubuntu/Trading_Runtime_Rahul/Credentials",
   "modes": {
     "dev": {
       "label": "Development",
