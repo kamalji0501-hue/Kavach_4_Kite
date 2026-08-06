@@ -192,7 +192,7 @@ Update Token        → validate LTP → seed_nifty_ltp_cache → restart feeds
 
 ## 9. Next work (KAVACH register complete)
 
-DRISHTI remains complete for Phase 1 standalone use. KAVACH register is done — see **`bat_telegram/bots/kavach/KAVACH_CONTEXT.md`**.
+DRISHTI remains complete for Phase 1 standalone use. KAVACH register is done — see **`kavach-2.0/bat_telegram/bots/kavach2/KAVACH_CONTEXT.md`**.
 
 Next: JAGRAN standalone OR ATO module wiring (Gate 5).
 
@@ -205,7 +205,7 @@ See **`CONTEXT.md` §15** and **`PHASE1_IMPLEMENTATION_PLAN.md`**.
 | File | Role |
 |------|------|
 | `CONTEXT.md` | Project master handoff |
-| `bat_telegram/bots/kavach/KAVACH_CONTEXT.md` | KAVACH handoff (register complete) |
+| `kavach-2.0/bat_telegram/bots/kavach2/KAVACH_CONTEXT.md` | KAVACH handoff (register complete) |
 | `PHASE1_REQUIREMENTS.md` | Locked operator behavior |
 | `PHASE1_DHAN_INTEGRATION.md` | LTP technical notes |
 | `DHAN_API_CONTEXT.md` | **Dhan API scoped reference (orders, positions, LTP, SDKs)** |

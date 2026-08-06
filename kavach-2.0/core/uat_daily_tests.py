@@ -406,7 +406,7 @@ def run_case_register_smoke() -> CaseResult:
 
 
 def run_case_menu_map() -> CaseResult:
-    from bat_telegram.bots.kavach import bot as kavach_bot
+    from bat_telegram.bots.kavach2 import bot as kavach_bot
 
     expected = {
         "positions",
@@ -439,7 +439,7 @@ def run_case_environment_cmd() -> CaseResult:
     import asyncio
     from unittest.mock import AsyncMock, MagicMock, patch
 
-    from bat_telegram.bots.kavach import bot as kavach_bot
+    from bat_telegram.bots.kavach2 import bot as kavach_bot
 
     message = MagicMock()
     message.reply_text = AsyncMock(return_value=None)
@@ -460,7 +460,7 @@ def run_case_positions_cmd() -> CaseResult:
     import asyncio
     from unittest.mock import AsyncMock, MagicMock, patch
 
-    from bat_telegram.bots.kavach import bot as kavach_bot
+    from bat_telegram.bots.kavach2 import bot as kavach_bot
     from telegram import Update
 
     message = MagicMock()
@@ -499,7 +499,7 @@ def run_case_status_cmd() -> CaseResult:
     from pathlib import Path
     from unittest.mock import AsyncMock, MagicMock, patch
 
-    from bat_telegram.bots.kavach import bot as kavach_bot
+    from bat_telegram.bots.kavach2 import bot as kavach_bot
     from telegram import Update
 
     message = MagicMock()
@@ -519,7 +519,7 @@ def run_case_ato_status_cmd() -> CaseResult:
     import asyncio
     from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
-    from bat_telegram.bots.kavach import bot as kavach_bot
+    from bat_telegram.bots.kavach2 import bot as kavach_bot
     from telegram import Update
 
     message = MagicMock()

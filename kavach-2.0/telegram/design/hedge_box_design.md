@@ -267,7 +267,7 @@ Only unresolved points are listed below:
 
 Implemented now:
 1. `modules/ratripal.py` computes Hedge Box side plans, waits for KAVACH confirm/deny for up to 2 minutes, auto-proceeds on timeout, and buys verified hedge orders.
-2. `bat_telegram/bots/kavach/bot.py` now sends Hedge Box prompts and records confirm/deny responses through inline buttons.
+2. `kavach-2.0/bat_telegram/bots/kavach2/bot.py` now sends Hedge Box prompts and records confirm/deny responses through inline buttons.
 3. `main.py` wires RATRIPAL into the active runtime.
 4. Verified buys are written to `data/analytics/hedge_box/aditya_handoff.csv`.
 5. Broker execution/verification failures raise KAVACH/JAGRAN incidents without retry.

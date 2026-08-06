@@ -22,7 +22,7 @@ def test_prepare_uat_register_fresh_removes_positions_json(tmp_path: Path) -> No
         patch("core.uat_register_cleanup.is_uat", return_value=True),
         patch("core.uat_register_cleanup.positions_json_path", return_value=pos),
         patch("core.uat_register_cleanup.workspace_root", return_value=tmp_path),
-        patch("bat_telegram.bots.kavach.bot._archive_active_deployments", return_value=[]),
+        patch("bat_telegram.bots.kavach2.bot._archive_active_deployments", return_value=[]),
     ):
         summary = prepare_uat_register_fresh(tmp_path, broker=broker)
 

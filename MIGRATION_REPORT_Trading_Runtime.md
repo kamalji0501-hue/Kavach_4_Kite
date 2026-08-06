@@ -37,7 +37,7 @@ Trading_Runtime/
 | `core/agent_feedback_loop.py` (+ k2) | Analytics under `data_root()` |
 | `core/incident_fix_verification.py` (+ k2) | Reports under `data_root()` |
 | `modules/ratripal.py` (+ k2) | ADITYA handoff under `data_root()/analytics/...` |
-| `bat_telegram/bots/kavach/bot.py` (+ k2) | Deployments under `data_root()/deployments` |
+| `kavach-2.0/bat_telegram/bots/kavach2/bot.py` (+ k2) | Deployments under `data_root()/deployments` |
 | `kavach-2.0/bat_telegram/bots/kavach2/bot.py` | Same deployments path |
 | `bat_telegram/bots/saransh/bot.py` (+ k2) | TokenStore → runtime path |
 | `main.py` (+ k2) | TokenStore / StateManager / deployments via batman_mode |

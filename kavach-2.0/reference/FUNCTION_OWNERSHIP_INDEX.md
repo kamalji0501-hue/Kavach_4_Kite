@@ -49,7 +49,7 @@ Purpose: Quick lookup of key functions and their owning files, to reduce full-co
 | Function          | File                             | Responsibility                                      |
 | ----------------- | -------------------------------- | --------------------------------------------------- |
 | build_application | bat_telegram/bots/drishti/bot.py | Build DRISHTI Telegram app with config and handlers |
-| build_application | bat_telegram/bots/kavach/bot.py  | Build KAVACH Telegram app with config and handlers  |
+| build_application | kavach-2.0/bat_telegram/bots/kavach2/bot.py  | Build KAVACH Telegram app with config and handlers  |
 | build_application | bat_telegram/bots/lakshmi/bot.py | Build LAKSHMI Telegram app with config and handlers |
 
 ## How To Use This File

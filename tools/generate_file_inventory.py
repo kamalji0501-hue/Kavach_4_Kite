@@ -553,7 +553,7 @@ _kb(
     "NIFTY LTP from broker, deployment JSON (sell strikes, retrace, entry buffer, poll interval, side config), State",
     "data/analytics/ato_execution_telemetry.csv, data/analytics/ato/ato_trade_ledger.csv, data/analytics/ato/snapshots/*.xlsx",
     "core/broker.py, core/state.py, core/event_bus.py, core/config.py",
-    "bat_telegram/bots/kavach/bot.py (ATO notifications), bat_telegram/bots/saransh/bot.py (EOD digest)",
+    "kavach-2.0/bat_telegram/bots/kavach2/bot.py (ATO notifications), bat_telegram/bots/saransh/bot.py (EOD digest)",
     "ACTIVE",
     "ATO fires at sell_strike — NOT sell_strike + entry_buffer. Buffer adjusts trigger threshold only. Retrace points is EXIT buffer to prevent whipsaw.",
 )
@@ -581,7 +581,7 @@ _kb(
     "Open position list from State, broker connection",
     "Market orders placed, position state cleared, EMERGENCY_EXIT event published",
     "core/broker.py, core/state.py, core/event_bus.py",
-    "bat_telegram/bots/kavach/bot.py",
+    "kavach-2.0/bat_telegram/bots/kavach2/bot.py",
     "ACTIVE",
     "Nuclear option. /exit requires explicit YES within 30s. No retry.",
 )
@@ -595,7 +595,7 @@ _kb(
     "NIFTY spot, break-even levels from deployment, time (IST)",
     "Hedge buy order (via ratripal), deployment file updated with hedge details",
     "core/broker.py, core/state.py, modules/ratripal.py",
-    "bat_telegram/bots/kavach/bot.py (HITL confirm/deny)",
+    "kavach-2.0/bat_telegram/bots/kavach2/bot.py (HITL confirm/deny)",
     "ACTIVE",
     "Tuesday = 0DTE: hedge skipped. White zone = break-even strike (no buy needed).",
 )
@@ -622,7 +622,7 @@ _kb(
     "Live MTM from broker, trailing config from settings.json (trailing_pct, activation_threshold)",
     "Close orders via emergency_exit when trailing stop triggered, TRAILING_STOP_HIT event",
     "core/broker.py, core/state.py, core/config.py",
-    "modules/emergency_exit.py, bat_telegram/bots/kavach/bot.py",
+    "modules/emergency_exit.py, kavach-2.0/bat_telegram/bots/kavach2/bot.py",
     "ACTIVE",
 )
 
@@ -635,7 +635,7 @@ _kb(
     "NIFTY spot, break-even from deployment file, Hedge Box config from settings.json",
     "Hedge buy order placed, PRABHAT MUKTI CSV updated, KAVACH HITL prompt sent, JAGRAN on failure",
     "core/broker.py, core/state.py, core/event_bus.py, bat_telegram/incident_publisher.py",
-    "bat_telegram/bots/kavach/bot.py, modules/overnight_hedge.py",
+    "kavach-2.0/bat_telegram/bots/kavach2/bot.py, modules/overnight_hedge.py",
     "ACTIVE",
     "Zone map: White=break-even strike (no buy on Tue), Green=1 inside, Orange=2, Blue=3, Yellow=4 strikes inside break-even.",
 )
@@ -647,7 +647,7 @@ for _p in [
     "bat_telegram/bots/_template/__init__.py",
     "bat_telegram/bots/artha/__init__.py",
     "bat_telegram/bots/drishti/__init__.py",
-    "bat_telegram/bots/kavach/__init__.py",
+    "kavach-2.0/bat_telegram/bots/kavach2/__init__.py",
     "bat_telegram/bots/lakshmi/__init__.py",
     "bat_telegram/bots/sanchalak/__init__.py",
     "bat_telegram/bots/saransh/__init__.py",
@@ -702,7 +702,7 @@ _kb(
     "SANCHALAK commands (start_all/stop_all/pause_bot/resume_bot/set_mode)",
     "Paused/active state per bot, global mode flag",
     "N/A",
-    "bat_telegram/bots/sanchalak/bot.py, bat_telegram/bots/kavach/bot.py, bat_telegram/bots/drishti/bot.py, bat_telegram/bots/saransh/bot.py",
+    "bat_telegram/bots/sanchalak/bot.py, kavach-2.0/bat_telegram/bots/kavach2/bot.py, bat_telegram/bots/drishti/bot.py, bat_telegram/bots/saransh/bot.py",
     "ACTIVE",
     "In-memory only — resets to defaults on restart. SANCHALAK is the only writer.",
 )
@@ -722,7 +722,7 @@ _kb(
 )
 
 _kb(
-    "bat_telegram/bots/kavach/bot.py",
+    "kavach-2.0/bat_telegram/bots/kavach2/bot.py",
     "Telegram Bots",
     "KAVACH Bot",
     "KAVACH — trading command bot: deploy wizard, ATO control, emergency exit, hedge confirm",
@@ -1259,9 +1259,9 @@ _kb(
     "KAVACH bot full design spec — wizard steps, command contracts, ATO control logic",
     "Specifies: all KAVACH commands, 6-step wizard step sequence, ATO trigger/retrace formula details, break-even confirm/edit/skip flow, deployment JSON schema, /exit confirm flow, RATRIPAL callback format.",
     "N/A",
-    "Implementation reference for bat_telegram/bots/kavach/bot.py",
+    "Implementation reference for kavach-2.0/bat_telegram/bots/kavach2/bot.py",
     "N/A",
-    "bat_telegram/bots/kavach/bot.py",
+    "kavach-2.0/bat_telegram/bots/kavach2/bot.py",
     "DESIGN",
 )
 
@@ -1714,7 +1714,7 @@ _kb(
     "Completed batman_*.json files moved here by /batman_complete command. Historical record of all past deployments with full leg details.",
     "/batman_complete command in KAVACH bot",
     "Historical deployment archive",
-    "bat_telegram/bots/kavach/bot.py",
+    "kavach-2.0/bat_telegram/bots/kavach2/bot.py",
     "N/A",
     "GENERATED",
 )
@@ -2103,7 +2103,7 @@ def write_overview_sheet(wb) -> None:
             "Telegram Bots",
             "Telegram Bots",
             "DRISHTI (token/health), KAVACH (trading), SANCHALAK (control), SARANSH (summary), JAGRAN (incidents), LAKSHMI (P&L)",
-            "bat_telegram/bots/drishti/bot.py, bat_telegram/bots/kavach/bot.py, bat_telegram/bots/sanchalak/bot.py",
+            "bat_telegram/bots/drishti/bot.py, kavach-2.0/bat_telegram/bots/kavach2/bot.py, bat_telegram/bots/sanchalak/bot.py",
             "ACTIVE",
         ),
         (

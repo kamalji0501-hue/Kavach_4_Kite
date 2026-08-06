@@ -47,7 +47,7 @@ simulator/             local UI harness for mock flows
 | Bot | Entry | Role |
 |-----|-------|------|
 | DRISHTI | `run_drishti.py` | JWT, LTP poll → `data/nifty_ltp_cache.json`, health |
-| KAVACH | `run_kavach.py` | Register, ATO, pause/resume, algo |
+| KAVACH | `run_kavach2.py` | Register, ATO, pause/resume, algo |
 | JAGRAN | `run_jagran.py` | Critical incident alerts |
 
 **Architecture lock (`CONTEXT.md` §23):** **Four** separate OS processes (DRISHTI, KAVACH, JAGRAN, SARANSH) — **do not merge** pairs. Coordination via disk only. Start order: DRISHTI → KAVACH → JAGRAN → SARANSH optional last (`phase1_start_all.py`). **UAT primary** on laptop. Chats: Batman Alerts (trio) + Non Critical Alerts (SARANSH).
@@ -101,7 +101,7 @@ Full autonomous loop: **`UAT_E2E_AGENT.md`** (paste prompt into Agent; agent ite
 |-------------|------------|
 | "Check bots" | `bot_status.py all` + audit + phase1_bot_check; read logs if fail |
 | "Feedback loop" | `scripts/run_agent_feedback_loop.py` (or `Execution\Run Agent Feedback Loop.bat`) — diagnose → test → logs, up to 4 cycles |
-| "Start KAVACH" | Use task **Restart KAVACH** or Start Bots bat (not raw run_kavach.py for operator) |
+| "Start KAVACH" | Use task **Restart KAVACH** or Start Bots bat (not raw run_kavach2.py for operator) |
 | "Fix ATO bug" | Read `modules/ato_protection.py`, `GATE5_RUNBOOK.md`, run pytest |
 | "Why no LTP?" | Check `data/nifty_ltp_cache.json`, DRISHTI logs, `core/broker.py` |
 | "Gate 5 prep" | Follow `GATE5_RUNBOOK.md` checklist; verify mock mode |
@@ -132,3 +132,7 @@ Update when architecture, scope, or gate status changes:
 - ATO qty from managed BUY qty; use `normalize_buffer_field` from `core.buffer_config`.
 - Telegram MarkdownV2: real `\n` newlines, not `r"\n"`.
 - After **Batman Complete**: verified cleanup → fresh `/register` (4-leg).
+
+## Kavach
+
+Classic Kavach is removed. Phase-1 Kavach is **Kavach 2.0** (`run_kavach2.py`) using Telegram `@kavach_batmanbot` / `KAVACH_BOT_TOKEN`. See `docs/KAVACH_IS_KAVACH2.md`.

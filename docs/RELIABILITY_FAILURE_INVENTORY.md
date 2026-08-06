@@ -31,7 +31,7 @@ phase1_start_all.py / bot_supervisor.py
         ├── nifty_feed_integration.py → feed task + watchdogs
         ├── nifty_ltp_feed.py → cache write + stale watchdog
         └── nifty_ltp_websocket_feed.py → WS collector
-  └── KAVACH (run_kavach.py) → cache consumer + token_watch
+  └── KAVACH (run_kavach2.py) → cache consumer + token_watch
   └── JAGRAN (run_jagran.py) → incident_publisher → telegram_delivery
 ```
 

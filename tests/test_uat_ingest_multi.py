@@ -34,7 +34,7 @@ def test_ingest_raises_when_ocr_fails_despite_existing_positions_json(tmp_path: 
         patch("core.uat_ingest.is_uat", return_value=True),
         patch("core.uat_ingest.uat_screenshot_dir", return_value=shot_dir),
         patch("core.uat_ingest.positions_json_path", return_value=pos),
-        patch("bat_telegram.bots.kavach.bot._find_active_deployment", return_value=None),
+        patch("bat_telegram.bots.kavach2.bot._find_active_deployment", return_value=None),
         patch(
             "backtest_engine.uat.sensibull_parser.parse_sensibull_image",
             side_effect=ValueError("OCR fail"),

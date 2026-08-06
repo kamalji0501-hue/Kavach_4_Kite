@@ -150,7 +150,7 @@ Also resolves legacy **OQ-G2-03** (chat topology).
 
 | ID | Topic | Resolution |
 |----|-------|------------|
-| OQ-P1-16 | UAT skip 09:25 — when | **B** — immediate KAVACH patch (`core/daily_ato_prompt.py`; startup log in `run_kavach.py`) |
+| OQ-P1-16 | UAT skip 09:25 — when | **B** — immediate KAVACH patch (`core/daily_ato_prompt.py`; startup log in `run_kavach2.py`) |
 | OQ-P1-17 | KAVACH `/exit` | **B** — **removed**; use Pause/Resume + **Batman Complete** for session end |
 | OQ-P1-18 | JAGRAN vs SARANSH EOD | **Custom** — JAGRAN **15:32 IST**, SARANSH **15:35 IST**, independent |
 | OQ-P1-19 | Crash exit on `run_*.py` | **A** — after SARANSH P0–P5 |

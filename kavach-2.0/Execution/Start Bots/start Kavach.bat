@@ -50,9 +50,9 @@ if not exist ".venv\Scripts\python.exe" (
 
 
 
-if not exist "run_kavach.py" (
+if not exist "run_kavach2.py" (
 
-    echo ERROR: run_kavach.py not found in project root.
+    echo ERROR: run_kavach2.py not found in project root.
 
     pause
 
@@ -108,7 +108,7 @@ echo.
 
 set BATMAN_LAUNCHED_VIA_BAT=1
 
-".venv\Scripts\python.exe" run_kavach.py
+".venv\Scripts\python.exe" run_kavach2.py
 
 
 

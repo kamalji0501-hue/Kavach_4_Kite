@@ -39,7 +39,7 @@ def prepare_uat_register_fresh(
         try:
             import bat_telegram.bots.kavach2.bot as kavach_bot
         except ImportError:
-            import bat_telegram.bots.kavach.bot as kavach_bot  # legacy
+            import bat_telegram.bots.kavach2.bot as kavach_bot  # legacy
 
         moved = kavach_bot._archive_active_deployments()
         summary["archived_deployments"] = moved
@@ -87,7 +87,7 @@ def prepare_uat_register_fresh(
             try:
                 from bat_telegram.bots.kavach2.bot import _state_reset
             except ImportError:
-                from bat_telegram.bots.kavach.bot import _state_reset  # legacy
+                from bat_telegram.bots.kavach2.bot import _state_reset  # legacy
 
             _state_reset(state)
             state.set("deployment.confirmed", False, save=False)

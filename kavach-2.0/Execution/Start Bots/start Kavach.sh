@@ -23,4 +23,4 @@ fi
 
 echo "Starting KAVACH..."
 export BATMAN_LAUNCHED_VIA_BAT=1
-"$PY" run_kavach.py
+"$PY" run_kavach2.py

@@ -34,7 +34,7 @@ token_watch skipped when broker was None at startup
 ## Files / modules
 
 - core/token_watch.py
-- run_kavach.py
+- run_kavach2.py
 
 ## Fix implemented
 

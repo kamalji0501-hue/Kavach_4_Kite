@@ -157,7 +157,7 @@ async def batman_main() -> None:
     loop = asyncio.get_running_loop()
 
     from bat_telegram.bots.drishti import bot as drishti_bot
-    from bat_telegram.bots.kavach import bot as kavach_bot
+    from bat_telegram.bots.kavach2 import bot as kavach_bot
     from bat_telegram.bots.lakshmi import bot as lakshmi_bot
     from bat_telegram.incident_publisher import publish_incident, resolve_incident
 

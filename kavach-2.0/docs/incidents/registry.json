@@ -541,7 +541,7 @@
       "contributing_factors": [],
       "investigation": "",
       "files_modules": [
-        "bat_telegram/bots/kavach/bot.py"
+        "kavach-2.0/bat_telegram/bots/kavach2/bot.py"
       ],
       "logs_referenced": [],
       "fix_implemented": "Use state_path(workspace_root())",
@@ -958,7 +958,7 @@
       "investigation": "",
       "files_modules": [
         "core/token_watch.py",
-        "run_kavach.py"
+        "run_kavach2.py"
       ],
       "logs_referenced": [],
       "fix_implemented": "Lazy bootstrap via on_token_ready callback",

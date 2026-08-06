@@ -39,7 +39,7 @@ logs/runtime/2026-06/2026-06-02/
 | Bot | Restart policy |
 |-----|----------------|
 | DRISHTI | Infinite restart loop (`run_drishti.py`) |
-| KAVACH | Infinite restart loop (`run_kavach.py`) |
+| KAVACH | Infinite restart loop (`run_kavach2.py`) |
 | JAGRAN | Infinite restart loop (`run_jagran.py`) |
 
 Cursor rule: `.cursor/rules/batman-debug-robot.mdc`

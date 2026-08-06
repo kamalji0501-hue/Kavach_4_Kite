@@ -272,7 +272,7 @@ async def _optional_register_smoke() -> tuple[bool, str]:
     try:
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from bat_telegram.bots.kavach import bot as kavach_bot
+        from bat_telegram.bots.kavach2 import bot as kavach_bot
         from telegram.ext import ConversationHandler
 
         message = MagicMock()
@@ -309,7 +309,7 @@ async def _optional_register_smoke() -> tuple[bool, str]:
             patch.object(kavach_bot, "_wizard_show", new_callable=AsyncMock) as show,
         ):
             state = await kavach_bot.wizard_entry(update, context)
-        from bat_telegram.bots.kavach.register_wizard import WIZARD_PE_INTENT
+        from bat_telegram.bots.kavach2.register_wizard import WIZARD_PE_INTENT
 
         ok = state == WIZARD_PE_INTENT or state is not ConversationHandler.END
         return ok, f"wizard_entry → state={state!r} show_calls={show.await_count}"

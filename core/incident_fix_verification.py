@@ -93,7 +93,7 @@ def verify_code_markers(report: VerificationReport | None = None) -> Verificatio
             "INC-2026-STAB-02",
             "KAVACH reads mode-aware pause state",
             lambda: _file_has_all(
-                "bat_telegram/bots/kavach/bot.py",
+                "kavach-2.0/bat_telegram/bots/kavach2/bot.py",
                 "state_path(workspace_root())",
                 "_read_algo_pause_reason",
             ),

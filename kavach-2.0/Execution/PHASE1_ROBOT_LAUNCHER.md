@@ -216,7 +216,7 @@ This repo targets a **Windows dev laptop**, not a VPS. Two different ways to sta
 
 | **You (operator)** | `Execution\Start Bots\` / `Stop Bots\` `.bat` files | **Daily trading and Telegram testing** — one visible CMD window per bot |
 
-| **Cursor agent** | Integrated terminal: `.venv\Scripts\python.exe run_kavach.py` etc. | **Debugging only** — agent can tail logs in the same session; stop via Stop `.bat` or `scripts\stop_*.py` when done |
+| **Cursor agent** | Integrated terminal: `.venv\Scripts\python.exe run_kavach2.py` etc. | **Debugging only** — agent can tail logs in the same session; stop via Stop `.bat` or `scripts\stop_*.py` when done |
 
 
 
@@ -234,7 +234,7 @@ This repo targets a **Windows dev laptop**, not a VPS. Two different ways to sta
 
 
 
-**Can you run bots in Cursor for monitoring?** Yes: open a **new terminal** in Cursor, `cd` to the repo, run e.g. `.venv\Scripts\python.exe run_kavach.py` — the agent can read `logs/runtime/...` in parallel. For your normal workflow, keep using `.bat` so windows stay visible and `BATMAN_LAUNCHED_VIA_BAT=1` is set; use Cursor runs only when you and the agent are actively debugging together.
+**Can you run bots in Cursor for monitoring?** Yes: open a **new terminal** in Cursor, `cd` to the repo, run e.g. `.venv\Scripts\python.exe run_kavach2.py` — the agent can read `logs/runtime/...` in parallel. For your normal workflow, keep using `.bat` so windows stay visible and `BATMAN_LAUNCHED_VIA_BAT=1` is set; use Cursor runs only when you and the agent are actively debugging together.
 
 
 

@@ -164,7 +164,7 @@ def scenario_4_tick_csv() -> tuple[bool, str]:
 def scenario_5_wizard_and_settings() -> tuple[bool, str]:
     import json
     from core.wizard_plan import build_wizard_plan, question_index
-    from bat_telegram.bots.kavach.register_wizard import WIZARD_ORDER_MODE, _CB_ORDER_MODE, build_wizard_handler
+    from bat_telegram.bots.kavach2.register_wizard import WIZARD_ORDER_MODE, _CB_ORDER_MODE, build_wizard_handler
     from core.money_audit import audit
 
     plan = build_wizard_plan(pe_enabled=True, ce_enabled=True)

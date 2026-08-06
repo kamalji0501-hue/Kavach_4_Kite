@@ -36,7 +36,7 @@ def ingest_uat_screenshot(
 
     if allow_while_armed is False:
         try:
-            import bat_telegram.bots.kavach.bot as kavach_bot
+            import bat_telegram.bots.kavach2.bot as kavach_bot
 
             kavach_bot._DEPLOY_DIR.mkdir(parents=True, exist_ok=True)
             if kavach_bot._find_active_deployment() is not None:

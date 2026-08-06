@@ -66,50 +66,60 @@ def apply_consolidated_telegram_env(
 def get_bot_credentials(
     bot_name: str, root: Path | None = None
 ) -> tuple[str, str, str]:
-    """Return (token, chat_id, source_description). Empty strings if missing."""
+    """Return (token, chat_id, source_description). Empty strings if missing.
+
+    Kavach 2.0 uses the classic KAVACH Telegram identity (@kavach_batmanbot):
+    ``kavach2`` resolves ``KAVACH_BOT_TOKEN`` / ``telegram/bots/kavach`` first,
+    then falls back to legacy ``KAVACH2_*`` keys if present.
+    """
     from core.batman_mode import secrets_bot_dir, workspace_root
 
     name = bot_name.strip().lower()
-    prefix = name.upper()
-    token_key = f"{prefix}_BOT_TOKEN"
-    chat_key = f"{prefix}_CHAT_ID"
+    # kavach2 uses classic KAVACH Telegram identity going forward
+    lookup_names = ["kavach", "kavach2"] if name == "kavach2" else [name]
 
-    # 1) consolidated desktop file
-    cons = load_consolidated_telegram_env(root)
-    tok = (cons.get(token_key) or "").strip()
-    chat = (cons.get(chat_key) or "").strip()
-    if tok and not is_placeholder(tok):
-        return tok, chat, str(secrets_telegram_bots_env_path(root))
+    for lookup in lookup_names:
+        prefix = lookup.upper()
+        token_key = f"{prefix}_BOT_TOKEN"
+        chat_key = f"{prefix}_CHAT_ID"
 
-    # 2) per-bot under secrets_root
-    per = secrets_bot_dir(name, root) / "token.env"
-    if per.is_file():
-        vals = dotenv_values(per)
-        tok = (vals.get(token_key) or vals.get("BOT_TOKEN") or "").strip()
-        chat = (vals.get(chat_key) or vals.get("CHAT_ID") or "").strip()
+        # 1) consolidated desktop file
+        cons = load_consolidated_telegram_env(root)
+        tok = (cons.get(token_key) or "").strip()
+        chat = (cons.get(chat_key) or "").strip()
         if tok and not is_placeholder(tok):
-            return tok, chat, str(per)
+            return tok, chat, str(secrets_telegram_bots_env_path(root))
 
-    # 3) repo legacy
-    ws = root or workspace_root()
-    if name == "go":
-        repo = ws / "GO" / "telegram" / "bots" / name / "token.env"
-    elif name == "kavach2":
-        repo = ws / "kavach-2.0" / "telegram" / "bots" / name / "token.env"
-    else:
-        repo = ws / "telegram" / "bots" / name / "token.env"
-    if repo.is_file():
-        vals = dotenv_values(repo)
-        tok = (vals.get(token_key) or vals.get("BOT_TOKEN") or "").strip()
-        chat = (vals.get(chat_key) or vals.get("CHAT_ID") or "").strip()
+        # 2) per-bot under secrets_root
+        per = secrets_bot_dir(lookup, root) / "token.env"
+        if per.is_file():
+            vals = dotenv_values(per)
+            tok = (vals.get(token_key) or vals.get("BOT_TOKEN") or "").strip()
+            chat = (vals.get(chat_key) or vals.get("CHAT_ID") or "").strip()
+            if tok and not is_placeholder(tok):
+                return tok, chat, str(per)
+
+        # 3) repo legacy
+        ws = root or workspace_root()
+        if lookup == "go":
+            repo = ws / "GO" / "telegram" / "bots" / lookup / "token.env"
+        elif lookup == "kavach2":
+            repo = ws / "kavach-2.0" / "telegram" / "bots" / lookup / "token.env"
+        else:
+            repo = ws / "telegram" / "bots" / lookup / "token.env"
+        if repo.is_file():
+            vals = dotenv_values(repo)
+            tok = (vals.get(token_key) or vals.get("BOT_TOKEN") or "").strip()
+            chat = (vals.get(chat_key) or vals.get("CHAT_ID") or "").strip()
+            if tok and not is_placeholder(tok):
+                return tok, chat, str(repo)
+
+        # 4) process env
+        tok = (os.environ.get(token_key) or "").strip()
+        chat = (os.environ.get(chat_key) or "").strip()
         if tok and not is_placeholder(tok):
-            return tok, chat, str(repo)
+            return tok, chat, "environ"
 
-    # 4) process env
-    tok = (os.environ.get(token_key) or "").strip()
-    chat = (os.environ.get(chat_key) or "").strip()
-    if tok and not is_placeholder(tok):
-        return tok, chat, "environ"
     return "", "", "missing"
 
 

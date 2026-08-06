@@ -23,7 +23,7 @@ Capture **every serious error** into **separate daily files per domain** so you 
 | Domain | What it covers | Typical scenarios |
 |--------|----------------|-------------------|
 | **drishti** | `run_drishti.py`, DRISHTI handlers, NIFTY feed | `log_error`, `ltp_fetch_failure`, … |
-| **kavach** | `run_kavach.py`, ATO, register | `log_error`, ATO LTP stale, … |
+| **kavach** | `run_kavach2.py`, ATO, register | `log_error`, ATO LTP stale, … |
 | **jagran** | `run_jagran.py`, incident routing | `log_error`, … |
 | **main** | `main.py` five-bot orchestrator | `log_error`, module offline, heartbeat |
 | **start_all** | `Phase 1 Start All`, `phase1_start_all.py` | `start_all_timeout`, `start_all_abort`, … |

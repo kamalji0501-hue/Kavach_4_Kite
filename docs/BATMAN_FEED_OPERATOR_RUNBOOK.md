@@ -39,7 +39,7 @@ See also: `NIFTY_LTP_POLICY.md` in repo root.
 ## 3. Normal morning (no outage)
 
 1. Start **DRISHTI** (`run_drishti.py`) — token active, feed mode `websocket` (or `rest` for comparison).
-2. Start **KAVACH** (`run_kavach.py`).
+2. Start **KAVACH** (`run_kavach2.py`).
 3. Register / confirm deployment on KAVACH.
 4. Before **09:25**: tap **ATO Status** or **Status** — you should see:
    - `⏳ Waiting — monitoring starts at 09:25 IST`
@@ -242,7 +242,7 @@ Base: `logs_uat/runtime/YYYY-MM/YYYY-MM-DD/`
 ## 14. Related docs
 
 - `NIFTY_LTP_POLICY.md` — single-source-of-truth policy
-- `bat_telegram/bots/kavach/KAVACH_CONTEXT.md` — KAVACH feature map
+- `kavach-2.0/bat_telegram/bots/kavach2/KAVACH_CONTEXT.md` — KAVACH feature map
 - `tests/test_feed_recovery.py` — recovery unit tests
 - `tests/test_ato_monitoring_schedule.py` — 09:25 schedule tests
 

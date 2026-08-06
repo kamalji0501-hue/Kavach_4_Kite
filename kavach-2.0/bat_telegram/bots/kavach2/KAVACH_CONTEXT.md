@@ -103,7 +103,7 @@ Deployment: Armed (batman_2026-05-29_19-09.json)
 | **Start KAVACH** | `Execution\Start Bots\start Kavach.bat` |
 | **Stop KAVACH** | `Execution\Stop Bots\stop Kavach.bat` |
 | **Start DRISHTI** | `Execution\Start Bots\start Drishti.bat` (JWT required first) |
-| **Standalone KAVACH** | `python run_kavach.py` |
+| **Standalone KAVACH** | `python run_kavach2.py` |
 | **Positions smoke** | `python scripts\fetch_positions.py` |
 | **All bots check** | `python scripts\phase1_bot_check.py` |
 | **Logs** | `logs/bots/kavach/logs/startup.log` |
@@ -122,11 +122,11 @@ Deployment: Armed (batman_2026-05-29_19-09.json)
 
 | File | Role |
 |------|------|
-| `bat_telegram/bots/kavach/bot.py` | Button menu, wizard, read-only commands, `_md2()` / `_md2_code()` |
-| `bat_telegram/bots/kavach/KAVACH_CONTEXT.md` | **This handoff doc** |
+| `kavach-2.0/bat_telegram/bots/kavach2/bot.py` | Button menu, wizard, read-only commands, `_md2()` / `_md2_code()` |
+| `kavach-2.0/bat_telegram/bots/kavach2/KAVACH_CONTEXT.md` | **This handoff doc** |
 | `core/positions.py` | **NEW** — REST fetch, filter, ATO symbol builder, expiry parse |
 | `core/broker.py` | Tradehull token cache sync + REST positions fallback |
-| `run_kavach.py` | **NEW** — standalone runner (broker + state + event bus) |
+| `run_kavach2.py` | **NEW** — standalone runner (broker + state + event bus) |
 | `scripts/stop_kavach.py` | **NEW** — process stop |
 | `scripts/fetch_positions.py` | **NEW** — Gate 3 positions smoke |
 | `Execution/Start Bots/start Kavach.bat` | **NEW** |

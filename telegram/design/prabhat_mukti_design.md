@@ -28,7 +28,7 @@ stays intact.
 | Component     | File                                                 | Role                                    |
 | ------------- | ---------------------------------------------------- | --------------------------------------- |
 | Logic module  | `modules/prabhat_mukti.py`                           | All decision and execution logic        |
-| Bot prompts   | `bat_telegram/bots/kavach/bot.py`                    | All user-facing confirm/deny/time-pick  |
+| Bot prompts   | `kavach-2.0/bat_telegram/bots/kavach2/bot.py`                    | All user-facing confirm/deny/time-pick  |
 | Handoff input | `data/analytics/hedge_box/prabhat_mukti_handoff.csv` | Written by RATRIPAL, read+updated by PM |
 | P&L output    | `data/analytics/prabhat_mukti/pm_trade_log.csv`      | Written by PM after sell execution      |
 | Config        | `config/settings.json` — `prabhat_mukti` block       | All tunables, no hardcoding             |

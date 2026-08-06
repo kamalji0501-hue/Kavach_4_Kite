@@ -66,7 +66,7 @@ def test_wizard_question_numbers_stable() -> None:
 
 
 def test_register_wizard_exports_order_mode_state() -> None:
-    from bat_telegram.bots.kavach import register_wizard as rw
+    from bat_telegram.bots.kavach2 import register_wizard as rw
 
     assert hasattr(rw, "WIZARD_ORDER_MODE")
     assert hasattr(rw, "_CB_ORDER_MODE")

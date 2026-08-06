@@ -20,7 +20,7 @@ Previous session: `PHASE1_DAILY_LOG_2026-05-29.md`
 | 1 | KAVACH + JAGRAN `token.env` configured | ✅ |
 | 2 | All 3 bots `phase1_bot_check.py` PASS | ✅ |
 | 3 | `core/positions.py` — REST fetch, filter, ATO symbol builder | ✅ |
-| 4 | `run_kavach.py` + start/stop bat files | ✅ |
+| 4 | `run_kavach2.py` + start/stop bat files | ✅ |
 | 5 | KAVACH button menu (Drishti-style) | ✅ |
 | 6 | Register wizard — leg selection fixes (ConversationHandler + MarkdownV2) | ✅ |
 | 7 | Full register flow — Rahul completed | ✅ |
@@ -72,7 +72,7 @@ Previous session: `PHASE1_DAILY_LOG_2026-05-29.md`
 
 ## Start files (after restart)
 
-1. **`bat_telegram/bots/kavach/KAVACH_CONTEXT.md`** — primary handoff
+1. **`kavach-2.0/bat_telegram/bots/kavach2/KAVACH_CONTEXT.md`** — primary handoff
 2. **`bat_telegram/bots/drishti/DRISHTI_CONTEXT.md`** — DRISHTI reference
 3. **`CONTEXT.md`** §15
 4. **`data/deployments/batman_2026-05-29_11-51.json`** — active deployment
@@ -125,7 +125,7 @@ Previous session: `PHASE1_DAILY_LOG_2026-05-29.md`
 ### Start files
 
 1. **`CONTEXT.md`** §15 — master handoff
-2. **`bat_telegram/bots/kavach/KAVACH_CONTEXT.md`**
+2. **`kavach-2.0/bat_telegram/bots/kavach2/KAVACH_CONTEXT.md`**
 3. **`bat_telegram/bots/jagran/JAGRAN_CONTEXT.md`**
 4. **`data/deployments/batman_2026-05-29_19-09.json`**
 
@@ -144,7 +144,7 @@ Previous session: `PHASE1_DAILY_LOG_2026-05-29.md`
 | Area | Done |
 |------|------|
 | REST NIFTY feed + auto-pause + manual Resume | ✅ |
-| ATO in `run_kavach.py` | ✅ |
+| ATO in `run_kavach2.py` | ✅ |
 | Register — flexible ratios, qty→lots (÷65) | ✅ |
 | Batman Complete — verified cleanup | ✅ |
 | Simulator register + DRISHTI menu parity | ✅ |

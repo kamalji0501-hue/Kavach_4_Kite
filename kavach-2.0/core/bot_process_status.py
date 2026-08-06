@@ -18,7 +18,7 @@ PHASE1_BOTS: dict[str, dict[str, str]] = {
         "stop_script": "scripts\\stop_drishti.py",
     },
     "kavach": {
-        "runner": "run_kavach.py",
+        "runner": "run_kavach2.py",
         "lock": "kavach.lock",
         "start_bat": "start Kavach.bat",
         "stop_script": "scripts\\stop_kavach.py",

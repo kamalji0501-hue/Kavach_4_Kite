@@ -1,4 +1,7 @@
-"""Send operator messages to the KAVACH Telegram chat (from DRISHTI watchdog)."""
+"""Send operator messages to the KAVACH Telegram chat (from DRISHTI watchdog).
+
+Kavach 2.0 uses this classic KAVACH Telegram identity (@kavach_batmanbot).
+"""
 
 from __future__ import annotations
 

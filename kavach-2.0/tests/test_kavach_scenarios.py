@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 import pytest
 from telegram.error import BadRequest
 
-from bat_telegram.bots.kavach import bot as kavach_bot
+from bat_telegram.bots.kavach2 import bot as kavach_bot
 from bat_telegram.bots.kavach2 import bot as kavach2_bot
 from bat_telegram.bots.kavach2.register_wizard import (
     WIZARD_CE_EXIT_CUSTOM,
@@ -184,7 +184,7 @@ def _sample_positions() -> list[dict]:
 def _allow_commands():
     kavach_bot.ConversationHandler.END = -1
     with patch(
-        "bat_telegram.bots.kavach.bot.guard_paused_command",
+        "bat_telegram.bots.kavach2.bot.guard_paused_command",
         new=AsyncMock(return_value=True),
     ):
         yield
@@ -492,7 +492,7 @@ def test_buffer_labels_all_targets_md2_safe() -> None:
 
 
 def test_lots_prompt_md_escapes_parens() -> None:
-    from bat_telegram.bots.kavach.register_wizard import _lots_prompt_md
+    from bat_telegram.bots.kavach2.register_wizard import _lots_prompt_md
 
     ctx = MagicMock()
     ctx.user_data = {"wiz_plan": ["pe_lots"]}
@@ -527,7 +527,7 @@ async def test_wizard_show_summary_ce_exit_buffers() -> None:
     with patch.object(kavach_bot, "_edit_md2", edit):
         state = await kavach_bot._wizard_show_summary(query, ctx)
 
-    from bat_telegram.bots.kavach.register_wizard import WIZARD_CONFIRM
+    from bat_telegram.bots.kavach2.register_wizard import WIZARD_CONFIRM
 
     assert state == WIZARD_CONFIRM
     text = edit.await_args.args[1]
@@ -570,7 +570,7 @@ async def test_hedge_box_invalid_payload() -> None:
 @pytest.mark.asyncio
 async def test_wizard_entry_uat_bootstraps_shadow_broker_without_startup_broker() -> None:
     """UAT register must not block on no_valid_token when fixture book exists."""
-    from bat_telegram.bots.kavach.register_wizard import WIZARD_PE_INTENT
+    from bat_telegram.bots.kavach2.register_wizard import WIZARD_PE_INTENT
 
     message = _message_mock()
     update = _FakeUpdate(13, message=message)
@@ -605,7 +605,7 @@ async def test_wizard_entry_uat_bootstraps_shadow_broker_without_startup_broker(
         ),
         patch.object(kavach_bot, "_wizard_show", new_callable=AsyncMock),
         patch(
-            "bat_telegram.bots.kavach.bot.guard_paused_command",
+            "bat_telegram.bots.kavach2.bot.guard_paused_command",
             new=AsyncMock(return_value=True),
         ),
     ):

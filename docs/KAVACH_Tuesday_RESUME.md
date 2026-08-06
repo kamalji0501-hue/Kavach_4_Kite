@@ -42,7 +42,7 @@ No new ATO code unless live test proves a bug. Voice framework applies. UAT prim
 | Orphan warn at Confirm (Q59) | Done |
 | Adopt exit qty = registered ATO only (Q60) | Done |
 
-**Key files:** `modules/ato_protection.py`, `core/ato_manual_leg_sync.py`, `core/ato_position_book.py`, `core/ato_orphan_legs.py`, `core/ato_side_state.py`, `bat_telegram/bots/kavach/bot.py`, `bat_telegram/bots/saransh/bot.py`
+**Key files:** `modules/ato_protection.py`, `core/ato_manual_leg_sync.py`, `core/ato_position_book.py`, `core/ato_orphan_legs.py`, `core/ato_side_state.py`, `kavach-2.0/bat_telegram/bots/kavach2/bot.py`, `bat_telegram/bots/saransh/bot.py`
 
 **Operator bible:** `docs/KAVACH_ATO_OPERATOR_RULES.md` (Q1–Q62 locked)
 

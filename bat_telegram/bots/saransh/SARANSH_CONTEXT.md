@@ -433,7 +433,7 @@ Re-fetch chat_id after `/start`: `.venv\Scripts\python.exe scripts\fetch_bot_cha
 | `reference/DECISION_REGISTER.md` | Locked SARANSH decisions (2026-05-17) |
 | `IMPLEMENTATION_TRACKER.md` | Row: SARANSH summary bot — OPS_VALIDATION_PENDING |
 | `JAGRAN_ERROR_MATRIX.md` | `summary_delivery_failure` scenario |
-| `bat_telegram/bots/kavach/KAVACH_CONTEXT.md` | Pattern for context file quality |
+| `kavach-2.0/bat_telegram/bots/kavach2/KAVACH_CONTEXT.md` | Pattern for context file quality |
 | `bat_telegram/bots/jagran/JAGRAN_CONTEXT.md` | Pattern for standalone + bats + XLSX |
 | `GATE5_RUNBOOK.md` | ATO test procedure — SARANSH validates after Gate 5 runs |
 | `PHASE1_REQUIREMENTS.md` | Currently lists SARANSH out-of-scope — update after lock |

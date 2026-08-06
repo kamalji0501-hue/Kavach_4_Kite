@@ -18,7 +18,7 @@
 | Holding | Allowed; next tick / next cycle rules (Q85 A / Q89 A) |
 | Not armed | “Register first” (Q98 B) |
 | Confirm | Summary + warnings + Apply (Q95 C) |
-| Module | `bat_telegram/bots/kavach/ato_configuration_wizard.py` |
+| Module | `kavach-2.0/bat_telegram/bots/kavach2/ato_configuration_wizard.py` |
 | Apply | `bot.apply_ato_buffer_patch` — patches JSON + state buffers; **does not** clear holding |
 
 Lots / protect strikes still require **Batman Complete → Register**.

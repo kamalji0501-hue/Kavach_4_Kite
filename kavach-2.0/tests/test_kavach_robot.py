@@ -271,7 +271,7 @@ def test_menu_handler_map_uses_live_callables() -> None:
 
 
 def test_buffer_step_title_escapes_retrace_parens() -> None:
-    from bat_telegram.bots.kavach.register_wizard import _buffer_step_title
+    from bat_telegram.bots.kavach2.register_wizard import _buffer_step_title
 
     ctx = MagicMock()
     ctx.user_data = {"wiz_plan": ["ce_exit"]}

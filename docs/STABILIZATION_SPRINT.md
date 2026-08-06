@@ -73,7 +73,7 @@ Reporting format for each item:
 |-------|--------|
 | **Issue** | Resume / recovery buttons used `StateManager()` default path |
 | **Root cause** | `_read_algo_pause_reason()` not mode-aware |
-| **Affected modules** | `bat_telegram/bots/kavach/bot.py` |
+| **Affected modules** | `kavach-2.0/bat_telegram/bots/kavach2/bot.py` |
 | **Risk** | **High** |
 | **Fix** | Use `state_path(workspace_root())` |
 | **Result** | **Fixed 2026-06-12** |
@@ -161,7 +161,7 @@ Reporting format for each item:
 |-------|--------|
 | **Issue** | KAVACH started before DRISHTI saved JWT — no broker/ATO until manual restart |
 | **Root cause** | `token_watch` skipped when broker was None |
-| **Affected modules** | `core/token_watch.py`, `run_kavach.py` |
+| **Affected modules** | `core/token_watch.py`, `run_kavach2.py` |
 | **Risk** | **High** |
 | **Fix** | Lazy bootstrap via `on_token_ready` callback |
 | **Result** | **Fixed 2026-06-12** |

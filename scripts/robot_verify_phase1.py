@@ -48,9 +48,9 @@ def compile_critical() -> None:
         "core/money_audit.py",
         "core/order_manager.py",
         "modules/ato_protection.py",
-        "bat_telegram/bots/kavach/register_wizard.py",
-        "bat_telegram/bots/kavach/bot.py",
-        "run_kavach.py",
+        "kavach-2.0/bat_telegram/bots/kavach2/register_wizard.py",
+        "kavach-2.0/bat_telegram/bots/kavach2/bot.py",
+        "run_kavach2.py",
     ]:
         try:
             py_compile.compile(str(ROOT / rel), doraise=True)
@@ -93,7 +93,7 @@ def smoke() -> None:
         record_option_quotes,
         record_registration,
     )
-    from bat_telegram.bots.kavach.register_wizard import WIZARD_ORDER_MODE, build_wizard_handler
+    from bat_telegram.bots.kavach2.register_wizard import WIZARD_ORDER_MODE, build_wizard_handler
 
     if redact({"token": "X", "qty": 1})["token"] != "<redacted>":
         bad("redact")

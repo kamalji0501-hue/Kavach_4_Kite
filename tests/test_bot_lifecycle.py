@@ -23,7 +23,7 @@ def test_reconcile_ghost_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
     fake_stopped = BotProcessStatus(
         robot="kavach",
-        runner_marker="run_kavach.py",
+        runner_marker="run_kavach2.py",
         lock_path=lock,
         pids=(),
         lock_pid=None,
@@ -32,7 +32,7 @@ def test_reconcile_ghost_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     )
     fake_ghost = BotProcessStatus(
         robot="kavach",
-        runner_marker="run_kavach.py",
+        runner_marker="run_kavach2.py",
         lock_path=lock,
         pids=(),
         lock_pid=15892,

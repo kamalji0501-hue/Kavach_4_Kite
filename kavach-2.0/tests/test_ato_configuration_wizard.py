@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import bat_telegram.bots.kavach.ato_configuration_wizard as tune
-import bat_telegram.bots.kavach.bot as kavach_bot
+import bat_telegram.bots.kavach2.ato_configuration_wizard as tune
+import bat_telegram.bots.kavach2.bot as kavach_bot
 from core.buffer_config.schema import BufferKind, normalize_buffer_field, serialize_buffer_field
 from telegram.ext import ConversationHandler
 
@@ -107,7 +107,7 @@ def test_apply_ato_buffer_patch_updates_file_and_state(tmp_path: Path) -> None:
         patch.object(kavach_bot, "_DEPLOY_DIR", deploy_dir),
         patch.object(kavach_bot, "_mirror_deployment_to_daily_audit"),
         patch.object(kavach_bot, "_append_log"),
-        patch("bat_telegram.bots.kavach.bot.deployment_session") as sess,
+        patch("bat_telegram.bots.kavach2.bot.deployment_session") as sess,
     ):
         sess.return_value.__enter__ = MagicMock(return_value=None)
         sess.return_value.__exit__ = MagicMock(return_value=False)

@@ -1207,7 +1207,7 @@ async def notify_feed_ready_both_chats(
         try:
             from bat_telegram.bots.kavach2.bot import _main_menu_keyboard
         except ImportError:
-            from bat_telegram.bots.kavach.bot import _main_menu_keyboard
+            from bat_telegram.bots.kavach2.bot import _main_menu_keyboard
 
         await send_kavach_html(body_html, reply_markup=_main_menu_keyboard())
     else:

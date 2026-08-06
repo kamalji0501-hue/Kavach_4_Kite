@@ -91,17 +91,36 @@ class BotConfig:
 
 
 def _load_token(name: str) -> tuple[str, str]:
-    """Read bot_token and chat_id — external secrets dir first, then repo (legacy)."""
+    """Read bot_token and chat_id — external secrets dir first, then repo (legacy).
+
+    Kavach2 uses classic KAVACH Telegram token keys first.
+    """
     from core.batman_mode import secrets_bot_dir, workspace_root
 
     prefix = name.upper()
-    token_key = f"{prefix}_BOT_TOKEN"
-    chat_key = f"{prefix}_CHAT_ID"
+    # Kavach2 → classic KAVACH Telegram identity
+    if name == "kavach2":
+        token_key = "KAVACH_BOT_TOKEN"
+        chat_key = "KAVACH_CHAT_ID"
+        # also probe secrets dir named kavach
+        # (fall through uses name for paths below — adjust candidates)
+    else:
+        token_key = f"{prefix}_BOT_TOKEN"
+        chat_key = f"{prefix}_CHAT_ID"
 
-    candidates = [
-        secrets_bot_dir(name) / "token.env",
-        _BOTS_DIR / name / "token.env",
-    ]
+    secret_names = ["kavach", "kavach2"] if name == "kavach2" else [name]
+    candidates = []
+    for sn in secret_names:
+        candidates.append(secrets_bot_dir(sn) / "token.env")
+        candidates.append(_BOTS_DIR / sn / "token.env")
+    # Workspace root classic kavach secrets (preferred for Kavach2)
+    try:
+        from core.batman_mode import workspace_root as _ws
+
+        if name == "kavach2":
+            candidates.insert(0, _ws() / "telegram" / "bots" / "kavach" / "token.env")
+    except Exception:
+        pass
     env_file = next((p for p in candidates if p.exists()), candidates[0])
 
     if not env_file.exists():

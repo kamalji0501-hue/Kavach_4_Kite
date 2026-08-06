@@ -28,7 +28,7 @@ Execute autonomously: pytest, bot checks, UAT E2E when relevant. UAT primary on 
 ### Phase A — Discovery (earlier in conversation)
 - **46 operator Q&A batches** covering register, Complete, ATO, CE/PE symmetry, economy/chop, manual Dhan legs, soft cap, etc.
 - Authoritative doc: **`docs/KAVACH_ATO_OPERATOR_RULES.md`**
-- Updated: `bat_telegram/bots/kavach/KAVACH_CONTEXT.md`, `telegram/design/kavach_design.md`, `GATE5_RUNBOOK.md`, `AGENTS.md`
+- Updated: `kavach-2.0/bat_telegram/bots/kavach2/KAVACH_CONTEXT.md`, `telegram/design/kavach_design.md`, `GATE5_RUNBOOK.md`, `AGENTS.md`
 
 ### Phase B — Implementation (operator said “go”)
 Core behavioural changes landed; **not** full §7 manual-leg matrix yet.
@@ -41,7 +41,7 @@ Core behavioural changes landed; **not** full §7 manual-leg matrix yet.
 |------|----------------|
 | Operator tunables | `telegram/bots/kavach/params.json` → `ato_operator` section |
 | Config helpers | `core/ato_operator_config.py`, `core/strike_validation.py`, `core/ato_side_state.py`, `core/ato_book_validation.py` |
-| Register gate | Armed Batman blocks `/register`; cleanup-fail blocks too (`bat_telegram/bots/kavach/bot.py`) |
+| Register gate | Armed Batman blocks `/register`; cleanup-fail blocks too (`kavach-2.0/bat_telegram/bots/kavach2/bot.py`) |
 | Complete flow | Retry cleanup ≤3, list open ATO legs, auto-start register wizard (`core/batman_cleanup.py`, `bot.py`) |
 | Wizard presets | CE +500/+1000, PE −100/−500 (`register_wizard.py`) |
 | Strike validation | Block confirm if strike not in instrument master |
@@ -129,7 +129,7 @@ After JWT refresh + bots up:
 | **Open questions (Q47–Q54)** | `docs/KAVACH_OPEN_QUESTIONS.md` |
 | **This handoff** | `docs/KAVACH_TOMORROW_HANDOFF.md` |
 | ATO engine | `modules/ato_protection.py` |
-| KAVACH bot + wizard | `bat_telegram/bots/kavach/bot.py`, `register_wizard.py` |
+| KAVACH bot + wizard | `kavach-2.0/bat_telegram/bots/kavach2/bot.py`, `register_wizard.py` |
 | Params / tunables | `telegram/bots/kavach/params.json` |
 | Gate 5 economy test | `GATE5_RUNBOOK.md` |
 | Agent playbook | `AGENTS.md`, `UAT_E2E_AGENT.md` |

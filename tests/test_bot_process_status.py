@@ -96,7 +96,7 @@ def test_ghost_lock_recycled_pid(runtime_ws: Path, monkeypatch: pytest.MonkeyPat
     lock.write_text("15892", encoding="utf-8")
     status = classify_bot("kavach", root=runtime_ws)
     assert status.state is BotRunState.GHOST_LOCK
-    assert remove_stale_lock(lock, runner_marker="run_kavach.py") is True
+    assert remove_stale_lock(lock, runner_marker="run_kavach2.py") is True
     assert not lock.exists()
 
 

@@ -63,6 +63,7 @@ from dotenv import dotenv_values
 _ROOT = Path(__file__).resolve().parent.parent
 _BOTS_DIR = _ROOT / "telegram" / "bots"
 # KAVACH 2.0 lives in the kavach-2.0 sub-project (Phase 1 active robot).
+# Classic Kavach package removed — Telegram secrets remain under telegram/bots/kavach.
 _KAVACH2_BOTS_DIR = _ROOT / "kavach-2.0" / "telegram" / "bots"
 # GO is an independent bot — all files under top-level GO/ (not Phase 1).
 _GO_BOTS_DIR = _ROOT / "GO" / "telegram" / "bots"

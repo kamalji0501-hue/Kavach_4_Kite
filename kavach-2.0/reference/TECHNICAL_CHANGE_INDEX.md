@@ -18,7 +18,7 @@ Use this file to avoid scanning the entire codebase during rapid iteration.
 | Emergency exit           | modules/emergency_exit.py                         | Force close behavior and safety flows                    |
 | Telegram config loader   | bat_telegram/loader.py                            | token.env + params.json resolution and known bot mapping |
 | DRISHTI bot              | bat_telegram/bots/drishti/bot.py                  | token ops, health prompts, infra command UX              |
-| KAVACH bot               | bat_telegram/bots/kavach/bot.py                   | trading command UX, deploy/exit/pause/resume flows       |
+| KAVACH bot               | kavach-2.0/bat_telegram/bots/kavach2/bot.py                   | trading command UX, deploy/exit/pause/resume flows       |
 | LAKSHMI bot              | bat_telegram/bots/lakshmi/bot.py                  | pnl/mtm reporting and alerting UX                        |
 | SANCHALAK config mapping | telegram/bots/sanchalak/*, bat_telegram/loader.py | global-control bot token/params mapping templates        |
 | SARANSH bot              | bat_telegram/bots/saransh/bot.py, run_saransh.py  | ATO Cycle UI, daily summary, EOD 15:35, session status   |
@@ -33,10 +33,10 @@ Use this file to avoid scanning the entire codebase during rapid iteration.
 | ---------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------- |
 | Token handling or expiry prompts   | bat_telegram/bots/drishti/bot.py, core/token_store.py                                            | core/broker.py, telegram/bots/drishti/params.json |
 | ATO trigger/retrace behavior       | modules/ato_protection.py                                                                        | DESIGN.md, tests/test_modules.py                  |
-| Deploy wizard fields or validation | bat_telegram/bots/kavach/bot.py                                                                  | telegram/design/kavach_design.md, DESIGN.md       |
+| Deploy wizard fields or validation | kavach-2.0/bat_telegram/bots/kavach2/bot.py                                                                  | telegram/design/kavach_design.md, DESIGN.md       |
 | PnL summary schema                 | bat_telegram/bots/saransh/bot.py, core/saransh_reporting.py                                      | SARANSH_IMPLEMENTATION_STATUS.md, saransh_design.md |
 | ATO cycle feed / point impact      | modules/ato_protection.py, core/ato_cycle_feed.py, core/saransh_reporting.py                     | tests/test_ato_cycle_feed.py, GATE5_RUNBOOK.md    |
-| SARANSH session on Batman Complete | core/saransh_session_sync.py, bat_telegram/bots/kavach/bot.py                                    | SARANSH_IMPLEMENTATION_STATUS.md                  |
+| SARANSH session on Batman Complete | core/saransh_session_sync.py, kavach-2.0/bat_telegram/bots/kavach2/bot.py                                    | SARANSH_IMPLEMENTATION_STATUS.md                  |
 | PnL summary schema (LAKSHMI)       | bat_telegram/bots/lakshmi/bot.py                                                                 | DESIGN.md, IMPLEMENTATION_TRACKER.md              |
 | New bot config mapping             | bat_telegram/loader.py, telegram/bots/<name>/token.env.example, telegram/bots/<name>/params.json | CONTEXT.md, IMPLEMENTATION_TRACKER.md             |
 | Incident routing policy            | telegram/design/architecture.md, JAGRAN_ERROR_MATRIX.md                                          | IMPLEMENTATION_TRACKER.md, SESSION_CAPTURE_LOG.md |

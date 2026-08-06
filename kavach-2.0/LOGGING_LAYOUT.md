@@ -95,7 +95,7 @@ HHMMSS.mmm IST | LEVEL | MODULE | STAGE | STEP | CORRELATION_ID | MESSAGE | ERRO
 | Entry | Bootstrap |
 |-------|-----------|
 | `run_drishti.py` | `configure_bot_logging(bot_name="drishti")` |
-| `run_kavach.py` | `configure_bot_logging(bot_name="kavach")` |
+| `run_kavach2.py` | `configure_bot_logging(bot_name="kavach")` |
 | `run_jagran.py` | `configure_bot_logging(bot_name="jagran")` |
 
 Config: `config/settings.json` → `"logging": { "root_dir": "logs/runtime" }`

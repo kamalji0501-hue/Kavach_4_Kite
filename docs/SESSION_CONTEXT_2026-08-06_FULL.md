@@ -53,7 +53,7 @@ Nested `batman-algo/rahul_Changes` was **removed**. Do not point Rahul at Kamalj
 | Tests | `place-order-bot/tests/test_backend_workflow.py` (**4 passed** local + VPS) |
 | Batman OrderManager | `rahul_Changes/core/order_manager.py` |
 | ATO seam | `modules/ato_protection.py` → `_place_ato_aggressive_limit` uses `order_manager` if attached |
-| Startup wire | `run_kavach.py` → attaches **paper** OrderManager after ATO construct |
+| Startup wire | `run_kavach2.py` → attaches **paper** OrderManager after ATO construct |
 | Drive copy | same `backend_workflow.py` in package + `docs/BACKEND_NOT_A_BOT.md` |
 
 **Verified:**

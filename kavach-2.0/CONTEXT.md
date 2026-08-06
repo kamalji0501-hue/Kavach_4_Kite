@@ -51,7 +51,7 @@ Previously active: DRISHTI, KAVACH, JAGRAN, SANCHALAK, SARANSH. SANCHALAK and SA
 
 - **Three separate Python processes** — one per bot:
   - `run_drishti.py` — JWT, NIFTY REST poll → `data/nifty_ltp_cache.json`, health
-  - `run_kavach.py` — Register, ATO, deployment state, UAT ShadowBroker
+  - `run_kavach2.py` — Register, ATO, deployment state, UAT ShadowBroker
   - `run_jagran.py` — critical incidents + operator UI
 - **Do not merge** DRISHTI and KAVACH into one process (operator lock **§23**). Independence is intentional: separate windows, separate logs, separate restart, separate failure domains.
 - Bots coordinate **only via disk artifacts** (not shared in-memory state):
@@ -94,7 +94,7 @@ Implementation map (all three Phase 1 bots):
 - `scripts/ensure_bot_stopped.py` — preflight (start) and post-stop verification
 - `Execution\Start Bots\_preflight_start.bat` — called by every start `.bat` after silent stop
 - `Execution\Stop Bots\_verify_stopped.bat` — called by every stop `.bat` after `stop_*.py`
-- `run_drishti.py` / `run_kavach.py` / `run_jagran.py` — `bootstrap_exclusive_bot()` (scan tray → kill **same bot only** → single-instance lock)
+- `run_drishti.py` / `run_kavach2.py` / `run_jagran.py` — `bootstrap_exclusive_bot()` (scan tray → kill **same bot only** → single-instance lock)
 - `core/bot_instance_guard.py` — process-tray snapshot before every start
 - `core/deployment_lock.py` — global lock for Register confirm / Batman Complete / ATO entry (KAVACH process)
 - `core/startup_gates.py` — DRISHTI RUNNING + LTP freshness before KAVACH in `phase1_start_all.py`
@@ -240,7 +240,7 @@ Pass 2 (same session):
 | Daily health | `scripts/run_daily_health.py` | Scheduled bot/cache/JWT sanity |
 | REST throttle | `core/dhan_rest_quote.py` | 2s cached quotes; exact securityIds only |
 | Session bundle | `core/session_bundle.py` | UAT register → persist deployment + positions snapshot |
-| Protect derive | `bat_telegram/bots/kavach/bot.py` | `_derive_ato_protect_fields` on position sync |
+| Protect derive | `kavach-2.0/bat_telegram/bots/kavach2/bot.py` | `_derive_ato_protect_fields` on position sync |
 | Cache heartbeat | `core/nifty_ltp_feed.py` | `ready_for_consumers`, `cache_age_seconds`, `collector` in cache JSON |
 | Bot health | `core/bot_health.py` | `data/runtime/{drishti,kavach,jagran}/health.json` every 30s |
 | Severity | `core/incident_severity.py` | DRISHTI feed=warning; KAVACH order fail=critical |
@@ -321,7 +321,7 @@ Use this final statement:
 - ATO logic and analytics: modules/ato_protection.py
 - Global control interlocks: bat_telegram/control.py
 - SANCHALAK bot: bat_telegram/bots/sanchalak/bot.py
-- KAVACH bot: bat_telegram/bots/kavach/bot.py
+- KAVACH bot: kavach-2.0/bat_telegram/bots/kavach2/bot.py
 - DRISHTI bot: bat_telegram/bots/drishti/bot.py
 - SARANSH bot: bat_telegram/bots/saransh/bot.py
 - Incident routing: bat_telegram/incident_publisher.py
@@ -377,7 +377,7 @@ Auto-pause on bad feed; **manual Resume** on KAVACH (no auto-resume).
 |------|--------|
 | REST NIFTY feed module + DRISHTI setup UI | ✅ |
 | Auto-pause ATO + JAGRAN on stale/fetch failures | ✅ |
-| ATO wired in **`run_kavach.py`** standalone | ✅ |
+| ATO wired in **`run_kavach2.py`** standalone | ✅ |
 | Register wizard — **no 1:2 ratio block**; **qty→lots** (÷65) fix | ✅ |
 | Batman Complete — **verified cleanup** confirmation | ✅ |
 | Simulator — side-scoped register + lots + cleanup parity | ✅ |
@@ -431,7 +431,7 @@ Old deployment `batman_2026-05-29_19-09.json` — **do not reuse**; run Batman C
 
 1. **`CONTEXT.md`** — this master handoff
 2. **`GATE5_RUNBOOK.md`** — Monday ATO test
-3. **`bat_telegram/bots/kavach/KAVACH_CONTEXT.md`**
+3. **`kavach-2.0/bat_telegram/bots/kavach2/KAVACH_CONTEXT.md`**
 4. **`PHASE1_IMPLEMENTATION_PLAN.md`**
 5. **`PHASE1_DAILY_LOG_2026-05-30.md`**
 
@@ -441,7 +441,7 @@ Old deployment `batman_2026-05-29_19-09.json` — **do not reuse**; run Batman C
 |------|------|
 | `CONTEXT.md` | **Master handoff (this file)** |
 | `GATE5_RUNBOOK.md` | Gate 5 mock ATO test + ledger paths |
-| `bat_telegram/bots/kavach/KAVACH_CONTEXT.md` | KAVACH handoff |
+| `kavach-2.0/bat_telegram/bots/kavach2/KAVACH_CONTEXT.md` | KAVACH handoff |
 | `bat_telegram/bots/jagran/JAGRAN_CONTEXT.md` | JAGRAN handoff |
 | `bat_telegram/bots/drishti/DRISHTI_CONTEXT.md` | DRISHTI reference |
 | `PHASE1_IMPLEMENTATION_PLAN.md` | 7-gate rollout |
@@ -571,7 +571,7 @@ Legacy _market_monitor_loop: REMOVED (REST feed + hooks replace hourly websocket
 | **Logging layout** | Single root `logs/runtime/YYYY-MM/YYYY-MM-DD/` — see `LOGGING_LAYOUT.md` |
 | **Debug tooling** | `scripts/diagnose_robot.py`, `ROBOT_DEBUG_PROTOCOL.md`, `.cursor/rules/batman-debug-robot.mdc` |
 
-**Key files:** `core/nifty_ltp_validation.py`, `core/gift_nifty_ltp.py`, `core/gift_nifty_probe.py`, `core/nifty_ltp_feed.py`, `bat_telegram/bots/drishti/nifty_feed_integration.py`, `bat_telegram/bots/drishti/bot.py`, `run_kavach.py`, `run_jagran.py`, `tests/test_nifty_ltp_validation.py`, `tests/test_gift_nifty_ltp.py`
+**Key files:** `core/nifty_ltp_validation.py`, `core/gift_nifty_ltp.py`, `core/gift_nifty_probe.py`, `core/nifty_ltp_feed.py`, `bat_telegram/bots/drishti/nifty_feed_integration.py`, `bat_telegram/bots/drishti/bot.py`, `run_kavach2.py`, `run_jagran.py`, `tests/test_nifty_ltp_validation.py`, `tests/test_gift_nifty_ltp.py`
 
 **Tests:** 40+ on validation/GIFT/feed integration (all passing at session close).
 
@@ -652,7 +652,7 @@ Config: `config/batman_mode.json` — do not edit by hand; use `Mode\*.bat` → 
 
 1. **Register “stuck”** — synchronous OCR (~90s) blocked Telegram event loop; mid-wizard state ignored Register taps.
    - **Fix:** `asyncio.to_thread` for ingest + broker refresh; progress message; skip OCR if fresh `positions.json`; UAT skips JWT gate for ShadowBroker; `allow_reentry=True` + Register in wizard fallbacks.
-   - **Files:** `bat_telegram/bots/kavach/bot.py`, `bat_telegram/bots/kavach/register_wizard.py`
+   - **Files:** `kavach-2.0/bat_telegram/bots/kavach2/bot.py`, `kavach-2.0/bat_telegram/bots/kavach2/register_wizard.py`
 2. **ATO restore wrong folder** — hardcoded `data/deployments/` instead of `data/uat/deployments/`.
    - **Fix:** `modules/ato_protection.py` uses `deployments_dir()` from `core.batman_mode`.
    - **Note:** Restart KAVACH after deploy so ATO picks up mode path on boot.
@@ -723,7 +723,7 @@ Search for: `UAT_INGEST`, `ShadowBroker`, `wizard_`, `ATO`, `ERROR`, `deployment
 - [ ] Arm Batman; observe ATO on live NIFTY (virtual fills)
 - [ ] UAT scenario matrix UAT-01… (manual or agent-led)
 - [ ] Prod/VPS path — prep only; laptop stays uat/dev
-- [ ] Optional: move startup OCR in `run_kavach.py` to thread + skip-if-fresh (same as Register fix)
+- [ ] Optional: move startup OCR in `run_kavach2.py` to thread + skip-if-fresh (same as Register fix)
 
 ### 20.9 Daily test execution (Excel matrix — 2026-06-03)
 
@@ -1056,7 +1056,7 @@ Re-run after major merges; paste JSON with `--json` if agents need machine-reada
 
 | LOC | File |
 |----:|------|
-| 3,170 | `bat_telegram/bots/kavach/bot.py` |
+| 3,170 | `kavach-2.0/bat_telegram/bots/kavach2/bot.py` |
 | 2,643 | `tools/generate_file_inventory.py` |
 | 2,618 | `simulator/app.py` |
 | 1,542 | `bat_telegram/bots/drishti/bot.py` |
@@ -1065,7 +1065,7 @@ Re-run after major merges; paste JSON with `--json` if agents need machine-reada
 | 1,193 | `bat_telegram/bots/drishti/nifty_feed_integration.py` |
 | 861 | `core/nifty_ltp_feed.py` |
 | 767 | `core/incident_tracker.py` |
-| 725 | `bat_telegram/bots/kavach/register_wizard.py` |
+| 725 | `kavach-2.0/bat_telegram/bots/kavach2/register_wizard.py` |
 
 Several bots/modules are **1,000–3,000+ LOC** per file — primary maintainability risk; mitigated by **303** pytest tests.
 
@@ -1158,10 +1158,10 @@ Operator may explore **merging DRISHTI+KAVACH** and **websocket vs REST poll** L
 
 | Issue | Root cause | Fix |
 |-------|------------|-----|
-| `/register` `no_valid_token` | JWT expired (`saved_at=2026-06-25`); UAT ShadowBroker blocked at startup | JWT refreshed via DRISHTI; `run_kavach.py` UAT starts ShadowBroker from fixture even if JWT save-age expired; `_try_bootstrap_uat_broker()` on `/register` |
+| `/register` `no_valid_token` | JWT expired (`saved_at=2026-06-25`); UAT ShadowBroker blocked at startup | JWT refreshed via DRISHTI; `run_kavach2.py` UAT starts ShadowBroker from fixture even if JWT save-age expired; `_try_bootstrap_uat_broker()` on `/register` |
 | Batman Complete auto-register crash (00:45 IST) | Tuple passed where `startswith` expected on wizard step target | `_str_step_target()` in `register_wizard.py` — applied in `_qheader`, `_buffer_step_title`, `_side_enabled`, `wizard_buffer_mode`, `_advance_after_buffer*` |
-| Session bundle persist skipped (01:23 IST) | `workspace_root(_DEPLOY_DIR.parent.parent)` — wrong arity | `bat_telegram/bots/kavach/bot.py` → `workspace_root()` |
-| KAVACH ORPHAN / duplicate PIDs | Overlapping `run_kavach.py` without lock | `stop_kavach.py --silent` → single start with `BATMAN_LAUNCHED_VIA_BAT=1` |
+| Session bundle persist skipped (01:23 IST) | `workspace_root(_DEPLOY_DIR.parent.parent)` — wrong arity | `kavach-2.0/bat_telegram/bots/kavach2/bot.py` → `workspace_root()` |
+| KAVACH ORPHAN / duplicate PIDs | Overlapping `run_kavach2.py` without lock | `stop_kavach.py --silent` → single start with `BATMAN_LAUNCHED_VIA_BAT=1` |
 
 **Tests:** `tests/test_kavach_scenarios.py` — **36 passed** after fixes.
 

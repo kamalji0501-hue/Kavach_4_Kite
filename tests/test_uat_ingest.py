@@ -47,7 +47,7 @@ def test_newest_only_tries_single_image(tmp_path: Path) -> None:
         patch("core.uat_ingest.is_uat", return_value=True),
         patch("core.uat_ingest.uat_screenshot_dir", return_value=shot_dir),
         patch("core.uat_ingest.positions_json_path", return_value=shot_dir / "positions.json"),
-        patch("bat_telegram.bots.kavach.bot._find_active_deployment", return_value=None),
+        patch("bat_telegram.bots.kavach2.bot._find_active_deployment", return_value=None),
         patch("backtest_engine.uat.sensibull_parser.parse_sensibull_image", side_effect=fake_parse),
     ):
         result = ingest_uat_screenshot(tmp_path, required=True, newest_only=True)

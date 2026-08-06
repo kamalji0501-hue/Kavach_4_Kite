@@ -1,4 +1,7 @@
-"""Send operator messages to the KAVACH Telegram chat (from DRISHTI watchdog)."""
+"""Send operator messages to the KAVACH Telegram chat (from DRISHTI watchdog).
+
+Kavach 2.0 uses this classic KAVACH Telegram identity (@kavach_batmanbot).
+"""
 
 from __future__ import annotations
 
@@ -18,6 +21,15 @@ _KAVACH_TOKEN_ENV = _ROOT / "telegram" / "bots" / "kavach" / "token.env"
 
 
 def _load_kavach_credentials() -> tuple[str | None, str | None]:
+    """Prefer desktop bots.env; fall back to legacy repo token.env."""
+    try:
+        from core.telegram_credentials import get_bot_credentials, is_placeholder
+
+        token, chat_id, _src = get_bot_credentials("kavach")
+        if token and not is_placeholder(token) and chat_id and not is_placeholder(chat_id):
+            return token, chat_id
+    except Exception:
+        pass
     if not _KAVACH_TOKEN_ENV.exists():
         return None, None
     text = _KAVACH_TOKEN_ENV.read_text(encoding="utf-8")
@@ -26,6 +38,7 @@ def _load_kavach_credentials() -> tuple[str | None, str | None]:
     token = token_m.group(1).strip() if token_m else None
     chat_id = chat_m.group(1).strip() if chat_m else None
     return token, chat_id
+
 
 
 async def send_kavach_html(

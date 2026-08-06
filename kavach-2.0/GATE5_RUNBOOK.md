@@ -11,7 +11,7 @@
 | # | Check |
 |---|--------|
 | 1 | DRISHTI running — JWT valid, **LTP Feed Setup** completed (operator chooses poll + stale seconds) |
-| 2 | KAVACH running — `run_kavach.py` / start bat; log shows **ATO Protection module started** |
+| 2 | KAVACH running — `run_kavach2.py` / start bat; log shows **ATO Protection module started** |
 | 3 | JAGRAN running — Batman Alerts group receiving incidents |
 | 4 | Fresh **Batman Complete** → verified cleanup → **/register** full **4-leg** deployment |
 | 5 | `control.runtime_mode` = **mock** (laptop default) |

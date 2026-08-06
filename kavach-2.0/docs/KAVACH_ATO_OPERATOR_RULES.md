@@ -6,7 +6,7 @@
 **Supersedes:** Conflicting passages in `kavach_design.md` Step 0, `KAVACH_CONTEXT.md` §12 “archive → re-register”, `PHASE1_REQUIREMENTS.md` “max cycles unlimited”
 
 **Related (engineering):**
-- `bat_telegram/bots/kavach/register_wizard.py` — wizard UX
+- `kavach-2.0/bat_telegram/bots/kavach2/register_wizard.py` — wizard UX
 - `modules/ato_protection.py` — breach / retrace loop
 - `core/position_scope.py` — lots, strikes, registration scope
 - `core/batman_cleanup.py` — post-Complete verification
@@ -389,7 +389,7 @@ Custom lots · invalid strike block · book validate + 3 retries · soft cap per
 | Q97 **A** | Both sides: all CE buffers then all PE → one summary |
 | Q98 **B** | Not armed → “Register first” + point to `/register` |
 
-**Code:** `bat_telegram/bots/kavach/ato_configuration_wizard.py` · `apply_ato_buffer_patch` in `bot.py`
+**Code:** `kavach-2.0/bat_telegram/bots/kavach2/ato_configuration_wizard.py` · `apply_ato_buffer_patch` in `bot.py`
 
 ---
 

@@ -33,7 +33,7 @@ _read_algo_pause_reason() used default StateManager path
 
 ## Files / modules
 
-- bat_telegram/bots/kavach/bot.py
+- kavach-2.0/bat_telegram/bots/kavach2/bot.py
 
 ## Fix implemented
 
