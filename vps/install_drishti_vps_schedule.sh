@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BATMAN_ROOT="${BATMAN_ROOT:-/home/ubuntu/batman-algo}"
+BATMAN_ROOT="${BATMAN_ROOT:-/home/ubuntu/rahul_Changes}"
 OPS_BIN="${HOME}/batman-ops/bin"
 mkdir -p "$OPS_BIN"
 

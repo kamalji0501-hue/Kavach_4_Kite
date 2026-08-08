@@ -79,8 +79,72 @@ WIZARD_CONVERSATION_NAME = "kavach2_register"
     WIZARD_CONFIRM,
 ) = range(31)
 
+
+
+
 _CB_PRE = "wiz_pre"
 _CB_ORDER_MODE = "wiz_omode"
+_CB_LEG = "wiz_leg"
+_CB_SIDE = "wiz_side"
+_CB_LOTS = "wiz_lots"
+_CB_ATO_STR = "wiz_astr"
+_CB_BUF_MODE = "wiz_bmode"
+_CB_BUF = "wiz_buf"
+_CB_POLL = "wiz_poll"
+_CB_ATO_MON = "wiz_ato_mon"
+_CB_CONF = "wiz_conf"
+
+_PE_BUFFER_SEQUENCE = ("pe_entry", "pe_exit")
+_CE_BUFFER_SEQUENCE = ("ce_entry", "ce_exit")
+
+
+def _btn(text: str, callback_data: str, *, style: str | None = None) -> InlineKeyboardButton:
+    """Inline button with optional Telegram style: primary|success|danger."""
+    kwargs: dict[str, Any] = {"text": text, "callback_data": callback_data}
+    if style:
+        kwargs["style"] = style
+    return InlineKeyboardButton(**kwargs)
+
+
+logger = logging.getLogger("batman.kavach2.wizard")
+
+WIZARD_CONVERSATION_NAME = "kavach2_register"
+
+# ── Conversation states ───────────────────────────────────────────────────────
+(
+    WIZARD_PRE_CONFIRM,
+    WIZARD_PE_INTENT,
+    WIZARD_PE_BUY,
+    WIZARD_PE_MARGIN_HEDGE,
+    WIZARD_PE_DYN_HEDGE,
+    WIZARD_PE_SELL,
+    WIZARD_PE_LOTS,
+    WIZARD_PE_ATO_LOTS,
+    WIZARD_PE_ATO_STRIKE,
+    WIZARD_PE_ATO_STRIKE_CUSTOM,
+    WIZARD_CE_INTENT,
+    WIZARD_CE_BUY,
+    WIZARD_CE_MARGIN_HEDGE,
+    WIZARD_CE_DYN_HEDGE,
+    WIZARD_CE_SELL,
+    WIZARD_CE_LOTS,
+    WIZARD_CE_ATO_LOTS,
+    WIZARD_CE_ATO_STRIKE,
+    WIZARD_CE_ATO_STRIKE_CUSTOM,
+    WIZARD_CE_ENTRY_MODE,
+    WIZARD_CE_ENTRY_CUSTOM,
+    WIZARD_PE_ENTRY_MODE,
+    WIZARD_PE_ENTRY_CUSTOM,
+    WIZARD_CE_EXIT_MODE,
+    WIZARD_CE_EXIT_CUSTOM,
+    WIZARD_PE_EXIT_MODE,
+    WIZARD_PE_EXIT_CUSTOM,
+    WIZARD_POLL_INTERVAL,
+    WIZARD_ATO_MON,
+    WIZARD_CONFIRM,
+) = range(30)
+
+_CB_PRE = "wiz_pre"
 _CB_LEG = "wiz_leg"
 _CB_SIDE = "wiz_side"
 _CB_LOTS = "wiz_lots"
@@ -149,22 +213,13 @@ def _ato_strike_keyboard(side: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton(
-                    "✅ Confirm",
-                    callback_data=f"{_CB_ATO_STR}:{side_l}:confirm",
-                )
+                _btn("✅ Confirm", f"{_CB_ATO_STR}:{side_l}:confirm", style="success")
             ],
             [
-                InlineKeyboardButton(
-                    "Custom Strike",
-                    callback_data=f"{_CB_ATO_STR}:{side_l}:custom",
-                )
+                _btn("Custom Strike", f"{_CB_ATO_STR}:{side_l}:custom", style="primary")
             ],
             [
-                InlineKeyboardButton(
-                    "❌ Cancel",
-                    callback_data=f"{_CB_ATO_STR}:{side_l}:cancel",
-                )
+                _btn("❌ Cancel", f"{_CB_ATO_STR}:{side_l}:cancel", style="danger")
             ],
         ]
     )
@@ -241,9 +296,9 @@ def _positions_keyboard(available: list[dict], lot_size: int) -> InlineKeyboardM
     buttons = []
     for i, pos in enumerate(available):
         buttons.append(
-            [InlineKeyboardButton(_position_label(pos, lot_size), callback_data=f"{_CB_LEG}:{i}")]
+            [_btn(_position_label(pos, lot_size), f"{_CB_LEG}:{i}", style="primary")]
         )
-    buttons.append([InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_LEG}:cancel")])
+    buttons.append([_btn("❌ Cancel", f"{_CB_LEG}:cancel", style="danger")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -293,16 +348,16 @@ def _lots_keyboard(side: str, max_lots: int) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     row: list[InlineKeyboardButton] = []
     for n in range(1, max_lots + 1):
-        row.append(InlineKeyboardButton(str(n), callback_data=f"{_CB_LOTS}:{side}:{n}"))
+        row.append(_btn(str(n), f"{_CB_LOTS}:{side}:{n}", style="primary"))
         if len(row) >= 7:
             rows.append(row)
             row = []
     if row:
         rows.append(row)
     rows.append(
-        [InlineKeyboardButton(f"Use all ({max_lots})", callback_data=f"{_CB_LOTS}:{side}:all")]
+        [_btn(f"Use all ({max_lots})", f"{_CB_LOTS}:{side}:all", style="success")]
     )
-    rows.append([InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_LOTS}:cancel")])
+    rows.append([_btn("❌ Cancel", f"{_CB_LOTS}:cancel", style="danger")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -310,7 +365,7 @@ def _buffer_mode_keyboard(target: str) -> InlineKeyboardMarkup:
     """Cancel-only while waiting for a typed NIFTY level."""
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_BUF_MODE}:{target}:cancel")],
+            [_btn("❌ Cancel", f"{_CB_BUF_MODE}:{target}:cancel", style="danger")],
         ]
     )
 
@@ -319,19 +374,19 @@ def _predefined_buffer_keyboard(target: str, options: list[int]) -> InlineKeyboa
     """Deprecated stub — predefined point pickers removed."""
     del options
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_BUF}:cancel")]]
+        [[_btn("❌ Cancel", f"{_CB_BUF}:cancel", style="danger")]]
     )
 
 
 def _ato_monitor_keyboard(pe_enabled: bool, ce_enabled: bool) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if pe_enabled:
-        rows.append([InlineKeyboardButton("PE side only", callback_data=f"{_CB_ATO_MON}:pe")])
+        rows.append([_btn("PE side only", f"{_CB_ATO_MON}:pe", style="primary")])
     if ce_enabled:
-        rows.append([InlineKeyboardButton("CE side only", callback_data=f"{_CB_ATO_MON}:ce")])
+        rows.append([_btn("CE side only", f"{_CB_ATO_MON}:ce", style="primary")])
     if pe_enabled and ce_enabled:
-        rows.append([InlineKeyboardButton("Both sides", callback_data=f"{_CB_ATO_MON}:both")])
-    rows.append([InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_ATO_MON}:cancel")])
+        rows.append([_btn("Both sides", f"{_CB_ATO_MON}:both", style="success")])
+    rows.append([_btn("❌ Cancel", f"{_CB_ATO_MON}:cancel", style="danger")])
     return InlineKeyboardMarkup(rows)
 
 

@@ -111,7 +111,7 @@ def check_remote() -> dict:
     host = env.get("VPS_HOST", "")
     user = env.get("VPS_USER", "ubuntu")
     key = _expand(env.get("VPS_SSH_KEY", ""))
-    root = env.get("BATMAN_ROOT", "/home/ubuntu/batman-algo")
+    root = env.get("BATMAN_ROOT", "/home/ubuntu/rahul_Changes")
     if not host or host in ("0.0.0.0", "127.0.0.1") or not key or not Path(key).is_file():
         return {
             "where": "remote",

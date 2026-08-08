@@ -36,7 +36,7 @@ source "$ENV_FILE"
 : "${VPS_HOST:?VPS_HOST required}"
 : "${VPS_USER:=ubuntu}"
 : "${VPS_SSH_KEY:?VPS_SSH_KEY required}"
-: "${BATMAN_ROOT:=/home/ubuntu/batman-algo}"
+: "${BATMAN_ROOT:=/home/ubuntu/rahul_Changes}"
 : "${BATMAN_USER:=ubuntu}"
 : "${BATMAN_MODE:=uat}"
 

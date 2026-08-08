@@ -105,6 +105,15 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 
 logger = logging.getLogger("batman.drishti.feed")
 
+
+def _btn(text: str, callback_data: str, *, style: str | None = None) -> InlineKeyboardButton:
+    """Inline button with optional Telegram style: primary|success|danger."""
+    kwargs = {"text": text, "callback_data": callback_data}
+    if style:
+        kwargs["style"] = style
+    return InlineKeyboardButton(**kwargs)
+
+
 _CB_FEED = "drishti_feed"
 _IST = zoneinfo.ZoneInfo("Asia/Kolkata")
 _WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
@@ -509,31 +518,33 @@ def feed_mode_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton(
+                _btn(
                     "⚡ WebSocket (in-process)",
-                    callback_data=f"{_CB_FEED}:mode:{FEED_MODE_WEBSOCKET}",
+                    f"{_CB_FEED}:mode:{FEED_MODE_WEBSOCKET}",
+                    style="success",
                 )
             ],
             [
-                InlineKeyboardButton(
+                _btn(
                     "📡 REST",
-                    callback_data=f"{_CB_FEED}:mode:{FEED_MODE_REST}",
+                    f"{_CB_FEED}:mode:{FEED_MODE_REST}",
+                    style="primary",
                 )
             ],
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_FEED}:cancel")],
+            [_btn("❌ Cancel", f"{_CB_FEED}:cancel", style="danger")],
         ]
     )
 
 
 def feed_poll_keyboard() -> InlineKeyboardMarkup:
     row = [
-        InlineKeyboardButton(f"{v}s", callback_data=f"{_CB_FEED}:poll:{v}")
+        _btn(f"{v}s", f"{_CB_FEED}:poll:{v}", style="primary")
         for v in POLL_INTERVAL_OPTIONS
     ]
     return InlineKeyboardMarkup(
         [
             row,
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_FEED}:cancel")],
+            [_btn("❌ Cancel", f"{_CB_FEED}:cancel", style="danger")],
         ]
     )
 
@@ -541,13 +552,13 @@ def feed_poll_keyboard() -> InlineKeyboardMarkup:
 def feed_stale_keyboard() -> InlineKeyboardMarkup:
     """Step 3 options — same intervals as poll (1s / 2s / 3s / 5s)."""
     row = [
-        InlineKeyboardButton(f"{v}s", callback_data=f"{_CB_FEED}:stale:{v}")
+        _btn(f"{v}s", f"{_CB_FEED}:stale:{v}", style="primary")
         for v in POLL_INTERVAL_OPTIONS
     ]
     return InlineKeyboardMarkup(
         [
             row,
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_FEED}:cancel")],
+            [_btn("❌ Cancel", f"{_CB_FEED}:cancel", style="danger")],
         ]
     )
 
@@ -561,13 +572,13 @@ def feed_ping_warning_keyboard(
     rows: list[list[InlineKeyboardButton]] = []
     row: list[InlineKeyboardButton] = []
     for value in opts:
-        row.append(InlineKeyboardButton(f"{value}s", callback_data=f"{_CB_FEED}:ping_warn:{value}"))
+        row.append(_btn(f"{value}s", f"{_CB_FEED}:ping_warn:{value}", style="primary"))
         if len(row) == 3:
             rows.append(row)
             row = []
     if row:
         rows.append(row)
-    rows.append([InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_FEED}:cancel")])
+    rows.append([_btn("❌ Cancel", f"{_CB_FEED}:cancel", style="danger")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -576,13 +587,13 @@ def feed_ping_critical_keyboard(warning_seconds: int) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     row: list[InlineKeyboardButton] = []
     for value in opts:
-        row.append(InlineKeyboardButton(f"{value}s", callback_data=f"{_CB_FEED}:ping_crit:{value}"))
+        row.append(_btn(f"{value}s", f"{_CB_FEED}:ping_crit:{value}", style="primary"))
         if len(row) == 3:
             rows.append(row)
             row = []
     if row:
         rows.append(row)
-    rows.append([InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_FEED}:cancel")])
+    rows.append([_btn("❌ Cancel", f"{_CB_FEED}:cancel", style="danger")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -676,12 +687,12 @@ def uat_speed_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("Realtime", callback_data=f"{_CB_FEED}:uat_speed:realtime"),
-                InlineKeyboardButton("Fast", callback_data=f"{_CB_FEED}:uat_speed:fast"),
-                InlineKeyboardButton("Ultra", callback_data=f"{_CB_FEED}:uat_speed:ultra"),
+                _btn("Realtime", f"{_CB_FEED}:uat_speed:realtime", style="primary"),
+                _btn("Fast", f"{_CB_FEED}:uat_speed:fast", style="primary"),
+                _btn("Ultra", f"{_CB_FEED}:uat_speed:ultra", style="success"),
             ],
             [
-                InlineKeyboardButton("« Back", callback_data="drishti_menu:ping"),
+                _btn("« Back", "drishti_menu:ping"),
             ],
         ]
     )
@@ -1175,13 +1186,15 @@ def recovery_control_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton(
+                _btn(
                     f"🙋 {LABEL_MANUAL_HANDLING}",
-                    callback_data=f"{_CB_FEED}:recovery_operator",
+                    f"{_CB_FEED}:recovery_operator",
+                    style="primary",
                 ),
-                InlineKeyboardButton(
+                _btn(
                     f"🤖 {LABEL_AUTO_RESUME}",
-                    callback_data=f"{_CB_FEED}:recovery_auto",
+                    f"{_CB_FEED}:recovery_auto",
+                    style="success",
                 ),
             ],
         ]
@@ -1207,7 +1220,7 @@ async def notify_feed_ready_both_chats(
         try:
             from bat_telegram.bots.kavach2.bot import _main_menu_keyboard
         except ImportError:
-            from bat_telegram.bots.kavach2.bot import _main_menu_keyboard
+            from bat_telegram.bots.kavach.bot import _main_menu_keyboard
 
         await send_kavach_html(body_html, reply_markup=_main_menu_keyboard())
     else:
@@ -1222,11 +1235,12 @@ def recovery_auto_confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton(
+                _btn(
                     "✅ Yes, auto resume",
-                    callback_data=f"{_CB_FEED}:recovery_auto_confirm",
+                    f"{_CB_FEED}:recovery_auto_confirm",
+                    style="success",
                 ),
-                InlineKeyboardButton("Cancel", callback_data=f"{_CB_FEED}:cancel"),
+                _btn("Cancel", f"{_CB_FEED}:cancel", style="danger"),
             ],
         ]
     )

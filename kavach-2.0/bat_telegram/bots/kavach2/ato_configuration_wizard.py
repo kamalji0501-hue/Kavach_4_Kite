@@ -7,6 +7,15 @@ from decimal import Decimal
 from typing import Any, cast
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+
+
+def _btn(text: str, callback_data: str, *, style: str | None = None) -> InlineKeyboardButton:
+    """Inline button with optional Telegram style: primary|success|danger."""
+    kwargs: dict[str, Any] = {"text": text, "callback_data": callback_data}
+    if style:
+        kwargs["style"] = style
+    return InlineKeyboardButton(**kwargs)
+
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -90,11 +99,11 @@ def _side_picker_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("🔺 CE only", callback_data=f"{_CB_SIDE}:ce"),
-                InlineKeyboardButton("🔻 PE only", callback_data=f"{_CB_SIDE}:pe"),
+                _btn("🔺 CE only", f"{_CB_SIDE}:ce", style="primary"),
+                _btn("🔻 PE only", f"{_CB_SIDE}:pe", style="primary"),
             ],
-            [InlineKeyboardButton("🔀 Both CE & PE", callback_data=f"{_CB_SIDE}:both")],
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_SIDE}:cancel")],
+            [_btn("🔀 Both CE & PE", f"{_CB_SIDE}:both", style="success")],
+            [_btn("❌ Cancel", f"{_CB_SIDE}:cancel", style="danger")],
         ]
     )
 
@@ -103,13 +112,11 @@ def _buffer_step_keyboard(target: str) -> InlineKeyboardMarkup:
     """Keep current NIFTY level, or enter a new one."""
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("Keep current", callback_data=f"{_CB_BUF}:{target}:keep")],
+            [_btn("Keep current", f"{_CB_BUF}:{target}:keep", style="primary")],
             [
-                InlineKeyboardButton(
-                    "Enter NIFTY level", callback_data=f"{_CB_BUF}:{target}:custom"
-                )
+                _btn("Enter NIFTY level", f"{_CB_BUF}:{target}:custom", style="primary")
             ],
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_BUF}:{target}:cancel")],
+            [_btn("❌ Cancel", f"{_CB_BUF}:{target}:cancel", style="danger")],
         ]
     )
 
@@ -119,8 +126,8 @@ def _predefined_buffer_keyboard(target: str, options: list[int]) -> InlineKeyboa
     del options
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("⬅️ Back", callback_data=f"{_CB_BUF}:{target}:back")],
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_BUF}:{target}:cancel")],
+            [_btn("⬅️ Back", f"{_CB_BUF}:{target}:back", style="primary")],
+            [_btn("❌ Cancel", f"{_CB_BUF}:{target}:cancel", style="danger")],
         ]
     )
 
@@ -129,8 +136,8 @@ def _confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("✅ Apply", callback_data=f"{_CB_CONF}:apply"),
-                InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_CONF}:cancel"),
+                _btn("✅ Apply", f"{_CB_CONF}:apply", style="success"),
+                _btn("❌ Cancel", f"{_CB_CONF}:cancel", style="danger"),
             ]
         ]
     )

@@ -3,7 +3,7 @@
 # Does not touch KAVACH2/JAGRAN/SARANSH. Install via vps/install_drishti_vps_schedule.sh
 set -euo pipefail
 
-BATMAN_ROOT="${BATMAN_ROOT:-/home/ubuntu/batman-algo}"
+BATMAN_ROOT="${BATMAN_ROOT:-/home/ubuntu/rahul_Changes}"
 PARAMS="$BATMAN_ROOT/telegram/bots/drishti/params.json"
 LOG_EVENT="${HOME}/batman-ops/bin/log_event.sh"
 
