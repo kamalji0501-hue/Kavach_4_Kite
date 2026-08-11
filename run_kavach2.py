@@ -11,7 +11,11 @@ _KAVACH2_ROOT = Path(__file__).resolve().parent / "kavach-2.0"
 if not _KAVACH2_ROOT.is_dir():
     raise SystemExit(f"Kavach 2.0 sub-project not found: {_KAVACH2_ROOT}")
 
+_PARENT = _KAVACH2_ROOT.parent
 os.chdir(_KAVACH2_ROOT)
+# Parent first so shared core (telegram_credentials, etc.) wins over incomplete kavach-2.0/core.
+if str(_PARENT) not in sys.path:
+    sys.path.insert(0, str(_PARENT))
 if str(_KAVACH2_ROOT) not in sys.path:
     sys.path.insert(0, str(_KAVACH2_ROOT))
 

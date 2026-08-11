@@ -249,6 +249,7 @@ async def _send_alive_menu(message: Message) -> None:
     """KAVACH alive card: clear logo on top, then status content + menu buttons."""
     from bat_telegram.alive_branding import reply_alive_card
     from core.environment_display import environment_label
+    from core.nifty_ltp_feed import read_nifty_ltp_cache
 
     now = datetime.now(_IST).strftime("%d-%b-%Y %H:%M:%S IST")
     dep_file = _find_active_deployment()
@@ -257,11 +258,19 @@ async def _send_alive_menu(message: Message) -> None:
     else:
         armed = "Not deployed"
     mode_label = environment_label().replace("(virtual)", "(Virtual)").replace("(live)", "(Live)")
+    nifty_line = "NIFTY 50 LTP : —"
+    try:
+        snap = read_nifty_ltp_cache()
+        if snap is not None and float(snap.ltp) > 0:
+            nifty_line = f"NIFTY 50 LTP : <b>{float(snap.ltp):,.2f}</b>"
+    except Exception:
+        pass
     caption = (
         f"🟢 <b>KAVACH 2.0 ACTIVE</b>\n"
         f"Mode: <b>{mode_label}</b>\n"
         f"<code>{now}</code>\n"
-        f"Deployment: <b>{armed}</b>"
+        f"Deployment: <b>{armed}</b>\n"
+        f"{nifty_line}"
     )
     await reply_alive_card(
         message,
@@ -2034,22 +2043,30 @@ async def _wizard_continue_after_order_mode(
 
     mode = str(_wizard_data(context).get("order_mode") or "paper").upper()
     mode_line = f"Mode: *{_md2(mode)}*\n\n"
+    preamble = register_preamble()
     if query is not None:
         try:
             await query.edit_message_text(
-                mode_line + register_preamble(),
+                mode_line + preamble,
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
-        except Exception:
-            await message.reply_text(
-                mode_line + register_preamble(),
-                parse_mode=ParseMode.MARKDOWN_V2,
-            )
+        except Exception as exc:
+            logger.warning("Register mode ack edit failed: %s", exc)
+            try:
+                await message.reply_text(
+                    mode_line + preamble,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                )
+            except Exception as exc2:
+                logger.warning("Register mode ack reply failed: %s", exc2)
     else:
-        await message.reply_text(
-            mode_line + register_preamble(),
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
+        try:
+            await message.reply_text(
+                mode_line + preamble,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+        except Exception as exc:
+            logger.warning("Register mode ack reply failed: %s", exc)
 
 
     try:
@@ -2313,10 +2330,10 @@ async def _wizard_fetch_step1(
     wizard_data["ce_enabled"] = None
     rebuild_wizard_plan(wizard_data)
 
-    # Skip Enable PE / Enable CE — go straight to leg pick (PE BUY or CE BUY).
-    from bat_telegram.bots.kavach2.register_wizard import begin_register_leg_pick
+    # Ask Register both / CE only / PE only before leg pick.
+    from bat_telegram.bots.kavach2.register_wizard import show_register_scope_picker
 
-    return await begin_register_leg_pick(
+    return await show_register_scope_picker(
         context, reply_target, prefer_edit=prefer_edit
     )
 

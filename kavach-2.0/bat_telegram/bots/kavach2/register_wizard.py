@@ -48,6 +48,7 @@ WIZARD_CONVERSATION_NAME = "kavach2_register"
 (
     WIZARD_ORDER_MODE,
     WIZARD_PRE_CONFIRM,
+    WIZARD_REG_SCOPE,
     WIZARD_PE_INTENT,
     WIZARD_PE_BUY,
     WIZARD_PE_MARGIN_HEDGE,
@@ -77,15 +78,13 @@ WIZARD_CONVERSATION_NAME = "kavach2_register"
     WIZARD_POLL_INTERVAL,
     WIZARD_ATO_MON,
     WIZARD_CONFIRM,
-) = range(31)
-
-
-
+) = range(32)
 
 _CB_PRE = "wiz_pre"
 _CB_ORDER_MODE = "wiz_omode"
 _CB_LEG = "wiz_leg"
 _CB_SIDE = "wiz_side"
+_CB_REG_SCOPE = "wiz_reg_scope"
 _CB_LOTS = "wiz_lots"
 _CB_ATO_STR = "wiz_astr"
 _CB_BUF_MODE = "wiz_bmode"
@@ -104,59 +103,6 @@ def _btn(text: str, callback_data: str, *, style: str | None = None) -> InlineKe
     if style:
         kwargs["style"] = style
     return InlineKeyboardButton(**kwargs)
-
-
-logger = logging.getLogger("batman.kavach2.wizard")
-
-WIZARD_CONVERSATION_NAME = "kavach2_register"
-
-# ── Conversation states ───────────────────────────────────────────────────────
-(
-    WIZARD_PRE_CONFIRM,
-    WIZARD_PE_INTENT,
-    WIZARD_PE_BUY,
-    WIZARD_PE_MARGIN_HEDGE,
-    WIZARD_PE_DYN_HEDGE,
-    WIZARD_PE_SELL,
-    WIZARD_PE_LOTS,
-    WIZARD_PE_ATO_LOTS,
-    WIZARD_PE_ATO_STRIKE,
-    WIZARD_PE_ATO_STRIKE_CUSTOM,
-    WIZARD_CE_INTENT,
-    WIZARD_CE_BUY,
-    WIZARD_CE_MARGIN_HEDGE,
-    WIZARD_CE_DYN_HEDGE,
-    WIZARD_CE_SELL,
-    WIZARD_CE_LOTS,
-    WIZARD_CE_ATO_LOTS,
-    WIZARD_CE_ATO_STRIKE,
-    WIZARD_CE_ATO_STRIKE_CUSTOM,
-    WIZARD_CE_ENTRY_MODE,
-    WIZARD_CE_ENTRY_CUSTOM,
-    WIZARD_PE_ENTRY_MODE,
-    WIZARD_PE_ENTRY_CUSTOM,
-    WIZARD_CE_EXIT_MODE,
-    WIZARD_CE_EXIT_CUSTOM,
-    WIZARD_PE_EXIT_MODE,
-    WIZARD_PE_EXIT_CUSTOM,
-    WIZARD_POLL_INTERVAL,
-    WIZARD_ATO_MON,
-    WIZARD_CONFIRM,
-) = range(30)
-
-_CB_PRE = "wiz_pre"
-_CB_LEG = "wiz_leg"
-_CB_SIDE = "wiz_side"
-_CB_LOTS = "wiz_lots"
-_CB_ATO_STR = "wiz_astr"
-_CB_BUF_MODE = "wiz_bmode"
-_CB_BUF = "wiz_buf"
-_CB_POLL = "wiz_poll"
-_CB_ATO_MON = "wiz_ato_mon"
-_CB_CONF = "wiz_conf"
-
-_PE_BUFFER_SEQUENCE = ("pe_entry", "pe_exit")
-_CE_BUFFER_SEQUENCE = ("ce_entry", "ce_exit")
 
 
 def _ato_step(context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -380,14 +326,25 @@ def _predefined_buffer_keyboard(target: str, options: list[int]) -> InlineKeyboa
 
 def _ato_monitor_keyboard(pe_enabled: bool, ce_enabled: bool) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
-    if pe_enabled:
-        rows.append([_btn("PE side only", f"{_CB_ATO_MON}:pe", style="primary")])
-    if ce_enabled:
-        rows.append([_btn("CE side only", f"{_CB_ATO_MON}:ce", style="primary")])
     if pe_enabled and ce_enabled:
-        rows.append([_btn("Both sides", f"{_CB_ATO_MON}:both", style="success")])
+        rows.append([_btn("Manage both CE and PE", f"{_CB_ATO_MON}:both", style="success")])
+    if ce_enabled:
+        rows.append([_btn("Manage CE only", f"{_CB_ATO_MON}:ce", style="primary")])
+    if pe_enabled:
+        rows.append([_btn("Manage PE only", f"{_CB_ATO_MON}:pe", style="primary")])
     rows.append([_btn("❌ Cancel", f"{_CB_ATO_MON}:cancel", style="danger")])
     return InlineKeyboardMarkup(rows)
+
+
+def _reg_scope_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [_btn("Register both CE and PE", f"{_CB_REG_SCOPE}:both", style="success")],
+            [_btn("Register CE only", f"{_CB_REG_SCOPE}:ce", style="primary")],
+            [_btn("Register PE only", f"{_CB_REG_SCOPE}:pe", style="primary")],
+            [_btn("❌ Cancel", f"{_CB_REG_SCOPE}:cancel", style="danger")],
+        ]
+    )
 
 
 def _selected_for_header(wiz: dict) -> dict:
@@ -546,6 +503,18 @@ async def _ask_ce_buy_legs(query_or_msg, context, *, prefer_edit: bool = True) -
     """Show CE BUY leg picker (no Enable CE prompt)."""
     b = _bot()
     wiz = _wiz(context)
+    if wiz.get("ce_enabled") is False:
+        if prefer_edit and getattr(query_or_msg, "data", None) is not None:
+            return await _goto_poll(query_or_msg, context)
+        body = "Select:"
+        await b._wizard_show(
+            context,
+            query_or_msg,
+            _qheader(context, "poll", body),
+            reply_markup=b._poll_interval_keyboard(),
+            prefer_edit=prefer_edit,
+        )
+        return WIZARD_POLL_INTERVAL
     wiz["ce_enabled"] = True
     rebuild_wizard_plan(wiz)
     all_pos = cast(list[dict], wiz["wiz_positions"])
@@ -570,27 +539,122 @@ async def _ask_ce_buy_legs(query_or_msg, context, *, prefer_edit: bool = True) -
     return WIZARD_CE_BUY
 
 
+async def show_register_scope_picker(
+    context: ContextTypes.DEFAULT_TYPE,
+    reply_target,
+    *,
+    prefer_edit: bool = False,
+) -> int:
+    """Ask operator: register both / CE only / PE only, then continue to leg pick."""
+    b = _bot()
+    wiz = _wiz(context)
+    all_pos = cast(list[dict], wiz.get("wiz_positions") or [])
+    long_pe = filter_positions_by_direction(filter_positions_by_side(all_pos, "PE"), "LONG")
+    long_ce = filter_positions_by_direction(filter_positions_by_side(all_pos, "CE"), "LONG")
+    if not long_pe and not long_ce:
+        await b._wizard_show(
+            context,
+            reply_target,
+            "⚠️ No PE/CE BUY candidates found to register\\.\n\nUAT book needs BUY legs on PE and/or CE\\. Check positions book, then tap *Register* again\\.",
+            prefer_edit=prefer_edit,
+        )
+        b._clear_wizard_data(context)
+        return ConversationHandler.END
+
+    wiz["_book_has_pe"] = bool(long_pe)
+    wiz["_book_has_ce"] = bool(long_ce)
+    pe_n = len(long_pe)
+    ce_n = len(long_ce)
+    body = (
+        "Choose which sides to *register*:\n\n"
+        f"_Book:_ PE BUY `{pe_n}` / CE BUY `{ce_n}`"
+    )
+    header = _qheader(context, "reg_scope", body)
+    await b._wizard_show(
+        context,
+        reply_target,
+        header,
+        reply_markup=_reg_scope_keyboard(),
+        prefer_edit=prefer_edit,
+    )
+    return WIZARD_REG_SCOPE
+
+
+async def wizard_reg_scope(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle Register both / CE only / PE only."""
+    b = _bot()
+    query = b._require_query(update)
+    await b._safe_answer_callback(query)
+    wiz = _wiz(context)
+    data = query.data or ""
+    if data.endswith(":cancel"):
+        return await _cancel_wizard(query, context)
+    choice = data.split(":")[-1]
+    book_pe = bool(wiz.get("_book_has_pe"))
+    book_ce = bool(wiz.get("_book_has_ce"))
+    if not book_pe and not book_ce:
+        all_pos = cast(list[dict], wiz.get("wiz_positions") or [])
+        book_pe = bool(
+            filter_positions_by_direction(filter_positions_by_side(all_pos, "PE"), "LONG")
+        )
+        book_ce = bool(
+            filter_positions_by_direction(filter_positions_by_side(all_pos, "CE"), "LONG")
+        )
+
+    if choice == "both":
+        want_pe, want_ce = True, True
+    elif choice == "ce":
+        want_pe, want_ce = False, True
+    elif choice == "pe":
+        want_pe, want_ce = True, False
+    else:
+        await query.answer("Invalid selection — please tap a button.", show_alert=True)
+        return WIZARD_REG_SCOPE
+
+    if want_pe and not book_pe:
+        await query.answer(
+            "No PE BUY in book — cannot Register PE for this choice.",
+            show_alert=True,
+        )
+        return WIZARD_REG_SCOPE
+    if want_ce and not book_ce:
+        await query.answer(
+            "No CE BUY in book — cannot Register CE for this choice.",
+            show_alert=True,
+        )
+        return WIZARD_REG_SCOPE
+
+    wiz["pe_enabled"] = want_pe
+    wiz["ce_enabled"] = want_ce
+    rebuild_wizard_plan(wiz)
+    return await begin_register_leg_pick(context, query.message, prefer_edit=True)
+
+
 async def begin_register_leg_pick(
     context: ContextTypes.DEFAULT_TYPE,
     reply_target,
     *,
     prefer_edit: bool = False,
 ) -> int:
-    """Start Register at PE/CE leg pick — skips Enable PE / Enable CE prompts."""
+    """Start PE/CE leg pick using operator register-scope flags AND book LONGs."""
     b = _bot()
     wiz = _wiz(context)
     all_pos = cast(list[dict], wiz.get("wiz_positions") or [])
     long_pe = filter_positions_by_direction(filter_positions_by_side(all_pos, "PE"), "LONG")
     long_ce = filter_positions_by_direction(filter_positions_by_side(all_pos, "CE"), "LONG")
-    pe_ok = bool(long_pe)
-    ce_ok = bool(long_ce)
+    want_pe = wiz.get("pe_enabled")
+    want_ce = wiz.get("ce_enabled")
+    if want_pe is None and want_ce is None:
+        pe_ok = bool(long_pe)
+        ce_ok = bool(long_ce)
+    else:
+        pe_ok = bool(want_pe) and bool(long_pe)
+        ce_ok = bool(want_ce) and bool(long_ce)
     if not pe_ok and not ce_ok:
         await b._wizard_show(
             context,
             reply_target,
-            "⚠️ No PE/CE BUY candidates found to register\\.\n\n"
-            "UAT book needs BUY legs on PE and/or CE\\. "
-            "Check positions book, then tap *Register* again\\.",
+            "⚠️ No matching PE/CE BUY candidates for the selected register scope\\.\n\nCheck positions book \\(or choose a different Register CE/PE option\\), then tap *Register* again\\.",
             prefer_edit=prefer_edit,
         )
         b._clear_wizard_data(context)
@@ -607,22 +671,24 @@ async def begin_register_leg_pick(
             "Select your *Core PE BUY* leg:\n"
             f"_Book PE BUY strikes: {', '.join(str(s) for s in pe_strikes)}_"
         )
-        text = _qheader(context, "pe_buy", body)
+        header = _qheader(context, "pe_buy", body)
         kb = _positions_keyboard(long_pe, lot_size)
         wiz["_pe_pick_pool"] = long_pe
         await b._wizard_show(
-            context, reply_target, text, reply_markup=kb, prefer_edit=prefer_edit
+            context, reply_target, header, reply_markup=kb, prefer_edit=prefer_edit
         )
         return WIZARD_PE_BUY
     lot_size = _lot_size(context)
     body = "Select your *Core CE BUY* leg:"
-    text = _qheader(context, "ce_buy", body)
+    header = _qheader(context, "ce_buy", body)
     kb = _positions_keyboard(long_ce, lot_size)
     wiz["_ce_pick_pool"] = long_ce
     await b._wizard_show(
-        context, reply_target, text, reply_markup=kb, prefer_edit=prefer_edit
+        context, reply_target, header, reply_markup=kb, prefer_edit=prefer_edit
     )
     return WIZARD_CE_BUY
+
+
 
 
 async def wizard_pe_intent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -649,6 +715,18 @@ async def _goto_ce_intent_message(message, context) -> int:
 async def _start_ce_or_poll(target, context, *, via_message: bool) -> int:
     b = _bot()
     wiz = _wiz(context)
+    # Honor Register CE/PE choice — PE-only must skip CE even if CE LONGs exist in book.
+    if wiz.get("ce_enabled") is False:
+        rebuild_wizard_plan(wiz)
+        if via_message:
+            body = "Select:"
+            await b._reply_md2(
+                target,
+                _qheader(context, "poll", body),
+                reply_markup=b._poll_interval_keyboard(),
+            )
+            return WIZARD_POLL_INTERVAL
+        return await _goto_poll(target, context)
     all_pos = cast(list[dict], wiz.get("wiz_positions") or [])
     long_ce = filter_positions_by_direction(filter_positions_by_side(all_pos, "CE"), "LONG")
     if not long_ce:
@@ -667,13 +745,13 @@ async def _start_ce_or_poll(target, context, *, via_message: bool) -> int:
     rebuild_wizard_plan(wiz)
     lot_size = _lot_size(context)
     body = "Select your *Core CE BUY* leg:"
-    text = _qheader(context, "ce_buy", body)
+    header = _qheader(context, "ce_buy", body)
     kb = _positions_keyboard(long_ce, lot_size)
     wiz["_ce_pick_pool"] = long_ce
     if via_message:
-        await b._reply_md2(target, text, reply_markup=kb)
+        await b._reply_md2(target, header, reply_markup=kb)
     else:
-        await b._wizard_edit_step(context, target, text, reply_markup=kb)
+        await b._wizard_edit_step(context, target, header, reply_markup=kb)
     return WIZARD_CE_BUY
 
 
@@ -1177,10 +1255,13 @@ async def wizard_buffer_custom_text(update: Update, context: ContextTypes.DEFAUL
 
 async def _advance_after_buffer(query, context, target: str) -> int:
     target = _str_step_target(target)
+    wiz = _wiz(context)
     if target.startswith("pe"):
         nxt = _next_in_sequence(_PE_BUFFER_SEQUENCE, target)
         if nxt:
             return await _ask_buffer_mode(query, context, nxt)
+        if wiz.get("ce_enabled") is False:
+            return await _goto_poll(query, context)
         return await _goto_ce_intent(query, context)
     nxt = _next_in_sequence(_CE_BUFFER_SEQUENCE, target)
     if nxt:
@@ -1191,10 +1272,19 @@ async def _advance_after_buffer(query, context, target: str) -> int:
 async def _advance_after_buffer_message(message, context, target: str) -> int:
     target = _str_step_target(target)
     b = _bot()
+    wiz = _wiz(context)
     if target.startswith("pe"):
         nxt = _next_in_sequence(_PE_BUFFER_SEQUENCE, target)
         if nxt:
             return await _ask_nifty_level_message(message, context, nxt)
+        if wiz.get("ce_enabled") is False:
+            body = "Select:"
+            await b._reply_md2(
+                message,
+                _qheader(context, "poll", body),
+                reply_markup=b._poll_interval_keyboard(),
+            )
+            return WIZARD_POLL_INTERVAL
         return await _goto_ce_intent_message(message, context)
     nxt = _next_in_sequence(_CE_BUFFER_SEQUENCE, target)
     if nxt:
@@ -1228,19 +1318,54 @@ async def wizard_poll_interval(update: Update, context: ContextTypes.DEFAULT_TYP
     if query.data == f"{_CB_POLL}:cancel":
         return await _cancel_wizard(query, context)
     wiz["wiz_poll_interval_seconds"] = int((query.data or "").split(":")[-1])
-    wiz["wiz_ato_manage_sides"] = _auto_ato_manage_sides(wiz)
-    b._wizard_seed_trading_calendar_defaults(wiz)
-    _sync_wiz_selected(wiz)
-    return await b._wizard_show_summary(query, context)
+    pe = bool(wiz.get("pe_enabled"))
+    ce = bool(wiz.get("ce_enabled"))
+    # Single registered side → manage that side only (no pointless picker).
+    if pe and not ce:
+        wiz["wiz_ato_manage_sides"] = "pe"
+        b._wizard_seed_trading_calendar_defaults(wiz)
+        _sync_wiz_selected(wiz)
+        return await b._wizard_show_summary(query, context)
+    if ce and not pe:
+        wiz["wiz_ato_manage_sides"] = "ce"
+        b._wizard_seed_trading_calendar_defaults(wiz)
+        _sync_wiz_selected(wiz)
+        return await b._wizard_show_summary(query, context)
+    body = "Choose which sides ATO should *manage*:"
+    header = _qheader(context, "ato_mon", body)
+    await b._wizard_edit_step(
+        context,
+        query,
+        header,
+        reply_markup=_ato_monitor_keyboard(pe_enabled=pe, ce_enabled=ce),
+    )
+    return WIZARD_ATO_MON
 
 
 async def wizard_ato_mon(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Legacy no-op — ATO monitoring mode is auto-set in Kavach 2.0."""
+    """ATO manage both / CE only / PE only (independent of registration scope)."""
     b = _bot()
     query = b._require_query(update)
     await b._safe_answer_callback(query)
     wiz = _wiz(context)
-    wiz["wiz_ato_manage_sides"] = _auto_ato_manage_sides(wiz)
+    data = query.data or ""
+    if data.endswith(":cancel"):
+        return await _cancel_wizard(query, context)
+    side = data.split(":")[-1]
+    pe = bool(wiz.get("pe_enabled"))
+    ce = bool(wiz.get("ce_enabled"))
+    if side not in ("pe", "ce", "both"):
+        await query.answer("Invalid selection — please tap a button.", show_alert=True)
+        return WIZARD_ATO_MON
+    if side == "both" and not (pe and ce):
+        side = "pe" if pe else "ce"
+    if side == "pe" and not pe:
+        await query.answer("PE was not registered — pick another ATO option.", show_alert=True)
+        return WIZARD_ATO_MON
+    if side == "ce" and not ce:
+        await query.answer("CE was not registered — pick another ATO option.", show_alert=True)
+        return WIZARD_ATO_MON
+    wiz["wiz_ato_manage_sides"] = side
     b._wizard_seed_trading_calendar_defaults(wiz)
     _sync_wiz_selected(wiz)
     return await b._wizard_show_summary(query, context)
@@ -1296,6 +1421,9 @@ def build_wizard_handler(timeout: int) -> ConversationHandler:
             ],
             WIZARD_PRE_CONFIRM: [
                 CallbackQueryHandler(b.wizard_pre_confirm, pattern=f"^{_CB_PRE}:")
+            ],
+            WIZARD_REG_SCOPE: [
+                CallbackQueryHandler(wizard_reg_scope, pattern=f"^{_CB_REG_SCOPE}:")
             ],
             WIZARD_PE_INTENT: [CallbackQueryHandler(wizard_pe_intent, pattern=f"^{_CB_SIDE}:pe:")],
             WIZARD_PE_BUY: [CallbackQueryHandler(wizard_pe_buy, pattern=f"^{_CB_LEG}:")],
@@ -1357,6 +1485,9 @@ def build_wizard_handler(timeout: int) -> ConversationHandler:
             ],
             WIZARD_POLL_INTERVAL: [
                 CallbackQueryHandler(wizard_poll_interval, pattern=f"^{_CB_POLL}:")
+            ],
+            WIZARD_ATO_MON: [
+                CallbackQueryHandler(wizard_ato_mon, pattern=f"^{_CB_ATO_MON}:")
             ],
             WIZARD_CONFIRM: [CallbackQueryHandler(b.wizard_confirm, pattern=f"^{_CB_CONF}:")],
             ConversationHandler.TIMEOUT: [MessageHandler(filters.ALL, b.wizard_timeout)],

@@ -44,10 +44,20 @@ def _legacy_go_meta_path(root: Path | None = None) -> Path:
 
 
 def _load_env(root: Path | None = None) -> None:
-    path = secrets_dhan_env_path(root)
-    if path.is_file():
-        load_dotenv(path, override=False)
-    else:
+    """Load Dhan secrets from config/.env then config/dhan.env.
+
+    GO stores PIN/TOTP in ``.env``. Rahul layout also uses ``dhan.env``.
+    Load both so either layout works; ``dhan.env`` only fills missing keys.
+    """
+    from core.batman_mode import secrets_root
+
+    primary = secrets_dhan_env_path(root)
+    if primary.is_file():
+        load_dotenv(primary, override=False)
+    dhan_env = secrets_root(root) / "config" / "dhan.env"
+    if dhan_env.is_file():
+        load_dotenv(dhan_env, override=False)
+    if not primary.is_file() and not dhan_env.is_file():
         load_dotenv(override=False)
 
 

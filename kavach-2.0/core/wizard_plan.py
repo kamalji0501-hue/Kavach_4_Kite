@@ -8,6 +8,7 @@ Section = Literal["PE", "CE", "Shared"]
 
 _STEP_META: dict[str, tuple[Section, str]] = {
     "order_mode": ("Shared", "Paper or Live trade"),
+    "reg_scope": ("Shared", "Register CE/PE"),
     "pe_intent": ("PE", "PE side"),
     "pe_buy": ("PE", "Select Core PE BUY leg"),
     "pe_margin_hedge": ("PE", "Select Margin Hedge"),
@@ -25,6 +26,7 @@ _STEP_META: dict[str, tuple[Section, str]] = {
     "ce_entry": ("CE", "Entry NIFTY level"),
     "ce_exit": ("CE", "Exit NIFTY level (retrace)"),
     "poll": ("Shared", "Poll interval"),
+    "ato_mon": ("Shared", "ATO manage CE/PE"),
     "confirm": ("Shared", "Confirm deployment"),
 }
 
@@ -46,8 +48,8 @@ _CE_BLOCK = (
     "ce_entry",
     "ce_exit",
 )
-_SHARED_LEADING = ("order_mode",)
-_SHARED = ("poll", "confirm")
+_SHARED_LEADING = ("order_mode", "reg_scope")
+_SHARED = ("poll", "ato_mon", "confirm")
 
 
 def max_wizard_question_count() -> int:
@@ -62,8 +64,8 @@ def build_wizard_plan(
 ) -> list[str]:
     """Build ordered step ids; includes confirm as the last question.
 
-    PE/CE enable prompts are skipped in Kavach 2.0 — sides are auto-detected
-    from open legs, so the plan starts at leg pick.
+    Operator picks register scope (both/CE/PE), then leg blocks; after poll
+    picks ATO manage scope (independent).
     """
     steps: list[str] = list(_SHARED_LEADING)
     if pe_enabled:
@@ -110,5 +112,5 @@ def register_intro_text() -> str:
     return (
         "🦇 *Register wizard*\n\n"
         f"Up to *{n} questions* —\n"
-        "First: Paper or Live — then PE/CE legs"
+        "First: Paper or Live — then register CE/PE — then legs"
     )

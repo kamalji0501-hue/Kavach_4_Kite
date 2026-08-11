@@ -168,9 +168,19 @@ def _token_summary(root: Path | None = None) -> str:
 
     tok, saved_at = _TOKEN_STORE.load()
     if not tok:
+        nifty_line = "NIFTY 50 LTP : —"
+        try:
+            from core.nifty_ltp_feed import read_nifty_ltp_cache
+
+            snap = read_nifty_ltp_cache()
+            if snap is not None and float(snap.ltp) > 0:
+                nifty_line = f"NIFTY 50 LTP : <b>{float(snap.ltp):,.2f}</b>"
+        except Exception:
+            pass
         return (
             "🔑 <b>Token Status</b>\n\n"
-            "🔴 <b>No token stored</b>\n\n"
+            "🔴 <b>No token stored</b>\n"
+            f"{nifty_line}\n\n"
             f"{totp_block}"
         )
 
@@ -202,13 +212,24 @@ def _token_summary(root: Path | None = None) -> str:
     empty_blocks = 10 - filled_blocks
     progress_bar = "█" * filled_blocks + "░" * empty_blocks
 
+    nifty_line = "NIFTY 50 LTP : —"
+    try:
+        from core.nifty_ltp_feed import read_nifty_ltp_cache
+
+        snap = read_nifty_ltp_cache()
+        if snap is not None and float(snap.ltp) > 0:
+            nifty_line = f"NIFTY 50 LTP : <b>{float(snap.ltp):,.2f}</b>"
+    except Exception:
+        pass
+
     return (
         f"🔑 <b>Token Status</b>\n\n"
         f"{status_icon} <b>{status_text}</b>\n\n"
         f"🕒 <b>Age:</b> {age_h:.1f} hours\n"
         f"⏳ <b>Expires in:</b> {expires_in:.1f} hours\n"
         f"🔐 <b>JWT exp:</b> {html.escape(jwt_line)}\n"
-        f"📅 <b>Saved at:</b> {saved_fmt} IST\n\n"
+        f"📅 <b>Saved at:</b> {saved_fmt} IST\n"
+        f"{nifty_line}\n\n"
         f"📊 <b>Lifetime Progress</b>\n"
         f"[{progress_bar}] {progress_percent}%\n\n"
         f"{totp_block}"
@@ -469,7 +490,6 @@ def _main_menu_keyboard(application: Application | None = None) -> InlineKeyboar
             _btn("🔑 Token Status", f"{_CB_MENU}:status", style="primary"),
         ],
         [
-            _btn("📈 Nifty LTP", f"{_CB_MENU}:nifty_ltp", style="primary"),
             _btn("⚙️ LTP Feed Setup", f"{feed_callback_prefix()}:setup", style="primary"),
         ],
     ]
@@ -480,12 +500,6 @@ def _main_menu_keyboard(application: Application | None = None) -> InlineKeyboar
                 _btn("⏩ Replay Speed", f"{_CB_MENU}:uat_speed", style="primary"),
             ]
         )
-    rows.append(
-        [
-            _btn("🚫 Deactivate Token", f"{_CB_MENU}:deactivate_token", style="danger"),
-            _btn("🔄 Update Token", f"{_CB_MENU}:update_token", style="success"),
-        ]
-    )
     return InlineKeyboardMarkup(rows)
 
 

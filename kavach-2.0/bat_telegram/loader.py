@@ -91,60 +91,74 @@ class BotConfig:
 
 
 def _load_token(name: str) -> tuple[str, str]:
-    """Read bot_token and chat_id — external secrets dir first, then repo (legacy).
+    """Read bot_token and chat_id — consolidated bots.env first, then token.env.
 
-    Kavach2 uses classic KAVACH Telegram token keys first.
+    For ``kavach2``, prefer ``KAVACH2_*`` (Telegram @kavach2_batmanbot), then
+    fall back to classic ``KAVACH_*``.
     """
-    from core.batman_mode import secrets_bot_dir, workspace_root
+    from core.batman_mode import secrets_bot_dir, secrets_root, workspace_root
 
-    prefix = name.upper()
-    # Kavach2 → classic KAVACH Telegram identity
-    if name == "kavach2":
-        token_key = "KAVACH_BOT_TOKEN"
-        chat_key = "KAVACH_CHAT_ID"
-        # also probe secrets dir named kavach
-        # (fall through uses name for paths below — adjust candidates)
-    else:
-        token_key = f"{prefix}_BOT_TOKEN"
-        chat_key = f"{prefix}_CHAT_ID"
+    def _usable(tok: str | None, chat: str | None) -> bool:
+        t = (tok or "").strip()
+        c = (chat or "").strip()
+        if not t or not c:
+            return False
+        if t.upper().startswith("PASTE_") or c.upper().startswith("PASTE_"):
+            return False
+        return True
 
-    secret_names = ["kavach", "kavach2"] if name == "kavach2" else [name]
-    candidates = []
+    name = name.strip().lower()
+    key_order = (
+        [("KAVACH2_BOT_TOKEN", "KAVACH2_CHAT_ID"), ("KAVACH_BOT_TOKEN", "KAVACH_CHAT_ID")]
+        if name == "kavach2"
+        else [(f"{name.upper()}_BOT_TOKEN", f"{name.upper()}_CHAT_ID")]
+    )
+
+    # 1) consolidated desktop bots.env
+    cons_path = secrets_root() / "telegram" / "bots.env"
+    if cons_path.is_file():
+        vals = dotenv_values(cons_path)
+        for token_key, chat_key in key_order:
+            tok = (vals.get(token_key) or os.environ.get(token_key, "") or "").strip()
+            chat = (vals.get(chat_key) or os.environ.get(chat_key, "") or "").strip()
+            if _usable(tok, chat):
+                return tok, chat
+
+    # 2) per-bot token.env under secrets / repo
+    secret_names = ["kavach2", "kavach"] if name == "kavach2" else [name]
+    candidates: list[Path] = []
     for sn in secret_names:
         candidates.append(secrets_bot_dir(sn) / "token.env")
         candidates.append(_BOTS_DIR / sn / "token.env")
-    # Workspace root classic kavach secrets (preferred for Kavach2)
-    try:
-        from core.batman_mode import workspace_root as _ws
+        try:
+            candidates.append(workspace_root() / "telegram" / "bots" / sn / "token.env")
+        except Exception:
+            pass
 
-        if name == "kavach2":
-            candidates.insert(0, _ws() / "telegram" / "bots" / "kavach" / "token.env")
-    except Exception:
-        pass
-    env_file = next((p for p in candidates if p.exists()), candidates[0])
+    for env_file in candidates:
+        if not env_file.is_file():
+            continue
+        vals = dotenv_values(env_file)
+        for token_key, chat_key in key_order:
+            tok = (
+                vals.get(token_key)
+                or vals.get("BOT_TOKEN")
+                or os.environ.get(token_key, "")
+                or ""
+            ).strip()
+            chat = (
+                vals.get(chat_key)
+                or vals.get("CHAT_ID")
+                or os.environ.get(chat_key, "")
+                or ""
+            ).strip()
+            if _usable(tok, chat):
+                return tok, chat
 
-    if not env_file.exists():
-        raise FileNotFoundError(
-            f"Missing secrets file: {env_file}\n"
-            f"Create Desktop/Batman-Secrets/telegram/bots/{name}/token.env "
-            f"(or copy token.env.example from the repo)."
-        )
-
-    file_vals = dotenv_values(env_file)
-    bot_token = file_vals.get(token_key) or os.environ.get(token_key, "")
-    chat_id = file_vals.get(chat_key) or os.environ.get(chat_key, "")
-
-    if not bot_token:
-        raise KeyError(
-            f"{token_key} is not set in {env_file}. "
-            f"Open that file and paste your Telegram bot token."
-        )
-    if not chat_id:
-        raise KeyError(
-            f"{chat_key} is not set in {env_file}. "
-            f"Open that file and paste your Telegram chat ID."
-        )
-    return bot_token, chat_id
+    raise KeyError(
+        f"No usable Telegram token/chat for bot {name!r}. "
+        f"Set KAVACH2_BOT_TOKEN/KAVACH2_CHAT_ID in {cons_path}."
+    )
 
 
 def _load_params(name: str) -> dict[str, Any]:
