@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install Batman Phase-1 systemd units on this host (VPS or local Linux).
 # Usage:
-#   BATMAN_ROOT=/home/ubuntu/batman-algo BATMAN_USER=ubuntu bash vps/install_systemd.sh
+#   BATMAN_ROOT=/home/ubuntu/rahul_Changes BATMAN_USER=ubuntu bash vps/install_systemd.sh
 #   bash vps/install_systemd.sh --dry-run
 set -euo pipefail
 

@@ -68,15 +68,15 @@ def get_bot_credentials(
 ) -> tuple[str, str, str]:
     """Return (token, chat_id, source_description). Empty strings if missing.
 
-    Kavach 2.0 uses the classic KAVACH Telegram identity (@kavach_batmanbot):
-    ``kavach2`` resolves ``KAVACH_BOT_TOKEN`` / ``telegram/bots/kavach`` first,
-    then falls back to legacy ``KAVACH2_*`` keys if present.
+    Kavach 2.0 Telegram bot uses ``KAVACH2_BOT_TOKEN`` first (the Kavach2 bot
+    users open in Telegram). Falls back to classic ``KAVACH_*`` / @kavach_batmanbot
+    if ``KAVACH2_*`` is missing.
     """
     from core.batman_mode import secrets_bot_dir, workspace_root
 
     name = bot_name.strip().lower()
-    # kavach2 uses classic KAVACH Telegram identity going forward
-    lookup_names = ["kavach", "kavach2"] if name == "kavach2" else [name]
+    # Prefer dedicated Kavach2 identity; fall back to classic Kavach token.
+    lookup_names = ["kavach2", "kavach"] if name == "kavach2" else [name]
 
     for lookup in lookup_names:
         prefix = lookup.upper()

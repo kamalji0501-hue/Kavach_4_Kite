@@ -58,6 +58,15 @@ _TELEMETRY_PATH = legacy_telemetry_csv_path(_WORKSPACE_ROOT)
 _SUMMARY_DIR = saransh_analytics_dir(_WORKSPACE_ROOT)
 _TOKEN_STORE = TokenStore()
 _CB_MENU = "sar_menu"
+
+
+def _btn(text: str, callback_data: str, *, style: str | None = None) -> InlineKeyboardButton:
+    """Inline button with optional Telegram style: primary|success|danger."""
+    kwargs: dict[str, Any] = {"text": text, "callback_data": callback_data}
+    if style:
+        kwargs["style"] = style
+    return InlineKeyboardButton(**kwargs)
+
 _HELP = (
     "📊 <b>SARANSH — Reporting</b>\n\n"
     "🔄 <b>ATO Cycle</b> — round trips + point impact (live)\n"
@@ -81,16 +90,14 @@ def _strip_html(text: str) -> str:
 
 
 def _main_menu_keyboard() -> InlineKeyboardMarkup:
-    """Three inline buttons attached to the alive card (KAVACH2-style)."""
+    """Three inline buttons attached to the alive card (KAVACH2-style colors)."""
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("🔄 ATO Cycle", callback_data=f"{_CB_MENU}:ato_cycle"),
-                InlineKeyboardButton(
-                    "📋 Daily Summary", callback_data=f"{_CB_MENU}:daily_summary"
-                ),
+                _btn("🔄 ATO Cycle", f"{_CB_MENU}:ato_cycle", style="success"),
+                _btn("📋 Daily Summary", f"{_CB_MENU}:daily_summary", style="primary"),
             ],
-            [InlineKeyboardButton("🩺 Status", callback_data=f"{_CB_MENU}:status")],
+            [_btn("🩺 Status", f"{_CB_MENU}:status", style="primary")],
         ]
     )
 
@@ -695,6 +702,9 @@ def build_application(broker=None, state=None, event_bus=None, config=None) -> A
         .read_timeout(30.0)
         .write_timeout(60.0)
         .media_write_timeout(60.0)
+        .get_updates_connect_timeout(30.0)
+        .get_updates_read_timeout(60.0)
+        .get_updates_write_timeout(30.0)
         .post_init(_saransh_post_init)
         .build()
     )
@@ -703,12 +713,6 @@ def build_application(broker=None, state=None, event_bus=None, config=None) -> A
     app.bot_data["config"] = config
     app.bot_data["chat_id"] = cfg.chat_id
     app.bot_data["params"] = cfg.params
-    try:
-        from bat_telegram.update_audit import attach_update_audit
-        attach_update_audit(app)
-    except Exception as _audit_exc:
-        logging.getLogger(__name__).warning("update audit attach failed: %s", _audit_exc)
-    
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("summary", cmd_summary))
     app.add_handler(CommandHandler("summary_eod", cmd_summary))

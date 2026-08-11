@@ -170,10 +170,21 @@ def _read_algo_pause_reason() -> str | None:
         return None
 
 
+
+
+def _btn(text: str, callback_data: str, *, style: str | None = None) -> InlineKeyboardButton:
+    """Inline button with optional Telegram style: primary|success|danger (same as GO)."""
+    kwargs: dict[str, Any] = {"text": text, "callback_data": callback_data}
+    if style:
+        kwargs["style"] = style
+    return InlineKeyboardButton(**kwargs)
+
+
 def _main_menu_keyboard() -> InlineKeyboardMarkup:
     """KAVACH 2.0 home menu.
 
     Layout:
+      Deploy Batman 2.0
       Kavach Status | ATO Status
       ATO           | Buffer Manager
       Core Legs     | Environment
@@ -181,42 +192,53 @@ def _main_menu_keyboard() -> InlineKeyboardMarkup:
       30% Dynamic Hedge
       Register Batman
       Complete Batman
+
+    Styles match GO (success=green, primary=blue, danger=red).
     """
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("🛡️ Kavach Status", callback_data=f"{_CB_MENU}:status"),
-                InlineKeyboardButton("🎯 ATO Status", callback_data=f"{_CB_MENU}:ato_status"),
-            ],
-            [
-                InlineKeyboardButton("📊 ATO", callback_data=f"{_CB_MENU}:positions"),
-                InlineKeyboardButton(
-                    "🎚️ Buffer Manager", callback_data=f"{_CB_MENU}:ato_tune"
+                _btn(
+                    "🦇 Deploy Batman 2.0",
+                    f"{_CB_MENU}:deploy_batman2",
+                    style="success",
                 ),
             ],
             [
-                InlineKeyboardButton("🧩 Core Legs", callback_data=f"{_CB_MENU}:corelegs"),
-                InlineKeyboardButton(
-                    "🌐 Environment", callback_data=f"{_CB_MENU}:environment"
+                _btn("🛡️ Kavach Status", f"{_CB_MENU}:status", style="primary"),
+                _btn("🎯 ATO Status", f"{_CB_MENU}:ato_status", style="primary"),
+            ],
+            [
+                _btn("📊 ATO", f"{_CB_MENU}:positions", style="primary"),
+                _btn("🎚️ Buffer Manager", f"{_CB_MENU}:ato_tune", style="primary"),
+            ],
+            [
+                _btn("🧩 Core Legs", f"{_CB_MENU}:corelegs", style="primary"),
+                _btn("🌐 Environment", f"{_CB_MENU}:environment", style="primary"),
+            ],
+            [
+                _btn("⏸️ Pause", f"{_CB_MENU}:pause", style="danger"),
+                _btn("▶️ Resume", f"{_CB_MENU}:resume", style="success"),
+            ],
+            [
+                _btn(
+                    "🛡 30% Dynamic Hedge",
+                    f"{_CB_MENU}:dyn_hedge",
+                    style="primary",
                 ),
             ],
             [
-                InlineKeyboardButton("⏸️ Pause", callback_data=f"{_CB_MENU}:pause"),
-                InlineKeyboardButton("▶️ Resume", callback_data=f"{_CB_MENU}:resume"),
-            ],
-            [
-                InlineKeyboardButton(
-                    "🛡 30% Dynamic Hedge", callback_data=f"{_CB_MENU}:dyn_hedge"
+                _btn(
+                    "🦇 Register Batman",
+                    f"{_CB_MENU}:register",
+                    style="success",
                 ),
             ],
             [
-                InlineKeyboardButton(
-                    "🦇 Register Batman", callback_data=f"{_CB_MENU}:register"
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    "✅ Complete Batman", callback_data=f"{_CB_MENU}:batman_complete"
+                _btn(
+                    "✅ Complete Batman",
+                    f"{_CB_MENU}:batman_complete",
+                    style="success",
                 ),
             ],
         ]
@@ -227,6 +249,7 @@ async def _send_alive_menu(message: Message) -> None:
     """KAVACH alive card: clear logo on top, then status content + menu buttons."""
     from bat_telegram.alive_branding import reply_alive_card
     from core.environment_display import environment_label
+    from core.nifty_ltp_feed import read_nifty_ltp_cache
 
     now = datetime.now(_IST).strftime("%d-%b-%Y %H:%M:%S IST")
     dep_file = _find_active_deployment()
@@ -235,11 +258,19 @@ async def _send_alive_menu(message: Message) -> None:
     else:
         armed = "Not deployed"
     mode_label = environment_label().replace("(virtual)", "(Virtual)").replace("(live)", "(Live)")
+    nifty_line = "NIFTY 50 LTP : —"
+    try:
+        snap = read_nifty_ltp_cache()
+        if snap is not None and float(snap.ltp) > 0:
+            nifty_line = f"NIFTY 50 LTP : <b>{float(snap.ltp):,.2f}</b>"
+    except Exception:
+        pass
     caption = (
         f"🟢 <b>KAVACH 2.0 ACTIVE</b>\n"
         f"Mode: <b>{mode_label}</b>\n"
         f"<code>{now}</code>\n"
-        f"Deployment: <b>{armed}</b>"
+        f"Deployment: <b>{armed}</b>\n"
+        f"{nifty_line}"
     )
     await reply_alive_card(
         message,
@@ -560,8 +591,8 @@ def _positions_keyboard(available: list[dict]) -> InlineKeyboardMarkup:
     for i, pos in enumerate(available):
         sym = pos.get("display_symbol") or pos["symbol"]
         label = f"{sym} | {pos['direction']} {pos['qty']} | avg {_format_position_price(pos)}"
-        buttons.append([InlineKeyboardButton(label, callback_data=f"{_CB_LEG}:{i}")])
-    buttons.append([InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_LEG}:cancel")])
+        buttons.append([_btn(label, f"{_CB_LEG}:{i}", style="primary")])
+    buttons.append([_btn("❌ Cancel", f"{_CB_LEG}:cancel", style="danger")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -570,39 +601,40 @@ def _retrace_keyboard() -> InlineKeyboardMarkup:
     options = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
     mid = len(options) // 2
     row1 = [
-        InlineKeyboardButton(str(v), callback_data=f"{_CB_RETRACE}:{v}") for v in options[:mid]
+        _btn(str(v), f"{_CB_RETRACE}:{v}", style="primary") for v in options[:mid]
     ]
     row2 = [
-        InlineKeyboardButton(str(v), callback_data=f"{_CB_RETRACE}:{v}") for v in options[mid:]
+        _btn(str(v), f"{_CB_RETRACE}:{v}", style="primary") for v in options[mid:]
     ]
-    cancel = [InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_RETRACE}:cancel")]
+    cancel = [_btn("❌ Cancel", f"{_CB_RETRACE}:cancel", style="danger")]
     return InlineKeyboardMarkup([row1, row2, cancel])
 
 
 def _buffer_keyboard(same_value: int | None = None) -> InlineKeyboardMarkup:
     """Legacy entry picker — unused by Buffer Manager / register NIFTY-level flow."""
     options = [0, 5, 10, 15, 20]
-    row = [InlineKeyboardButton(str(v), callback_data=f"{_CB_BUF}:{v}") for v in options]
+    row = [_btn(str(v), f"{_CB_BUF}:{v}", style="primary") for v in options]
     rows = [row]
     if same_value is not None:
         rows.append(
             [
-                InlineKeyboardButton(
+                _btn(
                     f"Use same as CE ({same_value})",
-                    callback_data=f"{_CB_BUF}:same",
+                    f"{_CB_BUF}:same",
+                    style="success",
                 )
             ]
         )
-    rows.append([InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_BUF}:cancel")])
+    rows.append([_btn("❌ Cancel", f"{_CB_BUF}:cancel", style="danger")])
     return InlineKeyboardMarkup(rows)
 
 
 def _poll_interval_keyboard() -> InlineKeyboardMarkup:
     """Selection-only polling interval keyboard (locked values only)."""
     options = [1, 2, 3, 4, 5, 10, 15]
-    row1 = [InlineKeyboardButton(f"{v}s", callback_data=f"{_CB_POLL}:{v}") for v in options[:5]]
-    row2 = [InlineKeyboardButton(f"{v}s", callback_data=f"{_CB_POLL}:{v}") for v in options[5:]]
-    cancel = [InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_POLL}:cancel")]
+    row1 = [_btn(f"{v}s", f"{_CB_POLL}:{v}", style="primary") for v in options[:5]]
+    row2 = [_btn(f"{v}s", f"{_CB_POLL}:{v}", style="primary") for v in options[5:]]
+    cancel = [_btn("❌ Cancel", f"{_CB_POLL}:cancel", style="danger")]
     return InlineKeyboardMarkup([row1, row2, cancel])
 
 
@@ -612,18 +644,16 @@ def _break_even_keyboard(side: str, manual_only: bool = False) -> InlineKeyboard
     if not manual_only:
         rows.append(
             [
-                InlineKeyboardButton(
-                    "✅ Confirm suggestion", callback_data=f"{_CB_BE}:{side_token}:confirm"
-                )
+                _btn("✅ Confirm suggestion", f"{_CB_BE}:{side_token}:confirm", style="success")
             ]
         )
     rows.append(
-        [InlineKeyboardButton("✏️ Edit manually", callback_data=f"{_CB_BE}:{side_token}:edit")]
+        [_btn("✏️ Edit manually", f"{_CB_BE}:{side_token}:edit", style="primary")]
     )
     rows.append(
-        [InlineKeyboardButton("⏭ Skip Break-even", callback_data=f"{_CB_BE}:{side_token}:skip")]
+        [_btn("⏭ Skip Break-even", f"{_CB_BE}:{side_token}:skip", style="primary")]
     )
-    rows.append([InlineKeyboardButton("❌ Cancel", callback_data=f"{_CB_BE}:{side_token}:cancel")])
+    rows.append([_btn("❌ Cancel", f"{_CB_BE}:{side_token}:cancel", style="danger")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -631,8 +661,8 @@ def _break_even_skip_confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("✅ Skip break-even", callback_data=f"{_CB_BE}:skip_confirm"),
-                InlineKeyboardButton("↩ Go back", callback_data=f"{_CB_BE}:skip_back"),
+                _btn("✅ Skip break-even", f"{_CB_BE}:skip_confirm", style="danger"),
+                _btn("↩ Go back", f"{_CB_BE}:skip_back", style="primary"),
             ]
         ]
     )
@@ -642,8 +672,8 @@ def _hedge_box_keyboard(request_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("✅ Confirm", callback_data=f"{_CB_HB}:confirm:{request_id}"),
-                InlineKeyboardButton("❌ Deny", callback_data=f"{_CB_HB}:deny:{request_id}"),
+                _btn("✅ Confirm", f"{_CB_HB}:confirm:{request_id}", style="success"),
+                _btn("❌ Deny", f"{_CB_HB}:deny:{request_id}", style="danger"),
             ]
         ]
     )
@@ -809,15 +839,13 @@ def _ato_monitor_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("\U0001f53b PE side only", callback_data=f"{_CB_ATO_MON}:pe"),
-                InlineKeyboardButton("\U0001f53a CE side only", callback_data=f"{_CB_ATO_MON}:ce"),
+                _btn("\U0001f53b PE side only", f"{_CB_ATO_MON}:pe", style="primary"),
+                _btn("\U0001f53a CE side only", f"{_CB_ATO_MON}:ce", style="primary"),
             ],
             [
-                InlineKeyboardButton(
-                    "\u26a1 Both sides (recommended)", callback_data=f"{_CB_ATO_MON}:both"
-                )
+                _btn("\u26a1 Both sides (recommended)", f"{_CB_ATO_MON}:both", style="success")
             ],
-            [InlineKeyboardButton("\u274c Cancel", callback_data=f"{_CB_ATO_MON}:cancel")],
+            [_btn("\u274c Cancel", f"{_CB_ATO_MON}:cancel", style="danger")],
         ]
     )
 
@@ -2015,22 +2043,30 @@ async def _wizard_continue_after_order_mode(
 
     mode = str(_wizard_data(context).get("order_mode") or "paper").upper()
     mode_line = f"Mode: *{_md2(mode)}*\n\n"
+    preamble = register_preamble()
     if query is not None:
         try:
             await query.edit_message_text(
-                mode_line + register_preamble(),
+                mode_line + preamble,
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
-        except Exception:
-            await message.reply_text(
-                mode_line + register_preamble(),
-                parse_mode=ParseMode.MARKDOWN_V2,
-            )
+        except Exception as exc:
+            logger.warning("Register mode ack edit failed: %s", exc)
+            try:
+                await message.reply_text(
+                    mode_line + preamble,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                )
+            except Exception as exc2:
+                logger.warning("Register mode ack reply failed: %s", exc2)
     else:
-        await message.reply_text(
-            mode_line + register_preamble(),
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
+        try:
+            await message.reply_text(
+                mode_line + preamble,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+        except Exception as exc:
+            logger.warning("Register mode ack reply failed: %s", exc)
 
 
     try:
@@ -2294,10 +2330,10 @@ async def _wizard_fetch_step1(
     wizard_data["ce_enabled"] = None
     rebuild_wizard_plan(wizard_data)
 
-    # Skip Enable PE / Enable CE — go straight to leg pick (PE BUY or CE BUY).
-    from bat_telegram.bots.kavach2.register_wizard import begin_register_leg_pick
+    # Ask Register both / CE only / PE only before leg pick.
+    from bat_telegram.bots.kavach2.register_wizard import show_register_scope_picker
 
-    return await begin_register_leg_pick(
+    return await show_register_scope_picker(
         context, reply_target, prefer_edit=prefer_edit
     )
 
@@ -4243,15 +4279,78 @@ def _menu_action_handlers() -> dict[str, Any]:
     }
 
 
+
+async def _menu_pause_resume_with_alert(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    query: CallbackQuery,
+    message: Message,
+    action: str,
+) -> None:
+    """Pause/Resume from menu — popup alert first (like GO), then chat reply."""
+    import re
+
+    fake_update = Update(update.update_id, message=message)
+
+    if action == "pause":
+        if not _find_active_deployment():
+            await _safe_answer_callback(
+                query,
+                "⚠️ No deployment registered. Tap Register first.",
+                show_alert=True,
+            )
+            return
+        await _safe_answer_callback(
+            query,
+            "⏸ KAVACH PAUSED — ATO monitoring suspended.",
+            show_alert=True,
+        )
+        await cmd_pause(fake_update, context)
+        return
+
+    # resume
+    if not _find_active_deployment():
+        await _safe_answer_callback(
+            query,
+            "⚠️ No deployment. Tap Register first.",
+            show_alert=True,
+        )
+        return
+
+    from core.feed_recovery import evaluate_kavach_resume
+
+    state = context.bot_data.get("state")
+    pause_reason = state.get("algo.pause_reason") if state else None
+    allowed, note = evaluate_kavach_resume(pause_reason)
+    if not allowed:
+        alert = re.sub(r"<[^>]+>", "", str(note or "Resume blocked."))
+        alert = " ".join(alert.split())
+        await _safe_answer_callback(query, alert[:180], show_alert=True)
+    else:
+        await _safe_answer_callback(
+            query,
+            "▶️ KAVACH RESUMED — ATO monitoring active.",
+            show_alert=True,
+        )
+    await cmd_resume(fake_update, context)
+
+
+
 async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Route main-menu button taps to existing command handlers."""
     query = _require_query(update)
-    await _safe_answer_callback(query)
     message = query.message
     if message is None:
         return
 
     action = (query.data or "").split(":", 1)[-1]
+
+    # Pause/Resume: GO-style native Telegram popup (answerCallbackQuery show_alert).
+    if action in {"pause", "resume"}:
+        await _menu_pause_resume_with_alert(update, context, query, message, action)
+        return
+
+    await _safe_answer_callback(query)
     if action in {"main", "menu", "ping"}:
         await _send_alive_menu(message)
         return
@@ -4260,6 +4359,9 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
     if action == "ato_tune":
         # ConversationHandler owns ATO Configuration / Quick Tune.
+        return
+    if action == "deploy_batman2":
+        # ConversationHandler owns Deploy Batman 2.0.
         return
 
     fake_update = Update(update.update_id, message=message)
@@ -4723,6 +4825,8 @@ def build_application(broker=None, state=None, event_bus=None) -> Application:
 
     app.add_handler(build_wizard_handler(timeout))
     app.add_handler(build_ato_tune_handler(timeout))
+    from bat_telegram.bots.kavach2.deploy_batman2_wizard import build_deploy_batman2_handler
+    app.add_handler(build_deploy_batman2_handler(timeout))
 
     # ── Standard command handlers ─────────────────────────────────────────────
     app.add_handler(CommandHandler("start", cmd_start))

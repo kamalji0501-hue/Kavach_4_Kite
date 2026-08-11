@@ -74,6 +74,14 @@ from telegram import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, 
 logger = logging.getLogger("batman.drishti")
 _CB_FLEET = "drishti_fleet"
 _CB_MENU = "drishti_menu"
+
+
+def _btn(text: str, callback_data: str, *, style: str | None = None) -> InlineKeyboardButton:
+    """Inline button with optional Telegram style: primary|success|danger (Kavach/GO)."""
+    kwargs: dict[str, Any] = {"text": text, "callback_data": callback_data}
+    if style:
+        kwargs["style"] = style
+    return InlineKeyboardButton(**kwargs)
 _DRISHTI_TOKEN_ENV = (
     Path(__file__).resolve().parents[3] / "telegram" / "bots" / "drishti" / "token.env"
 )
@@ -143,11 +151,38 @@ def _escape_md(text: str) -> str:
     return "".join(f"\\{c}" if c in special else c for c in str(text))
 
 
-def _token_summary() -> str:
-    """Enhanced token status with visual progress indicators."""
+def _workspace_root(context: ContextTypes.DEFAULT_TYPE | None = None) -> Path:
+    if context is not None:
+        root = context.bot_data.get("workspace_root")
+        if root:
+            return Path(root)
+    return Path(__file__).resolve().parents[3]
+
+
+def _token_summary(root: Path | None = None) -> str:
+    """Enhanced token status with visual progress indicators + TOTP block."""
+    from core import dhan_totp
+
+    root = root or Path(__file__).resolve().parents[3]
+    totp_block = dhan_totp.status_html(root)
+
     tok, saved_at = _TOKEN_STORE.load()
     if not tok:
-        return "🔑 <b>Token Status</b>\n\n🔴 <b>No token stored</b>"
+        nifty_line = "NIFTY 50 LTP : —"
+        try:
+            from core.nifty_ltp_feed import read_nifty_ltp_cache
+
+            snap = read_nifty_ltp_cache()
+            if snap is not None and float(snap.ltp) > 0:
+                nifty_line = f"NIFTY 50 LTP : <b>{float(snap.ltp):,.2f}</b>"
+        except Exception:
+            pass
+        return (
+            "🔑 <b>Token Status</b>\n\n"
+            "🔴 <b>No token stored</b>\n"
+            f"{nifty_line}\n\n"
+            f"{totp_block}"
+        )
 
     age_h = _TOKEN_STORE.token_age_hours() or 0
     expires_in = _TOKEN_STORE.effective_expires_in_hours()
@@ -177,16 +212,121 @@ def _token_summary() -> str:
     empty_blocks = 10 - filled_blocks
     progress_bar = "█" * filled_blocks + "░" * empty_blocks
 
+    nifty_line = "NIFTY 50 LTP : —"
+    try:
+        from core.nifty_ltp_feed import read_nifty_ltp_cache
+
+        snap = read_nifty_ltp_cache()
+        if snap is not None and float(snap.ltp) > 0:
+            nifty_line = f"NIFTY 50 LTP : <b>{float(snap.ltp):,.2f}</b>"
+    except Exception:
+        pass
+
     return (
         f"🔑 <b>Token Status</b>\n\n"
         f"{status_icon} <b>{status_text}</b>\n\n"
         f"🕒 <b>Age:</b> {age_h:.1f} hours\n"
         f"⏳ <b>Expires in:</b> {expires_in:.1f} hours\n"
         f"🔐 <b>JWT exp:</b> {html.escape(jwt_line)}\n"
-        f"📅 <b>Saved at:</b> {saved_fmt} IST\n\n"
+        f"📅 <b>Saved at:</b> {saved_fmt} IST\n"
+        f"{nifty_line}\n\n"
         f"📊 <b>Lifetime Progress</b>\n"
-        f"[{progress_bar}] {progress_percent}%"
+        f"[{progress_bar}] {progress_percent}%\n\n"
+        f"{totp_block}"
     )
+
+
+def _token_action_keyboard() -> InlineKeyboardMarkup:
+    """Token Status submenu: TOTP refresh, paste update, deactivate."""
+    return InlineKeyboardMarkup(
+        [
+            [_btn("🔄 REFRESH JWT", f"{_CB_MENU}:tok_refresh", style="success")],
+            [_btn("🔑 UPDATE TOKEN", f"{_CB_MENU}:update_token", style="primary")],
+            [_btn("🚫 DEACTIVATE", f"{_CB_MENU}:deactivate_token", style="danger")],
+            [_btn("⬅️ MAIN MENU", f"{_CB_MENU}:main")],
+        ]
+    )
+
+
+def _disable_totp_auto_renew(context: ContextTypes.DEFAULT_TYPE | None = None) -> None:
+    try:
+        from core import dhan_totp
+
+        dhan_totp.set_auto_renew_enabled(False, _workspace_root(context))
+    except Exception as exc:
+        logger.warning("DRISHTI: disable TOTP auto-renew failed: %s", exc)
+
+
+async def _apply_totp_token_runtime(
+    context: ContextTypes.DEFAULT_TYPE, token: str
+) -> bool:
+    """Hot-reload broker + restart NIFTY feed after TOTP renew (token already saved)."""
+    client_code = await _get_client_code(context)
+    broker = context.bot_data.get("broker")
+    broker_connected = False
+    if broker and client_code:
+        try:
+            await asyncio.to_thread(broker.hot_reload_token, client_code, token)
+            broker_connected = True
+        except Exception as exc:
+            logger.warning("Broker hot-reload after TOTP refresh failed: %s", exc)
+            broker = None
+
+    if not broker_connected and client_code:
+        try:
+            from core.broker import BatmanBroker
+
+            new_broker = await asyncio.to_thread(
+                BatmanBroker.connect_with_token, client_code, token
+            )
+            context.bot_data["broker"] = new_broker
+            context.bot_data.setdefault("client_code", client_code)
+            broker_connected = True
+        except Exception as exc:
+            logger.warning("Broker connect after TOTP refresh failed: %s", exc)
+
+    params = context.bot_data.get("params") or {}
+    ensure_default_feed_config(params)
+    restart_nifty_feed(context.application, _TOKEN_STORE)
+    return broker_connected
+
+
+async def _refresh_jwt_via_totp(
+    message: Message, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Force JWT refresh from .env PIN+TOTP (no Telegram paste)."""
+    from core import dhan_totp
+
+    root = _workspace_root(context)
+    await message.reply_text(
+        "⏳ Refreshing JWT via TOTP…",
+        parse_mode=ParseMode.HTML,
+    )
+    try:
+        renewer = context.bot_data.get("totp_renewer")
+        if renewer is not None and hasattr(renewer, "refresh_now"):
+            token = await asyncio.to_thread(renewer.refresh_now)
+        else:
+            token = await asyncio.to_thread(dhan_totp.renew_and_save, root)
+    except Exception as exc:
+        logger.error("DRISHTI TOTP refresh failed: %s", exc)
+        await message.reply_text(
+            "🔴 <b>JWT refresh failed</b>\n\n"
+            f"<code>{html.escape(str(exc))}</code>\n\n"
+            "Check <code>DHAN_PIN</code> / <code>DHAN_TOTP_SECRET</code> in "
+            "<code>Credentials/config/.env</code>.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=_token_action_keyboard(),
+        )
+        return
+
+    await _apply_totp_token_runtime(context, token)
+    await message.reply_text(
+        "✅ <b>JWT refreshed via TOTP</b>\n\n" + _token_summary(root),
+        parse_mode=ParseMode.HTML,
+        reply_markup=_token_action_keyboard(),
+    )
+    await _send_alive_menu(message, context.application)
 
 
 def should_send_type1_token_reminder(
@@ -284,26 +424,19 @@ def _remember_chat_id(update: Update) -> None:
     if chat is None:
         return
     try:
-        from core.telegram_credentials import upsert_bot_credential_key
-
-        path = upsert_bot_credential_key("drishti", "CHAT_ID", str(chat.id))
-        logger.info("DRISHTI chat id remembered in %s: %s", path, chat.id)
-        # Best-effort legacy mirror for older tooling
-        if _DRISHTI_TOKEN_ENV.is_file():
-            text = _DRISHTI_TOKEN_ENV.read_text(encoding="utf-8")
-            line = f"DRISHTI_CHAT_ID={chat.id}"
-            if "DRISHTI_CHAT_ID=" in text:
-                lines = [
-                    line if item.startswith("DRISHTI_CHAT_ID=") else item
-                    for item in text.splitlines()
-                ]
-                text = chr(10).join(lines) + chr(10)
-            else:
-                text = text.rstrip() + chr(10) + line + chr(10)
-            _DRISHTI_TOKEN_ENV.write_text(text, encoding="utf-8")
+        text = _DRISHTI_TOKEN_ENV.read_text(encoding="utf-8")
+        line = f"DRISHTI_CHAT_ID={chat.id}"
+        if "DRISHTI_CHAT_ID=" in text:
+            lines = [
+                line if item.startswith("DRISHTI_CHAT_ID=") else item for item in text.splitlines()
+            ]
+            text = "\n".join(lines) + "\n"
+        else:
+            text = text.rstrip() + "\n" + line + "\n"
+        _DRISHTI_TOKEN_ENV.write_text(text, encoding="utf-8")
+        logger.info("DRISHTI chat id remembered: %s", chat.id)
     except Exception as exc:
         logger.warning("Could not remember DRISHTI chat id: %s", exc)
-
 
 
 def _fleet_keyboard() -> InlineKeyboardMarkup:
@@ -353,33 +486,20 @@ def _main_menu_keyboard(application: Application | None = None) -> InlineKeyboar
     uat_on = is_uat_market_replay_running(application)
     rows: list[list[InlineKeyboardButton]] = [
         [
-            InlineKeyboardButton("🩺 Drishti Status", callback_data=f"{_CB_MENU}:health"),
-            InlineKeyboardButton("🔑 Token Status", callback_data=f"{_CB_MENU}:status"),
+            _btn("🩺 Drishti Status", f"{_CB_MENU}:health", style="primary"),
+            _btn("🔑 Token Status", f"{_CB_MENU}:status", style="primary"),
         ],
         [
-            InlineKeyboardButton("📈 Nifty LTP", callback_data=f"{_CB_MENU}:nifty_ltp"),
-            InlineKeyboardButton(
-                "⚙️ LTP Feed Setup", callback_data=f"{feed_callback_prefix()}:setup"
-            ),
+            _btn("⚙️ LTP Feed Setup", f"{feed_callback_prefix()}:setup", style="primary"),
         ],
     ]
     if uat_on:
         rows.append(
             [
-                InlineKeyboardButton(
-                    "🧪 UAT Dashboard", callback_data=f"{_CB_MENU}:uat_dashboard"
-                ),
-                InlineKeyboardButton("⏩ Replay Speed", callback_data=f"{_CB_MENU}:uat_speed"),
+                _btn("🧪 UAT Dashboard", f"{_CB_MENU}:uat_dashboard", style="primary"),
+                _btn("⏩ Replay Speed", f"{_CB_MENU}:uat_speed", style="primary"),
             ]
         )
-    rows.append(
-        [
-            InlineKeyboardButton(
-                "🚫 Deactivate Token", callback_data=f"{_CB_MENU}:deactivate_token"
-            ),
-            InlineKeyboardButton("🔄 Update Token", callback_data=f"{_CB_MENU}:update_token"),
-        ]
-    )
     return InlineKeyboardMarkup(rows)
 
 
@@ -883,8 +1003,8 @@ async def cmd_deactivate_token(update: Update, context: ContextTypes.DEFAULT_TYP
     keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("✅ Yes, deactivate", callback_data="deactivate_confirm"),
-                InlineKeyboardButton("❌ Cancel", callback_data="deactivate_cancel"),
+                _btn("✅ Yes, deactivate", "deactivate_confirm", style="danger"),
+                _btn("❌ Cancel", "deactivate_cancel"),
             ]
         ]
     )
@@ -921,13 +1041,14 @@ async def on_deactivate_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     if query.data == "deactivate_confirm":
         _TOKEN_STORE.clear()
+        _disable_totp_auto_renew(context)
         deactivate_ltp_feed(context.application)
         context.bot_data.pop("broker", None)
         logger.warning("DRISHTI: access token deactivated by user")
         await query.edit_message_text(
             "🔴 *Token deactivated.*\n\n"
-            "Broker is now disconnected\\.\n"
-            "Run /update\\_token to reconnect when you have a fresh Dhan JWT\\.",
+            "Broker disconnected & auto\\-renew paused\\.\n"
+            "Tap REFRESH JWT \\(Token Status\\) or /update\\_token to reconnect\\.",
         )
     else:
         await query.edit_message_text("✅ Cancelled — token remains active.")
@@ -1040,19 +1161,10 @@ async def pretty_cmd_nifty_ltp(update: Update, context: ContextTypes.DEFAULT_TYP
 async def pretty_cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _remember_chat_id(update)
     message = _require_message(update)
-    tok, _ = _TOKEN_STORE.load()
-    if not tok:
-        await message.reply_text(
-            "🔴 <b>No Dhan token stored</b>\n\n"
-            "Run <code>/update_token</code> and paste a fresh access token.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=_main_menu_keyboard(),
-        )
-        return
     await message.reply_text(
-        _token_summary(),
+        _token_summary(_workspace_root(context)),
         parse_mode=ParseMode.HTML,
-        reply_markup=_main_menu_keyboard(),
+        reply_markup=_token_action_keyboard(),
     )
 
 
@@ -1130,10 +1242,8 @@ async def pretty_cmd_deactivate_token(update: Update, context: ContextTypes.DEFA
     keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton(
-                    "✅ Yes, deactivate", callback_data="pretty_deactivate_confirm"
-                ),
-                InlineKeyboardButton("Cancel", callback_data="pretty_deactivate_cancel"),
+                _btn("✅ Yes, deactivate", "pretty_deactivate_confirm", style="danger"),
+                _btn("Cancel", "pretty_deactivate_cancel"),
             ]
         ]
     )
@@ -1142,7 +1252,8 @@ async def pretty_cmd_deactivate_token(update: Update, context: ContextTypes.DEFA
         "⚠️ <b>Deactivate token?</b>\n\n"
         f"Saved at: <code>{html.escape(saved_fmt)}</code>\n"
         f"Age: <code>{(_TOKEN_STORE.token_age_hours() or 0):.1f} h</code>\n\n"
-        "Batman will stay disconnected until you provide a fresh token.",
+        "Batman will stay disconnected until you refresh JWT "
+        "(TOTP auto-renew pauses).",
         parse_mode=ParseMode.HTML,
         reply_markup=keyboard,
     )
@@ -1154,13 +1265,16 @@ async def pretty_on_deactivate_callback(update: Update, context: ContextTypes.DE
 
     if query.data == "pretty_deactivate_confirm":
         _TOKEN_STORE.clear()
+        _disable_totp_auto_renew(context)
         deactivate_ltp_feed(context.application)
         context.bot_data.pop("broker", None)
         logger.warning("DRISHTI: access token deactivated by user")
         await query.edit_message_text(
             "🔴 <b>Token deactivated</b>\n\n"
-            "Broker is disconnected. Run <code>/update_token</code> to reconnect.",
+            "Broker disconnected & auto-renew paused. "
+            "Tap <b>REFRESH JWT</b> or paste via <b>UPDATE TOKEN</b> to reconnect.",
             parse_mode=ParseMode.HTML,
+            reply_markup=_token_action_keyboard(),
         )
     else:
         await query.edit_message_text("✅ Cancelled. Token remains active.")
@@ -1204,20 +1318,15 @@ async def pretty_on_menu_callback(update: Update, context: ContextTypes.DEFAULT_
         return
 
     if action == "status":
-        tok, _ = _TOKEN_STORE.load()
-        if not tok:
-            await message.reply_text(
-                "🔴 <b>No Dhan token stored</b>\n\n"
-                "Tap <b>Update Token</b> and paste a fresh access token.",
-                parse_mode=ParseMode.HTML,
-                reply_markup=_main_menu_keyboard(),
-            )
-            return
         await message.reply_text(
-            _token_summary(),
+            _token_summary(_workspace_root(context)),
             parse_mode=ParseMode.HTML,
-            reply_markup=_main_menu_keyboard(),
+            reply_markup=_token_action_keyboard(),
         )
+        return
+
+    if action == "tok_refresh":
+        await _refresh_jwt_via_totp(message, context)
         return
 
     if action == "health":
@@ -1233,7 +1342,7 @@ async def pretty_on_menu_callback(update: Update, context: ContextTypes.DEFAULT_
         await message.reply_text(
             "🔑 Paste your Dhan JWT in this chat now.",
             parse_mode=ParseMode.HTML,
-            reply_markup=_main_menu_keyboard(),
+            reply_markup=_token_action_keyboard(),
         )
         return
 
@@ -1241,19 +1350,18 @@ async def pretty_on_menu_callback(update: Update, context: ContextTypes.DEFAULT_
         tok, saved_at = _TOKEN_STORE.load()
         if not tok:
             await message.reply_text(
-                "ℹ️ <b>No active token</b>\n\n" "Tap <b>Update Token</b> when you want to connect.",
+                "ℹ️ <b>No active token</b>\n\n"
+                "Tap <b>REFRESH JWT</b> or <b>UPDATE TOKEN</b> when you want to connect.",
                 parse_mode=ParseMode.HTML,
-                reply_markup=_main_menu_keyboard(),
+                reply_markup=_token_action_keyboard(),
             )
             return
 
         keyboard = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton(
-                        "✅ Yes, deactivate", callback_data="pretty_deactivate_confirm"
-                    ),
-                    InlineKeyboardButton("Cancel", callback_data="pretty_deactivate_cancel"),
+                    _btn("✅ Yes, deactivate", "pretty_deactivate_confirm", style="danger"),
+                    _btn("Cancel", "pretty_deactivate_cancel"),
                 ]
             ]
         )
@@ -1262,7 +1370,8 @@ async def pretty_on_menu_callback(update: Update, context: ContextTypes.DEFAULT_
             "⚠️ <b>Deactivate token?</b>\n\n"
             f"Saved at: <code>{html.escape(saved_fmt)}</code>\n"
             f"Age: <code>{(_TOKEN_STORE.token_age_hours() or 0):.1f} h</code>\n\n"
-            "Batman will stay disconnected until you provide a fresh token.",
+            "Batman will stay disconnected until you refresh JWT "
+            "(TOTP auto-renew pauses).",
             parse_mode=ParseMode.HTML,
             reply_markup=keyboard,
         )
@@ -1399,7 +1508,7 @@ def build_application(
         .write_timeout(60.0)
         .media_write_timeout(60.0)
         .get_updates_connect_timeout(30.0)
-        .get_updates_read_timeout(30.0)
+        .get_updates_read_timeout(60.0)
         .get_updates_write_timeout(30.0)
         .post_init(_drishti_post_init)
         .concurrent_updates(True)
@@ -1413,14 +1522,9 @@ def build_application(
     app.bot_data["state"] = state
     app.bot_data["event_bus"] = event_bus
     app.bot_data["params"] = cfg.params
+    app.bot_data.setdefault("workspace_root", Path(__file__).resolve().parents[3])
 
     # ── Register handlers ──────────────────────────────────────
-    try:
-        from bat_telegram.update_audit import attach_update_audit
-        attach_update_audit(app)
-    except Exception as _audit_exc:
-        logging.getLogger(__name__).warning("update audit attach failed: %s", _audit_exc)
-    
     app.add_handler(CommandHandler("start", pretty_cmd_start))
     app.add_handler(CommandHandler("ping", pretty_cmd_ping))
     app.add_handler(CommandHandler("status", pretty_cmd_status))
@@ -1520,8 +1624,8 @@ async def _reminder_scheduler_loop(app: Application) -> None:
             keyboard = InlineKeyboardMarkup(
                 [
                     [
-                        InlineKeyboardButton("✅ Yes, update now", callback_data="reminder_yes"),
-                        InlineKeyboardButton("❌ No, remind later", callback_data="reminder_no"),
+                        _btn("✅ Yes, update now", "reminder_yes", style="success"),
+                        _btn("❌ No, remind later", "reminder_no"),
                     ]
                 ]
             )

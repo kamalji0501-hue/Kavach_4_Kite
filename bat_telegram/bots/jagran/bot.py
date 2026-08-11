@@ -42,6 +42,15 @@ from telegram import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, 
 logger = logging.getLogger("batman.jagran")
 
 _CB_MENU = "jag_menu"
+
+
+def _btn(text: str, callback_data: str, *, style: str | None = None) -> InlineKeyboardButton:
+    """Inline button with optional Telegram style: primary|success|danger."""
+    kwargs: dict[str, Any] = {"text": text, "callback_data": callback_data}
+    if style:
+        kwargs["style"] = style
+    return InlineKeyboardButton(**kwargs)
+
 _IST = zoneinfo.ZoneInfo("Asia/Kolkata")
 
 
@@ -69,12 +78,12 @@ def _main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("📊 Status", callback_data=f"{_CB_MENU}:status"),
-                InlineKeyboardButton("🕒 Recent", callback_data=f"{_CB_MENU}:recent"),
+                _btn("📊 Status", f"{_CB_MENU}:status", style="primary"),
+                _btn("🕒 Recent", f"{_CB_MENU}:recent", style="primary"),
             ],
             [
-                InlineKeyboardButton("📅 Today", callback_data=f"{_CB_MENU}:today"),
-                InlineKeyboardButton("🔔 Test Alert", callback_data=f"{_CB_MENU}:test"),
+                _btn("📅 Today", f"{_CB_MENU}:today", style="primary"),
+                _btn("🔔 Test Alert", f"{_CB_MENU}:test", style="success"),
             ],
         ]
     )
@@ -353,24 +362,15 @@ def build_application() -> Application:
         .read_timeout(30.0)
         .write_timeout(60.0)
         .media_write_timeout(60.0)
+        .get_updates_connect_timeout(30.0)
+        .get_updates_read_timeout(60.0)
+        .get_updates_write_timeout(30.0)
         .post_init(_post_init)
         .build()
     )
     app.bot_data["chat_id"] = cfg.chat_id
     app.bot_data["params"] = cfg.params
     app.bot_data["started_at_ist"] = _u.now_ist().strftime("%Y-%m-%d %H:%M:%S IST")
-
-    try:
-
-        from bat_telegram.update_audit import attach_update_audit
-
-        attach_update_audit(app)
-
-    except Exception as _audit_exc:
-
-        logging.getLogger(__name__).warning("update audit attach failed: %s", _audit_exc)
-
-    
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("ping", cmd_ping))

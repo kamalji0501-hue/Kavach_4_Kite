@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Short environment labels for KAVACH (dev | uat | prod)."""
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ def environment_label() -> str:
 
 
 def environment_short_message() -> str:
+    """Plain-text / HTML-friendly environment blurb (not MarkdownV2)."""
     mode = get_mode()
     if mode == "dev":
         return "Environment: DEV — live NIFTY read-only; orders blocked on laptop."
@@ -31,12 +33,27 @@ def environment_short_message() -> str:
     return base
 
 
+def _md2_plain(text: str) -> str:
+    """Escape Telegram MarkdownV2 reserved chars in plain segments."""
+    special = r"_*[]()~`>#+-=|{}.!"
+    return "".join(("\\" + c) if c in special else c for c in str(text))
+
+
+def environment_short_message_md2() -> str:
+    """Same as environment_short_message but safe for ParseMode.MARKDOWN_V2."""
+    return _md2_plain(environment_short_message())
+
+
 def register_preamble() -> str:
+    """MarkdownV2 preamble shown after Paper/Live is chosen."""
     mode = get_mode()
     if mode == "uat":
-        source = "Positions will load from the *UAT shadow book* (Sensibull / Cursor chat)."
+        source = (
+            "Positions will load from the *UAT shadow book* "
+            + _md2_plain("(Sensibull / Cursor chat).")
+        )
     elif mode == "prod":
-        source = "Positions will load from *Dhan* (live broker)."
+        source = "Positions will load from *Dhan* " + _md2_plain("(live broker).")
     else:
-        source = "Positions will load from *Dhan* (read-only on DEV)."
-    return f"{environment_short_message()}\n\n{source}"
+        source = "Positions will load from *Dhan* " + _md2_plain("(read-only on DEV).")
+    return f"{environment_short_message_md2()}\n\n{source}"

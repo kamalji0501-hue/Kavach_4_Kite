@@ -60,7 +60,7 @@ fi
 
 KEY_PATH="${VPS_SSH_KEY/#\~/$HOME}"
 : "${VPS_USER:=ubuntu}"
-: "${BATMAN_ROOT:=/home/ubuntu/batman-algo}"
+: "${BATMAN_ROOT:=/home/ubuntu/rahul_Changes}"
 
 read -r -p "Confirm Dhan has whitelisted static IP ${STATIC_IP:-UNKNOWN}? [yes/NO] " ans
 if [[ "$ans" != "yes" ]]; then
