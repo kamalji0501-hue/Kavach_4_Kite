@@ -77,14 +77,14 @@ def ltp_gate_skip_reason(*, now: datetime | None = None) -> str | None:
     return None
 
 
-def wait_drishti_ltp_ready(
+def wait_feeder_ltp_ready(
     *,
     timeout_seconds: float = 90.0,
     max_age_seconds: float = _DEFAULT_LTP_MAX_AGE,
     poll_seconds: float = 3.0,
     root: Path | None = None,
 ) -> tuple[bool, str]:
-    """Wait for DRISHTI RUNNING + fresh NIFTY cache (skipped off-hours / holidays)."""
+    """Wait for Datafeedbot socket + fresh NIFTY cache (skipped off-hours / holidays)."""
     base = root or ROOT
     skip_reason = ltp_gate_skip_reason()
     if skip_reason == "off_calendar_day":
@@ -94,8 +94,18 @@ def wait_drishti_ltp_ready(
     if skip_reason == "post_market":
         return True, "post_market — LTP gate skipped"
 
-    if not wait_bot_running("drishti", timeout_seconds=min(60.0, timeout_seconds), root=base):
-        return False, "DRISHTI not RUNNING within gate timeout"
+    try:
+        from core.feeder_ipc import feeder_socket_ready
+
+        deadline_sock = time.monotonic() + min(60.0, timeout_seconds)
+        while time.monotonic() < deadline_sock:
+            if feeder_socket_ready():
+                break
+            time.sleep(poll_seconds)
+        else:
+            return False, "Datafeedbot IPC socket not ready"
+    except Exception:
+        pass
 
     deadline = time.monotonic() + timeout_seconds
     cache_path = _nifty_cache_path(base)
@@ -109,3 +119,19 @@ def wait_drishti_ltp_ready(
     if ok:
         return True, detail
     return False, detail
+
+
+def wait_drishti_ltp_ready(
+    *,
+    timeout_seconds: float = 90.0,
+    max_age_seconds: float = _DEFAULT_LTP_MAX_AGE,
+    poll_seconds: float = 3.0,
+    root: Path | None = None,
+) -> tuple[bool, str]:
+    """Compatibility alias — Feeder writes the NIFTY cache now."""
+    return wait_feeder_ltp_ready(
+        timeout_seconds=timeout_seconds,
+        max_age_seconds=max_age_seconds,
+        poll_seconds=poll_seconds,
+        root=root,
+    )

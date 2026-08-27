@@ -2,10 +2,10 @@
 """
 Run only the KAVACH Telegram bot (standalone Phase 1).
 
-Connects to Dhan via the JWT saved by DRISHTI (data/access_token.json).
-Starts ATO Protection module in a background thread when broker + config allow.
+Connects to Zerodha via Kite REST (feeder session / TOKEN Zerodha paste).
+Starts ATO Protection in a background thread when broker + config allow.
 
-Requires DRISHTI REST NIFTY feed running for LTP cache during market hours.
+NIFTY LTP comes from Datafeedbot (Feeder) cache/IPC — not Drishti.
 """
 
 from __future__ import annotations
@@ -73,31 +73,20 @@ def _load_config() -> Config:
 
 
 def _connect_broker(client_code: str):
-    if not client_code:
-        return None
-
-    token_store = TokenStore(path=access_token_path(ROOT))
-    token, saved_at = token_store.load()
-    if not token:
-        return None
-    if token_store.is_effectively_expired():
-        mode = get_mode(ROOT)
-        if mode == "uat":
-            logging.getLogger("run_kavach").warning(
-                "Dhan token expired (saved_at=%s) — UAT ShadowBroker still loads fixture book; "
-                "refresh JWT via DRISHTI for live LTP enrich",
-                saved_at,
-            )
-        else:
-            logging.getLogger("run_kavach").warning(
-                "Dhan token expired (saved_at=%s) — refresh via DRISHTI", saved_at
-            )
+    mode = get_mode(ROOT)
+    logger = logging.getLogger("run_kavach")
+    if mode == "uat":
+        token_store = TokenStore(path=access_token_path(ROOT))
+        token, saved_at = token_store.load()
+        try:
+            return create_broker(client_code or "uat", token or "uat", ROOT)
+        except Exception as exc:
+            logger.error("UAT broker connect failed: %s", exc)
             return None
-
     try:
-        return create_broker(client_code, token, ROOT)
+        return create_broker(client_code or "", "", ROOT)
     except Exception as exc:
-        logging.getLogger("run_kavach").error("Broker connect failed: %s", exc)
+        logger.error("Zerodha broker connect failed: %s", exc)
         return None
 
 
@@ -145,7 +134,8 @@ def _start_ato_module(
         if env_mode in {"paper", "live"}:
             order_mode = env_mode
         else:
-            order_mode = order_mode_from_state(state, default=latest_deployment_order_mode(ROOT))
+            default_mode = "live" if get_mode(ROOT) == "prod" else latest_deployment_order_mode(ROOT)
+            order_mode = order_mode_from_state(state, default=default_mode)
         order_mode = normalize_order_mode(order_mode)
         configure_ato_order_sink(ato, order_mode=order_mode, workspace_root=ROOT, state=state)
         logger.info("ATO order sink configured mode=%s", order_mode)
@@ -245,10 +235,8 @@ def main() -> None:
         global _ATO_MODULE
         if _runtime["broker"] is not None:
             return
-        if not client_code:
-            return
         try:
-            boot_broker = create_broker(client_code, token, ROOT)
+            boot_broker = create_broker(client_code or "", token or "", ROOT)
         except Exception as exc:
             logger.error("KAVACH broker bootstrap failed: %s", exc)
             return
@@ -267,7 +255,7 @@ def main() -> None:
             logger.info("Broker connected — /positions and /register ready")
     else:
         logger.warning(
-            "No broker at startup — will bootstrap when DRISHTI saves a valid JWT"
+            "No broker at startup — will bootstrap when Zerodha access_token is available"
         )
 
     start_health_heartbeat(ROOT, "kavach2", extra_provider=_kavach_health)
@@ -284,12 +272,44 @@ def main() -> None:
         apply_runtime_mode_provider(broker, state)
         _ATO_MODULE = _start_ato_module(broker, config, state, event_bus)
 
-    _TOKEN_WATCH_STOP = start_token_watch(
-        _runtime["broker"],
-        client_code=client_code,
-        token_path=access_token_path(ROOT),
-        on_token_ready=_bootstrap_from_token,
-    )
+    if mode == "uat":
+        _TOKEN_WATCH_STOP = start_token_watch(
+            _runtime["broker"],
+            client_code=client_code,
+            token_path=access_token_path(ROOT),
+            on_token_ready=_bootstrap_from_token,
+        )
+    else:
+        from core.zerodha_credentials import start_zerodha_token_watch
+
+        _TOKEN_WATCH_STOP = start_zerodha_token_watch(
+            _runtime["broker"],
+            root=ROOT,
+            on_token_ready=_bootstrap_from_token,
+        )
+
+    try:
+        from web.auth import ensure_web_secrets
+        from web.runtime import WebRuntime, set_runtime
+        from web.server import start_web_thread
+
+        pw, secret = ensure_web_secrets()
+        set_runtime(
+            WebRuntime(
+                root=ROOT,
+                state=state,
+                broker=_runtime["broker"],
+                event_bus=event_bus,
+                ato=_ATO_MODULE,
+                client_code=client_code,
+                web_password=pw,
+                session_secret=secret,
+            )
+        )
+        start_web_thread()
+        logger.info("Kavach web desk thread started")
+    except Exception as exc:
+        logger.warning("Kavach web desk not started: %s", exc)
 
     restart_policy = PollingRestartPolicy()
     session = 0

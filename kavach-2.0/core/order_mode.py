@@ -108,25 +108,26 @@ def configure_ato_order_sink(
                 pass
             return "paper"
 
-        # LIVE: remove paper OM so ATO uses broker.place_aggressive_limit (unchanged path)
-        if getattr(ato_module, "order_manager", None) is not None:
-            ato_module.order_manager = None
-            logger.info("Order sink LIVE — OrderManager cleared; ATO uses broker path")
-        else:
-            logger.info("Order sink LIVE — broker path (no OrderManager)")
+        om = OrderManager(
+            mode="live",
+            ledger_dir=data_root(root) / "order_manager",
+            live_broker=getattr(ato_module, "broker", None),
+        )
+        attach_order_manager(ato_module, om)
         if state is not None:
             try:
                 state.set("order_mode", "live")
             except Exception:
                 pass
+        logger.info("Order sink LIVE — OrderManager ATO resting SL-L + Rescue")
         try:
             from core.money_audit import audit
 
             audit(
                 "order_mode.sink.detail",
                 mode="live",
-                via="broker",
-                note="OrderManager cleared; ATO uses broker.place_aggressive_limit",
+                via="order_manager",
+                note="ATO BUY resting trigger+limit; SELL SL-L; Rescue fill/exit",
             )
         except Exception:
             pass

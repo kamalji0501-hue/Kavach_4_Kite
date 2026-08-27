@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta http-equiv="Cache-Control" content="no-store" />
+  <title>KAVACH</title>
+  <link rel="icon" href="/static/logo.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/app.css?v=20260827reg2" />
+</head>
+<body>
+  <div id="login" class="login">
+    <div class="orb orb-a" aria-hidden="true"></div>
+    <div class="orb orb-b" aria-hidden="true"></div>
+    <div class="login-card">
+      <img class="logo-hero drop-in" src="/static/logo.png" alt="KDFINSCHOOL" />
+      <div class="login-word">
+        <h2><span>KAVACH</span></h2>
+        <small>KDFINSCHOOL</small>
+      </div>
+      <label>PASSWORD</label>
+      <input id="pw" type="password" autocomplete="current-password" />
+      <button class="btn gold" id="loginBtn" type="button">ENTER</button>
+      <p class="sub" id="loginErr"></p>
+    </div>
+  </div>
+
+  <div id="lockScene" class="lock-scene" aria-hidden="true">
+    <div class="lock-letterbox lb-top" aria-hidden="true"></div>
+    <div class="lock-letterbox lb-bot" aria-hidden="true"></div>
+    <div class="lock-vignette"></div>
+    <div class="lock-smoke" aria-hidden="true"></div>
+    <div class="lock-embers" aria-hidden="true">
+      <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+    </div>
+    <div class="lock-stage">
+      <div class="lock-wrap">
+        <svg class="svg-lock" viewBox="0 0 160 210" aria-hidden="true">
+          <defs>
+            <linearGradient id="lockBody" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#C9BDF7"/>
+              <stop offset="100%" stop-color="#8B7CF6"/>
+            </linearGradient>
+            <linearGradient id="lockShine" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.45"/>
+              <stop offset="100%" stop-color="#7C6AE8" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path class="shackle" d="M48 92 V58 A32 32 0 0 1 112 58 V92" fill="none" stroke="#5B4FC7" stroke-width="14" stroke-linecap="round"/>
+          <rect class="lock-body" x="28" y="88" width="104" height="108" rx="16" fill="url(#lockBody)"/>
+          <rect x="28" y="88" width="104" height="108" rx="16" fill="url(#lockShine)"/>
+          <circle cx="80" cy="138" r="12" fill="#FBFAFE"/>
+          <rect x="74" y="138" width="12" height="28" rx="4" fill="#FBFAFE"/>
+        </svg>
+        <span class="melt-drip d1"></span>
+        <span class="melt-drip d2"></span>
+        <span class="melt-drip d3"></span>
+        <span class="melt-pool"></span>
+      </div>
+      <svg class="svg-fire" viewBox="0 0 200 320" aria-hidden="true">
+        <defs>
+          <linearGradient id="flameOuter" x1="0.5" y1="0" x2="0.5" y2="1">
+            <stop offset="0%" stop-color="#FFE7A3"/>
+            <stop offset="18%" stop-color="#FFB347"/>
+            <stop offset="48%" stop-color="#FF4A12"/>
+            <stop offset="78%" stop-color="#B01408"/>
+            <stop offset="100%" stop-color="#4A0600" stop-opacity="0"/>
+          </linearGradient>
+          <linearGradient id="flameInner" x1="0.5" y1="0" x2="0.5" y2="1">
+            <stop offset="0%" stop-color="#FFFFFF"/>
+            <stop offset="22%" stop-color="#FFF3A8"/>
+            <stop offset="62%" stop-color="#FF8A1A"/>
+            <stop offset="100%" stop-color="#FF3B00" stop-opacity="0"/>
+          </linearGradient>
+          <filter id="flameBlur" x="-40%" y="-10%" width="180%" height="130%">
+            <feGaussianBlur stdDeviation="4.5"/>
+          </filter>
+        </defs>
+        <g class="fire-stream">
+          <path filter="url(#flameBlur)" fill="url(#flameOuter)" d="M100 0 C148 36 168 90 158 160 C148 230 128 290 100 320 C72 290 52 230 42 160 C32 90 52 36 100 0 Z"/>
+          <path fill="url(#flameOuter)" d="M100 6 C132 40 146 92 138 158 C128 228 114 286 100 312 C86 286 72 228 62 158 C54 92 68 40 100 6 Z"/>
+          <path fill="url(#flameInner)" d="M100 10 C118 48 124 100 118 168 C112 230 106 278 100 300 C94 278 88 230 82 168 C76 100 82 48 100 10 Z"/>
+        </g>
+      </svg>
+      <div class="dragon-wrap" aria-hidden="true">
+        <svg class="svg-dragon" viewBox="0 0 800 260" aria-hidden="true">
+          <defs>
+            <linearGradient id="dragScale" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#5A1A28"/>
+              <stop offset="45%" stop-color="#2A0C16"/>
+              <stop offset="100%" stop-color="#12060A"/>
+            </linearGradient>
+            <linearGradient id="dragWing" x1="0" y1="0" x2="0.2" y2="1">
+              <stop offset="0%" stop-color="#E05A78"/>
+              <stop offset="40%" stop-color="#8A243C"/>
+              <stop offset="100%" stop-color="#2A0810"/>
+            </linearGradient>
+            <radialGradient id="eyeGlow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#FFE7A3"/>
+              <stop offset="70%" stop-color="#FF8A1A"/>
+              <stop offset="100%" stop-color="#7A1408"/>
+            </radialGradient>
+          </defs>
+          <g class="dragon-wing wing-l">
+            <path fill="url(#dragWing)" d="M390 78 C270 18 140 8 36 64 C18 78 22 102 48 108 C120 88 220 92 388 118 Z"/>
+            <path fill="none" stroke="#1A080C" stroke-width="5" d="M390 78 C260 28 130 22 36 64"/>
+            <path fill="none" stroke="#1A080C" stroke-width="3" d="M390 86 L70 92"/>
+            <path fill="none" stroke="#1A080C" stroke-width="3" d="M390 98 L150 118"/>
+            <path fill="#1A080C" d="M36 64 L8 58 L28 86 Z"/>
+          </g>
+          <g class="dragon-wing wing-r">
+            <path fill="url(#dragWing)" d="M410 78 C530 18 660 8 764 64 C782 78 778 102 752 108 C680 88 580 92 412 118 Z"/>
+            <path fill="none" stroke="#1A080C" stroke-width="5" d="M410 78 C540 28 670 22 764 64"/>
+            <path fill="none" stroke="#1A080C" stroke-width="3" d="M410 86 L730 92"/>
+            <path fill="none" stroke="#1A080C" stroke-width="3" d="M410 98 L650 118"/>
+            <path fill="#1A080C" d="M764 64 L792 58 L772 86 Z"/>
+          </g>
+          <path fill="url(#dragScale)" d="M372 70 C364 40 378 16 400 14 C422 16 436 40 428 70 C422 92 410 118 400 126 C390 118 378 92 372 70 Z"/>
+          <path fill="#1A080C" d="M378 28 L358 0 L392 26 Z"/>
+          <path fill="#1A080C" d="M422 28 L442 0 L408 26 Z"/>
+          <path fill="#1A080C" d="M392 18 L386 -8 L404 20 Z"/>
+          <path fill="#1A080C" d="M408 18 L414 -8 L396 20 Z"/>
+          <ellipse cx="382" cy="58" rx="10" ry="6" fill="url(#eyeGlow)"/>
+          <ellipse cx="418" cy="58" rx="10" ry="6" fill="url(#eyeGlow)"/>
+          <path fill="#12060A" d="M374 58 L390 62 L374 66 Z"/>
+          <path fill="#12060A" d="M426 58 L410 62 L426 66 Z"/>
+          <g class="dragon-jaw">
+            <path fill="url(#dragScale)" d="M378 118 C384 142 396 162 400 168 C404 162 416 142 422 118 C412 132 388 132 378 118 Z"/>
+            <path fill="#2A0C12" d="M386 150 C392 178 408 178 414 150 C406 168 394 168 386 150 Z"/>
+            <path fill="#FFE7A3" d="M394 156 C398 172 402 172 406 156 C402 166 398 166 394 156 Z"/>
+          </g>
+          <path fill="url(#dragScale)" d="M428 92 C470 108 508 128 528 162 C500 148 458 138 424 128 Z"/>
+        </svg>
+      </div>
+    </div>
+    <p class="lock-msg">ACCESS PROHIBITED</p>
+  </div>
+
+  <div id="desk" class="desk hidden">
+    <div class="nav-scrim" id="navScrim"></div>
+    <aside class="side" id="sideNav">
+      <div class="brand">
+        <img class="logo-side" src="/static/logo.png" alt="KDFINSCHOOL" />
+        <div class="brand-copy">
+          <h2><span>KAVACH</span></h2>
+          <small>KDFINSCHOOL</small>
+        </div>
+      </div>
+      <button class="nav on" data-go="home" type="button">HOME</button>
+      <button class="nav" data-go="deploy" type="button">DEPLOY BATMAN 2.0</button>
+            <button class="nav" data-go="ato" type="button">ATO MANAGER</button>
+      <button class="nav" data-go="summary" type="button">ATO SUMMARY</button>
+      <button class="nav" data-go="register" type="button">REGISTER BATMAN</button>
+      <button class="nav" data-go="token" type="button">TOKEN</button>
+      <button class="nav" id="logoutBtn" type="button">STAND DOWN</button>
+    </aside>
+    <div class="main">
+      <div class="top">
+        <button type="button" class="menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false" aria-controls="sideNav">
+          <img class="logo-top" src="/static/logo.png" alt="KAVACH" />
+        </button>
+        <div class="top-brand">
+          <img class="logo-top" src="/static/logo.png" alt="" />
+          <div class="top-go"><span>KAVACH</span></div>
+        </div>
+        <div class="top-choppy">
+          <label class="toggle rg" title="Pause or resume the algo">
+            <input id="runToggle" type="checkbox" />
+            <span class="knob"></span>
+            <span class="tog-copy"><span class="tog-name">ALGO</span><span id="runLbl">PAUSED</span></span>
+          </label>
+          <label class="toggle rg" title="30% dynamic hedge">
+            <input id="hedgeToggle" type="checkbox" />
+            <span class="knob"></span>
+            <span class="tog-copy"><span class="tog-name">HEDGE</span><span id="hedgeLbl">HEDGE OFF</span></span>
+          </label>
+          <span class="chip" id="chipBroker">BROKER</span>
+        </div>
+        <div class="grow"></div>
+        <div class="top-spot">
+          <span class="chip chip-spot" id="niftyTop">NIFTY  —</span>
+          <span class="chip chip-spot" id="clock">—</span>
+        </div>
+      </div>
+      <div class="body" id="view"></div>
+      <div id="goNotice" class="go-notice hidden"></div>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <nav class="tabbar" id="tabs">
+    <span data-go="home" class="on">HOME</span>
+    <span data-go="ato">ATO</span>
+    <span data-go="summary">ATO</span>
+    <span data-go="register">REGISTER</span>
+    <span data-menu="1">MENU</span>
+  </nav>
+  <div id="busyGate" class="busy-gate hidden" aria-hidden="true">
+    <div class="spinner" role="status" aria-label="Loading"></div>
+  </div>
+  <script src="/static/app.js?v=20260827reg2"></script>
+</body>
+</html>

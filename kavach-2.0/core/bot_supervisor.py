@@ -183,7 +183,7 @@ def start_all_bots(
     children["drishti"] = spawned.pid
     _save_state(base, children)
 
-    if not wait_bot_running("drishti", timeout_seconds=wait_seconds * 0.5, root=base):
+    if False:  # Feeder is systemd datafeedbot, not a Telegram bot
         _log("Supervisor: DRISHTI did not reach RUNNING — aborting start")
         return 1
     # Repeated full-stop/full-start sweeps can leave DRISHTI needing longer than 90s

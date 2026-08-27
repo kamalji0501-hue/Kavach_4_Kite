@@ -33,27 +33,12 @@ ATO protect symbols are resolved at /deploy wizard time
 
 from __future__ import annotations
 
-try:
-    from core.money_audit import audit, audit_span, new_correlation_id
-except Exception:  # pragma: no cover
-    def audit(*_a, **_k):  # type: ignore
-        return None
-
-    def new_correlation_id(prefix="c"):  # type: ignore
-        return prefix
-
-    from contextlib import contextmanager
-
-    @contextmanager
-    def audit_span(event, **fields):  # type: ignore
-        yield dict(fields)
-
-
 import csv
 import glob
 import io
 import json
 import logging
+import time
 import pathlib
 import shutil
 import threading
@@ -80,6 +65,22 @@ from core.deployment_lock import DeploymentLockBusy, deployment_session
 from core.event_bus import Event
 from core.module_base import ModuleBase
 from core.nifty_ltp_feed import consumer_max_age_for_trading, resolve_nifty_ltp_from_cache
+
+try:
+    from core.money_audit import audit, audit_span, new_correlation_id
+except Exception:  # pragma: no cover
+    def audit(*_a, **_k):  # type: ignore
+        return None
+
+    def new_correlation_id(prefix: str = "c") -> str:  # type: ignore
+        return prefix
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def audit_span(event, **fields):  # type: ignore
+        yield dict(fields)
+
 from core.positions import build_ato_protect_symbol
 from core.saransh_paths import ato_analytics_dir, legacy_telemetry_csv_path
 
@@ -402,8 +403,17 @@ class ATOProtection(ModuleBase):
         return int(cfg_ato.get("poll_interval_seconds", 2))
 
     def _resolve_nifty_spot(self) -> Decimal:
-        """Read DRISHTI shared cache only — never call Dhan from ATO."""
+        """Read Feeder NIFTY cache (Datafeedbot sid 13). Never call Dhan from ATO."""
         max_age = consumer_max_age_for_trading()
+        try:
+            from core.feeder_ipc import peek_index_ltp
+
+            live = peek_index_ltp(wait_seconds=0.4)
+            if live and float(live) > 0:
+                self._consecutive_ltp_failures = 0
+                return Decimal(str(live))
+        except Exception:
+            pass
         spot = resolve_nifty_ltp_from_cache(max_age_seconds=max_age)
         self._consecutive_ltp_failures = 0
         return Decimal(str(spot))
@@ -660,6 +670,11 @@ class ATOProtection(ModuleBase):
                 side=str(side),
                 product=str(product),
             ) as span:
+                opt_ltp = None
+                try:
+                    opt_ltp = self._resolve_option_premium(symbol, "", spot=0.0)
+                except Exception:
+                    opt_ltp = None
                 oid = str(
                     om.punch_ato(
                         symbol=symbol,
@@ -667,8 +682,21 @@ class ATOProtection(ModuleBase):
                         side=side,
                         product=product,
                         reason="ato_protect",
+                        ltp=opt_ltp,
                     )
                 )
+                if str(side).upper() == "BUY" and opt_ltp:
+                    try:
+                        from core.ato_exec import buy_trigger_limit
+
+                        trig, lim = buy_trigger_limit(float(opt_ltp))
+                        tag = "ce" if "CE" in str(symbol).upper() or "CALL" in str(symbol).upper() else "pe"
+                        self.state.set(f"ato.{tag}_buy_trigger", trig, save=False)
+                        self.state.set(f"ato.{tag}_buy_limit", lim, save=False)
+                        self.state.set(f"ato.{tag}_buy_oid", oid, save=False)
+                        self.state.set(f"ato.{tag}_buy_qty", int(qty), save=False)
+                    except Exception:
+                        pass
                 span["order_id"] = oid
                 self.log.info(
                     "ATO punch via OrderManager symbol=%s side=%s qty=%s product=%s id=%s corr=%s",
@@ -744,10 +772,9 @@ class ATOProtection(ModuleBase):
             return oid
 
     def _maybe_exit_dyn_hedge(self, side: str) -> None:
-        """Exit the side's 30% dynamic hedge once on first ATO trigger of the day.
+        """Exit remaining 30% dynamic hedge whenever ATO fires on this side.
 
-        Full qty of ``positions.{pe|ce}_dyn_hedge`` — no re-entry.
-        Requires ``dyn_hedge.exit_enabled`` (operator Yes on menu).
+        Conditions: toggle ON and live broker qty > 0. Does not re-buy the hedge.
         """
         from datetime import date
 
@@ -760,15 +787,7 @@ class ATOProtection(ModuleBase):
                 side_u,
             )
             return
-        today = date.today().isoformat()
         exited_key = f"dyn_hedge.{prefix}_exited_date"
-        if str(self.state.get(exited_key) or "") == today:
-            self.log.info(
-                "30%% dynamic hedge skip side=%s — already exited today (%s)",
-                side_u,
-                today,
-            )
-            return
         leg = self.state.get(f"positions.{prefix}_dyn_hedge")
         if not isinstance(leg, dict):
             self.log.info(
@@ -778,16 +797,25 @@ class ATOProtection(ModuleBase):
             )
             return
         symbol = str(leg.get("symbol") or "").strip()
-        qty = abs(int(leg.get("qty") or 0))
-        if not symbol or qty <= 0:
+        try:
+            registered_qty = abs(int(leg.get("qty") or 0))
+        except (TypeError, ValueError):
+            registered_qty = 0
+        if not symbol:
+            self.log.info("30%% dynamic hedge skip side=%s — blank symbol", side_u)
+            return
+        try:
+            live_qty = max(0, int(self._position_qty(symbol) or 0))
+        except Exception:
+            live_qty = 0
+        if live_qty <= 0:
             self.log.info(
-                "30%% dynamic hedge skip side=%s — blank symbol or qty<=0 "
-                "(symbol=%r qty=%s)",
+                "30%% dynamic hedge skip side=%s — live qty=0 for %s",
                 side_u,
                 symbol,
-                qty,
             )
             return
+        qty = live_qty if registered_qty <= 0 else min(live_qty, registered_qty)
         product = self.config.get("strategy.product_type", "MARGIN")
         try:
             order_id = self._place_ato_aggressive_limit(
@@ -805,7 +833,7 @@ class ATOProtection(ModuleBase):
                 exc,
             )
             return
-        self.state.set(exited_key, today)
+        self.state.set(exited_key, date.today().isoformat())
         self.log.info(
             "30%% dynamic hedge exited: side=%s symbol=%s qty=%d order=%s",
             side_u,
@@ -820,7 +848,7 @@ class ATOProtection(ModuleBase):
                     "symbol": symbol,
                     "qty": qty,
                     "order_id": order_id,
-                    "reason": "dyn_hedge_first_ato",
+                    "reason": "dyn_hedge_ato",
                     "side": side_u,
                 },
             )
@@ -933,6 +961,14 @@ class ATOProtection(ModuleBase):
                 if net_retry is not None and lots_fulfilled(net_retry, ato_qty, lot_size):
                     return "BOOK_FILLED"
                 self.log.warning("%s ATO buy attempt %d failed: %s", tag, attempt, exc)
+
+        if last_exc and "needs option ltp" in str(last_exc).lower():
+            self.log.error(
+                "%s ATO buy deferred — option LTP missing after %s attempts (side stays armed)",
+                tag,
+                max_retries,
+            )
+            return None
 
         halt_side(self.state, tag, reason="order_retry_exhausted")
         error_text = str(last_exc) if last_exc else f"book qty mismatch for {symbol}"
@@ -1113,41 +1149,20 @@ class ATOProtection(ModuleBase):
             self.log.warning("ATO telemetry append soft-failed: %s", exc)
 
     def _fill_price_from_order(self, order_id: str | None) -> float | None:
+        """Return broker *average fill* only — never LIMIT/trigger price."""
         if not order_id or order_id == "BOOK_FILLED":
             return None
-        orders = getattr(self.broker, "_orders", None)
-        if isinstance(orders, list):
-            for o in orders:
-                if str(o.get("order_id")) != str(order_id):
-                    continue
-                for key in ("avg_price", "avgPrice", "price", "tradedPrice"):
-                    raw = o.get(key)
-                    if raw is None or raw == "":
-                        continue
-                    try:
-                        value = float(raw)
-                    except (TypeError, ValueError):
-                        continue
-                    if value > 0:
-                        return value
-        get_book = getattr(self.broker, "get_orderbook", None)
-        if not callable(get_book):
-            return None
-        try:
-            book = get_book()
-        except Exception:
-            return None
-        if book is None:
-            return None
-        try:
-            rows = book.to_dict("records") if hasattr(book, "to_dict") else list(book)
-        except Exception:
-            return None
-        for row in rows:
-            rid = row.get("order_id") or row.get("orderId")
-            if str(rid) != str(order_id):
-                continue
-            for key in ("avg_price", "avgPrice", "averagePrice", "price"):
+        fill_keys = (
+            "average_price",
+            "averagePrice",
+            "avg_price",
+            "avgPrice",
+            "tradedPrice",
+            "traded_price",
+        )
+
+        def _avg_from_row(row: dict) -> float | None:
+            for key in fill_keys:
                 raw = row.get(key)
                 if raw is None or raw == "":
                     continue
@@ -1157,7 +1172,79 @@ class ATOProtection(ModuleBase):
                     continue
                 if value > 0:
                     return value
+            return None
+
+        orders = getattr(self.broker, "_orders", None)
+        if isinstance(orders, list):
+            for o in orders:
+                if str(o.get("order_id")) != str(order_id):
+                    continue
+                hit = _avg_from_row(o if isinstance(o, dict) else {})
+                if hit is not None:
+                    return hit
+        get_book = getattr(self.broker, "get_orderbook", None)
+        if callable(get_book):
+            try:
+                book = get_book()
+            except Exception:
+                book = None
+            if book is not None:
+                try:
+                    rows = book.to_dict("records") if hasattr(book, "to_dict") else list(book)
+                except Exception:
+                    rows = []
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    rid = row.get("order_id") or row.get("orderId")
+                    if str(rid) != str(order_id):
+                        continue
+                    hit = _avg_from_row(row)
+                    if hit is not None:
+                        return hit
+        # Direct Kite history for this order id (most reliable after COMPLETE).
+        hist = getattr(self.broker, "get_order_history", None)
+        if callable(hist):
+            try:
+                rows = hist(str(order_id)) or []
+            except Exception:
+                rows = []
+            for row in reversed(list(rows)):
+                if not isinstance(row, dict):
+                    continue
+                hit = _avg_from_row(row)
+                if hit is not None:
+                    return hit
+        get_one = getattr(self.broker, "_http", None)
+        if get_one is not None:
+            try:
+                data = self.broker._http.request("GET", f"/orders/{order_id}")
+                rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
+                for row in reversed(list(rows)):
+                    if not isinstance(row, dict):
+                        continue
+                    hit = _avg_from_row(row)
+                    if hit is not None:
+                        return hit
+            except Exception:
+                pass
         return None
+
+    def _wait_fill_price(self, order_id: str | None, *, tries: int = 6, delay: float = 0.35) -> float | None:
+        """Poll briefly for average fill after a marketable LIMIT punches."""
+        if not order_id or order_id == "BOOK_FILLED":
+            return None
+        last: float | None = None
+        for i in range(max(1, int(tries))):
+            last = self._fill_price_from_order(order_id)
+            if last is not None and float(last) > 0:
+                return float(last)
+            if i + 1 < tries:
+                try:
+                    time.sleep(max(0.05, float(delay)))
+                except Exception:
+                    pass
+        return last
 
     def _resolve_option_premium(
         self, symbol: str | None, order_id: str | None = None, *, spot: float | None = None
@@ -1196,20 +1283,61 @@ class ATOProtection(ModuleBase):
             return fill
         if not symbol:
             return fill if fill is not None else None
+        try:
+            from core.batman_mode import is_uat
+
+            in_uat = bool(is_uat(_ROOT))
+        except Exception:
+            in_uat = False
+
+        # Prod: quote the exact tradingsymbol via Kite REST.
+        # Never pass UAT fixture expiry into live quotes — 2026-08-04 resolved
+        # to nothing and ATO halted with "needs option LTP".
+        if not in_uat:
+            getter_sym = getattr(self.broker, "get_ltp", None)
+            if callable(getter_sym):
+                try:
+                    prices = getter_sym([str(symbol)])
+                    raw = None
+                    if isinstance(prices, dict):
+                        raw = prices.get(symbol) or prices.get(str(symbol))
+                        if raw is None:
+                            tail = str(symbol).split(":")[-1]
+                            for k, v in prices.items():
+                                if str(k).split(":")[-1] == tail:
+                                    raw = v
+                                    break
+                    if raw is not None and float(raw) > 0:
+                        self.log.info("ATO option LTP via Kite REST %s=%.2f", symbol, float(raw))
+                        return float(raw)
+                except Exception as exc:
+                    self.log.warning("Kite option LTP failed for %s: %s", symbol, exc)
+
         strike, opt = _parse_protect_strike_opt(symbol)
         if not strike or not opt:
             return fill if fill is not None else None
+        if in_uat:
+            try:
+                from core.feeder_ipc import peek_option_quote
+
+                q = peek_option_quote(strike=int(strike), option_type=str(opt), wait_seconds=1.2)
+                if q and float(q.get("ltp") or 0) > 0:
+                    return float(q["ltp"])
+            except Exception as exc:
+                self.log.debug("Feeder option premium failed for %s: %s", symbol, exc)
+
         getter = getattr(self.broker, "get_nifty_option_ltps", None)
         if callable(getter):
             try:
                 expiry = None
-                try:
-                    from core.nifty_option_expiry import fixture_expiry_date
-                    from core.uat_positions import load_positions_fixture
+                if in_uat:
+                    try:
+                        from core.nifty_option_expiry import fixture_expiry_date
+                        from core.uat_positions import load_positions_fixture
 
-                    expiry = fixture_expiry_date(load_positions_fixture(_ROOT))
-                except Exception:
-                    expiry = None
+                        expiry = fixture_expiry_date(load_positions_fixture(_ROOT))
+                    except Exception:
+                        expiry = None
                 prices = getter([(strike, opt)], expiry_date=expiry)
                 raw = prices.get((strike, opt)) if isinstance(prices, dict) else None
                 if raw is not None:
@@ -1236,7 +1364,125 @@ class ATOProtection(ModuleBase):
         # Do not invent premiums (old intrinsic+5 / 5.00 floor) — SARANSH shows blank.
         return fill if fill is not None else None
 
+    def _watch_ato_buy_fill_rescue(self) -> None:
+        """If parked BUY is still short and LTP ran +1 Rs, Rescue completes the BUY."""
+        from core.ato_exec import remaining_qty, rescue_complete_buy, should_fill_rescue
+
+        broker = self.broker
+        om = getattr(self, "order_manager", None)
+        if om is not None and getattr(om, "is_paper", False):
+            return
+        for tag in ("ce", "pe"):
+            if not self.state.get(f"ato.{tag}_ato_active"):
+                continue
+            if self.state.get(f"ato.{tag}_ato_exit_order_id"):
+                continue
+            oid = self.state.get(f"ato.{tag}_buy_oid")
+            trig = self.state.get(f"ato.{tag}_buy_trigger")
+            qty = int(self.state.get(f"ato.{tag}_buy_qty") or 0)
+            sym = self.state.get(f"ato.{tag}_protect_symbol")
+            if not oid or not trig or qty <= 0 or not sym:
+                continue
+            ltp = None
+            getter = getattr(broker, "get_ltp", None)
+            if callable(getter):
+                try:
+                    quotes = getter([str(sym)]) or {}
+                    ltp = float(quotes.get(sym) or quotes.get(str(sym)) or 0)
+                except Exception:
+                    ltp = None
+            if not ltp:
+                try:
+                    ltp = self._resolve_option_premium(str(sym), None, spot=0.0)
+                except Exception:
+                    continue
+            if not ltp:
+                continue
+            filled = 0
+            try:
+                from core.ato_book_validation import net_qty_for_symbol
+
+                net = net_qty_for_symbol(broker, str(sym))
+                filled = abs(int(net or 0))
+            except Exception:
+                filled = 0
+            rem = remaining_qty(requested=qty, filled=filled)
+            if not should_fill_rescue(trigger=float(trig), ltp=float(ltp), remaining_qty=rem):
+                continue
+            try:
+                rescue_complete_buy(
+                    broker,
+                    symbol=str(sym),
+                    remaining=rem,
+                    ltp=float(ltp),
+                    existing_oid=str(oid),
+                )
+                self.state.set(f"ato.{tag}_buy_oid", None, save=False)
+                self.log.info("ATO %s BUY fill-Rescue remaining=%s ltp=%s", tag.upper(), rem, ltp)
+            except Exception as exc:
+                self.log.warning("ATO %s BUY fill-Rescue failed: %s", tag, exc)
+
+    def _watch_ato_sell_exit_rescue(self) -> None:
+        """If an ATO SELL is still pending and we still hold the protect, flatten it."""
+        from core.ato_exec import rescue_flatten_sell
+
+        broker = self.broker
+        om = getattr(self, "order_manager", None)
+        if om is not None and getattr(om, "is_paper", False):
+            return
+        product = self.config.get("strategy.product_type", "MARGIN")
+        for tag in ("ce", "pe"):
+            oid = self.state.get(f"ato.{tag}_ato_exit_order_id")
+            sym = self.state.get(f"ato.{tag}_protect_symbol")
+            if not oid or not sym:
+                continue
+            try:
+                from core.ato_book_validation import net_qty_for_symbol
+
+                net = net_qty_for_symbol(broker, str(sym))
+                held = max(0, int(net or 0))
+            except Exception:
+                continue
+            if held <= 0:
+                continue
+            ltp = None
+            getter = getattr(broker, "get_ltp", None)
+            if callable(getter):
+                try:
+                    quotes = getter([str(sym)]) or {}
+                    ltp = float(quotes.get(sym) or quotes.get(str(sym)) or 0)
+                except Exception:
+                    ltp = None
+            if not ltp:
+                try:
+                    ltp = self._resolve_option_premium(str(sym), None, spot=0.0)
+                except Exception:
+                    ltp = None
+            if not ltp:
+                continue
+            try:
+                out = rescue_flatten_sell(
+                    broker,
+                    symbol=str(sym),
+                    remaining=held,
+                    ltp=float(ltp),
+                    existing_oid=str(oid),
+                    product=product,
+                )
+                new_id = str((out or {}).get("order_id") or oid)
+                self.state.set(f"ato.{tag}_ato_exit_order_id", new_id)
+                self.log.info(
+                    "ATO %s SELL exit-Rescue remaining=%s ltp=%s id=%s",
+                    tag.upper(),
+                    held,
+                    ltp,
+                    new_id,
+                )
+            except Exception as exc:
+                self.log.warning("ATO %s SELL exit-Rescue failed: %s", tag, exc)
+
     def _ensure_ledger_state(self) -> None:
+
         if not hasattr(self, "_open_ato_entries"):
             self._open_ato_entries: dict[str, dict[str, Any] | None] = {"CE": None, "PE": None}
 
@@ -1257,9 +1503,11 @@ class ATOProtection(ModuleBase):
     ) -> None:
         self._ensure_ledger_state()
         buy_ts = utils.now_ist().strftime("%Y-%m-%d %H:%M:%S IST")
-        buy_premium = self._resolve_option_premium(
-            protect_symbol, order_id, spot=float(spot)
-        )
+        buy_premium = self._wait_fill_price(order_id)
+        if buy_premium is None:
+            buy_premium = self._resolve_option_premium(
+                protect_symbol, order_id, spot=float(spot)
+            )
         self._open_ato_entries[side] = {
             "buy_timestamp_ist": buy_ts,
             "buy_order_id": order_id,
@@ -1380,8 +1628,10 @@ class ATOProtection(ModuleBase):
         lot_size = int(self.config.get("strategy.lot_size", 65))
         lots = float(qty) / float(lot_size) if lot_size > 0 else 0.0
 
-        buy_premium = None
-        if entry and entry.get("buy_option_premium") is not None:
+        buy_oid = str((entry or {}).get("buy_order_id") or "")
+        # Always prefer live broker average fill over sticky limit/LTP snapshots.
+        buy_premium = self._wait_fill_price(buy_oid) if buy_oid else None
+        if buy_premium is None and entry and entry.get("buy_option_premium") is not None:
             try:
                 buy_premium = float(entry["buy_option_premium"])
             except (TypeError, ValueError):
@@ -1396,13 +1646,15 @@ class ATOProtection(ModuleBase):
         if buy_premium is None and entry:
             buy_premium = self._resolve_option_premium(
                 str(entry.get("protect_symbol") or protect_symbol),
-                str(entry.get("buy_order_id") or ""),
+                buy_oid,
                 spot=float(entry.get("buy_nifty_ltp") or spot),
             )
 
-        sell_premium = self._resolve_option_premium(
-            protect_symbol, order_id, spot=float(spot)
-        )
+        sell_premium = self._wait_fill_price(order_id)
+        if sell_premium is None:
+            sell_premium = self._resolve_option_premium(
+                protect_symbol, order_id, spot=float(spot)
+            )
         premium_pnl = None
         premium_pnl_rupees = None
         if buy_premium is not None and sell_premium is not None:
@@ -2195,6 +2447,8 @@ class ATOProtection(ModuleBase):
 
         try:
             spot = self._resolve_nifty_spot()
+            self._watch_ato_buy_fill_rescue()
+            self._watch_ato_sell_exit_rescue()
         except Exception as exc:
             self.log.warning("ATO breach check skipped — LTP unavailable: %s", exc)
             self._consecutive_ltp_failures = getattr(self, "_consecutive_ltp_failures", 0) + 1

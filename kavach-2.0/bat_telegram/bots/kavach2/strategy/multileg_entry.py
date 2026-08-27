@@ -42,7 +42,15 @@ def resolve_expiry(expiry: date | str | None = None) -> date:
 
 
 def resolve_symbol(strike: int, option_type: str, expiry: date) -> tuple[str, int]:
-    """Return (trading_symbol, lot_size) via instrument master."""
+    """Return (trading_symbol, lot_size) via Kite NFO dump, then Dhan master fallback."""
+    try:
+        from core.zerodha_instruments import resolve_nifty_option_kite
+
+        kite = resolve_nifty_option_kite(int(strike), str(option_type).upper(), expiry)
+        if kite is not None:
+            return kite.tradingsymbol, int(kite.lot_size)
+    except Exception as exc:
+        logger.warning("Kite symbol resolve failed: %s", exc)
     from backtest_engine.resolver.instrument_master import resolve_nifty_option
 
     inst = resolve_nifty_option(

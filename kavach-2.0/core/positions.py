@@ -60,11 +60,20 @@ def fetch_positions_rest(client_code: str, access_token: str) -> pd.DataFrame:
 
 
 def parse_position_expiry(row: pd.Series | dict[str, Any], symbol: str) -> str:
-    """Best-effort expiry label from Dhan row or tradingSymbol (dynamic weekly)."""
+    """Best-effort expiry label from Dhan/Kite row or tradingSymbol (dynamic weekly)."""
     if hasattr(row, "get"):
         label = row.get("expiryLabel")
         if label:
             return str(label)
+        kite_exp = row.get("expiry")
+        if kite_exp:
+            text = str(kite_exp)[:10]
+            if len(text) == 10 and text[4] == "-":
+                try:
+                    return date.fromisoformat(text).strftime("%d %b %Y")
+                except ValueError:
+                    pass
+            return str(kite_exp)
     drv_exp = row.get("drvExpiryDate") if hasattr(row, "get") else None
     if drv_exp:
         text = str(drv_exp)[:10]
@@ -100,6 +109,9 @@ def build_ato_protect_symbol(sell_symbol: str, protect_strike: int, opt_type: st
     compact = re.match(r"^([A-Z]+\d{2}[A-Z]{3})(\d+)(CE|PE)$", sell_symbol)
     if compact:
         return f"{compact.group(1)}{protect_strike}{opt_type}"
+    weekly = re.match(r"^(NIFTY\d{5})(\d{4,5})(CE|PE)$", sell_symbol)
+    if weekly:
+        return f"{weekly.group(1)}{protect_strike}{opt_type}"
 
     return f"NIFTY-{protect_strike}-{opt_type}"
 
@@ -127,7 +139,7 @@ def filter_nifty_positions(positions_df: pd.DataFrame | None) -> list[dict[str, 
         else:
             continue
 
-        net_qty = int(row.get("netQty", 0) or 0)
+        net_qty = int(row.get("netQty", 0) or row.get("quantity", 0) or 0)
         if net_qty == 0:
             continue
 
@@ -136,6 +148,7 @@ def filter_nifty_positions(positions_df: pd.DataFrame | None) -> list[dict[str, 
         try:
             avg_price = float(
                 row.get("avgPrice")
+                or row.get("average_price")
                 or row.get("avgCostPrice")
                 or row.get("buyAvg")
                 or row.get("costPrice")
@@ -171,7 +184,7 @@ def filter_nifty_positions(positions_df: pd.DataFrame | None) -> list[dict[str, 
                 "direction": direction,
                 "qty": abs(net_qty),
                 "avg_price": round(avg_price, 2) if avg_price > 0 else 0.0,
-                "instrument_token": str(row.get("securityId") or row.get("instrumentToken", "")),
+                "instrument_token": str(row.get("securityId") or row.get("instrumentToken") or row.get("instrument_token") or ""),
                 "expiry": expiry,
             }
         )

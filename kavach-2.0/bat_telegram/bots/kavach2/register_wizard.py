@@ -504,17 +504,7 @@ async def _ask_ce_buy_legs(query_or_msg, context, *, prefer_edit: bool = True) -
     b = _bot()
     wiz = _wiz(context)
     if wiz.get("ce_enabled") is False:
-        if prefer_edit and getattr(query_or_msg, "data", None) is not None:
-            return await _goto_poll(query_or_msg, context)
-        body = "Select:"
-        await b._wizard_show(
-            context,
-            query_or_msg,
-            _qheader(context, "poll", body),
-            reply_markup=b._poll_interval_keyboard(),
-            prefer_edit=prefer_edit,
-        )
-        return WIZARD_POLL_INTERVAL
+        return await _goto_poll(query_or_msg, context)
     wiz["ce_enabled"] = True
     rebuild_wizard_plan(wiz)
     all_pos = cast(list[dict], wiz["wiz_positions"])
@@ -718,28 +708,12 @@ async def _start_ce_or_poll(target, context, *, via_message: bool) -> int:
     # Honor Register CE/PE choice — PE-only must skip CE even if CE LONGs exist in book.
     if wiz.get("ce_enabled") is False:
         rebuild_wizard_plan(wiz)
-        if via_message:
-            body = "Select:"
-            await b._reply_md2(
-                target,
-                _qheader(context, "poll", body),
-                reply_markup=b._poll_interval_keyboard(),
-            )
-            return WIZARD_POLL_INTERVAL
         return await _goto_poll(target, context)
     all_pos = cast(list[dict], wiz.get("wiz_positions") or [])
     long_ce = filter_positions_by_direction(filter_positions_by_side(all_pos, "CE"), "LONG")
     if not long_ce:
         wiz["ce_enabled"] = False
         rebuild_wizard_plan(wiz)
-        if via_message:
-            body = "Select:"
-            await b._reply_md2(
-                target,
-                _qheader(context, "poll", body),
-                reply_markup=b._poll_interval_keyboard(),
-            )
-            return WIZARD_POLL_INTERVAL
         return await _goto_poll(target, context)
     wiz["ce_enabled"] = True
     rebuild_wizard_plan(wiz)
@@ -1278,36 +1252,41 @@ async def _advance_after_buffer_message(message, context, target: str) -> int:
         if nxt:
             return await _ask_nifty_level_message(message, context, nxt)
         if wiz.get("ce_enabled") is False:
-            body = "Select:"
-            await b._reply_md2(
-                message,
-                _qheader(context, "poll", body),
-                reply_markup=b._poll_interval_keyboard(),
-            )
-            return WIZARD_POLL_INTERVAL
+            return await _goto_poll(message, context)
         return await _goto_ce_intent_message(message, context)
     nxt = _next_in_sequence(_CE_BUFFER_SEQUENCE, target)
     if nxt:
         return await _ask_nifty_level_message(message, context, nxt)
-    body = "Select:"
-    await b._reply_md2(
-        message,
-        _qheader(context, "poll", body),
-        reply_markup=b._poll_interval_keyboard(),
-    )
-    return WIZARD_POLL_INTERVAL
+    return await _goto_poll(message, context)
 
 
-async def _goto_poll(query, context) -> int:
+async def _goto_poll(query_or_msg, context) -> int:
+    """Poll is not asked during Register — default 2s, then ATO manage."""
     b = _bot()
-    body = "Select:"
-    await b._wizard_edit_step(
-        context,
-        query,
-        _qheader(context, "poll", body),
-        reply_markup=b._poll_interval_keyboard(),
-    )
-    return WIZARD_POLL_INTERVAL
+    wiz = _wiz(context)
+    wiz["wiz_poll_interval_seconds"] = 2
+    pe = bool(wiz.get("pe_enabled"))
+    ce = bool(wiz.get("ce_enabled"))
+    is_callback = getattr(query_or_msg, "data", None) is not None
+    # CallbackQuery only: skip ATO manage picker when a single side was registered.
+    if is_callback and pe and not ce:
+        wiz["wiz_ato_manage_sides"] = "pe"
+        b._wizard_seed_trading_calendar_defaults(wiz)
+        _sync_wiz_selected(wiz)
+        return await b._wizard_show_summary(query_or_msg, context)
+    if is_callback and ce and not pe:
+        wiz["wiz_ato_manage_sides"] = "ce"
+        b._wizard_seed_trading_calendar_defaults(wiz)
+        _sync_wiz_selected(wiz)
+        return await b._wizard_show_summary(query_or_msg, context)
+    body = "Choose which sides ATO should *manage*:"
+    header = _qheader(context, "ato_mon", body)
+    kb = _ato_monitor_keyboard(pe_enabled=pe, ce_enabled=ce)
+    if is_callback:
+        await b._wizard_edit_step(context, query_or_msg, header, reply_markup=kb)
+    else:
+        await b._reply_md2(query_or_msg, header, reply_markup=kb)
+    return WIZARD_ATO_MON
 
 
 async def wizard_poll_interval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

@@ -1,4 +1,5 @@
-"""Create the broker for the active Batman mode (dev | uat | prod)."""
+"""Create the broker for the active Batman mode (dev | uat | prod).
+UAT → ShadowBroker. prod/dev → Zerodha Kite REST."""
 
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ def create_broker(client_code: str, access_token: str, root=None) -> Any:
     Contract (enforced by tests/test_mode_isolation.py):
       - uat  → ShadowBroker (virtual orders + screenshot positions)
       - dev  → BatmanBroker with orders blocked
-      - prod → BatmanBroker with live Dhan orders
+      - prod → BatmanBroker with live Zerodha (Kite REST) orders
     """
     root = root or workspace_root()
     mode = get_mode(root)
@@ -29,11 +30,14 @@ def create_broker(client_code: str, access_token: str, root=None) -> Any:
         logger.info("Broker factory: UAT ShadowBroker (virtual positions/orders)")
         return broker
 
-    broker = BatmanBroker.connect_with_token(client_code, access_token)
+    from core.zerodha_broker import ZerodhaBroker
+
+    del client_code, access_token
+    broker = ZerodhaBroker.connect(root=root)
     if orders_blocked(root):
-        logger.info("Broker factory: mode=%s — live Dhan read; orders blocked", mode)
+        logger.info("Broker factory: mode=%s — Zerodha REST read; orders blocked", mode)
     else:
-        logger.info("Broker factory: mode=%s — live Dhan broker", mode)
+        logger.info("Broker factory: mode=%s — Zerodha REST live broker", mode)
     return broker
 
 

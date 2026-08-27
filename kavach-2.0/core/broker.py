@@ -457,7 +457,32 @@ class BatmanBroker:
         except Exception as exc:
             logger.warning("Async confirmation failed for %s: %s", order_id, exc)
 
+    def place_sl_limit(
+        self,
+        *,
+        symbol: str,
+        qty: int,
+        side: str,
+        trigger: float,
+        limit: float,
+        trade_type: str = "MARGIN",
+        exchange: str = "NFO",
+    ) -> str:
+        """Resting STOPLIMIT (trigger + limit). Used for ATO BUY park and SELL cover."""
+        return self.place_order(
+            symbol=symbol,
+            exchange=exchange,
+            qty=int(qty),
+            price=float(limit),
+            trigger_price=float(trigger),
+            order_type="STOPLIMIT",
+            transaction_type=str(side).upper(),
+            trade_type=trade_type,
+            confirm=False,
+        )
+
     def place_market_order(
+
         self,
         symbol: str,
         qty: int,

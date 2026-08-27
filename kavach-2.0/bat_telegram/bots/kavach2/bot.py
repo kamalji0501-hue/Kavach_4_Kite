@@ -16,7 +16,7 @@ Responsibilities (LOCKED 2026-04-04):
     • /status — system & module status
     • Proactive ATO notifications (CE/PE triggered, exited, max cycles)
 
-Does NOT own: /pnl, token management, broker health.
+Owns TOKEN menu (Dhan JWT + Feeder Zerodha). Does NOT own: /pnl.
 """
 
 from __future__ import annotations
@@ -52,6 +52,8 @@ from bat_telegram.bots.kavach2.register_wizard import (
     build_wizard_handler,
     pe_intent_keyboard,
 )
+from bat_telegram.bots.kavach2 import token_ui as kav_token
+from bat_telegram.bots.kavach2 import zerodha_feeder_token as kav_zerodha
 from bat_telegram.control import guard_paused_command
 from bat_telegram.incident_publisher import publish_incident
 from bat_telegram.loader import load_bot_config
@@ -241,6 +243,22 @@ def _main_menu_keyboard() -> InlineKeyboardMarkup:
                     style="success",
                 ),
             ],
+            [
+                _btn("🔑 TOKEN", f"{_CB_MENU}:token", style="primary"),
+            ],
+        ]
+    )
+
+
+def _token_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [_btn("📋 PASTE DHAN JWT", f"{_CB_MENU}:tok_paste", style="primary")],
+            [_btn("🔄 REFRESH JWT", f"{_CB_MENU}:tok_upd", style="success")],
+            [_btn("📡 SET FEEDER ZERODHA TOKEN", f"{_CB_MENU}:tok_zset", style="primary")],
+            [_btn("🔑 TOKEN STATUS", f"{_CB_MENU}:tok_stat", style="primary")],
+            [_btn("🚫 DEACTIVATE TOKEN", f"{_CB_MENU}:tok_off", style="danger")],
+            [_btn("🏠 MENU", f"{_CB_MENU}:main")],
         ]
     )
 
@@ -1978,9 +1996,9 @@ async def wizard_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     uat_virtual = is_uat() and broker is not None and type(broker).__name__ == "ShadowBroker"
     if not uat_virtual and (not broker or broker.token_age_hours >= 24):
         hint = (
-            "Token has expired — send a fresh Dhan JWT to *DRISHTI* first\\."
+            "Token has expired — set a fresh Zerodha token on TOKEN first\\."
             if broker
-            else "No Dhan access token — open *DRISHTI* and send your JWT\\."
+            else "No Zerodha access token — set the Kite token on TOKEN first\\."
         )
         await message.reply_text(
             f"🔒 *Token Required*\n\n{hint}\n\n"
@@ -2009,7 +2027,7 @@ async def wizard_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             ],
             [
                 InlineKeyboardButton(
-                    "💰 Live trade (real Dhan orders)",
+                    "💰 Live trade (real Zerodha orders)",
                     callback_data=f"{_CB_ORDER_MODE}:live",
                 )
             ],
@@ -2019,7 +2037,7 @@ async def wizard_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         "🦇 *" + _md2("Register - Trading mode") + "*\n\n"
         + _md2("How should this deployment place orders?") + "\n\n"
         + "• *Paper trade* — " + _md2("Live market data; Kavach/ATO fully runs; no exchange orders.") + "\n"
-        + "• *Live trade* — " + _md2("Real money on Dhan (existing live order path).") + "\n\n"
+        + "• *Live trade* — " + _md2("Real money on Zerodha (Kite REST live order path).") + "\n\n"
         + "_" + _md2("Everything after this question is the same as before.") + "_"
     )
     await message.reply_text(
@@ -2231,7 +2249,7 @@ async def _wizard_fetch_step1(
             context,
             reply_target,
             "⚠️ No broker connection\\.\n\n"
-            "Send a Dhan access token to DRISHTI first, then retry /register\\.",
+            "Set the Zerodha token on TOKEN first, then retry /register\\.",
             prefer_edit=prefer_edit,
         )
         _append_log("wizard_cancelled", reason="no_broker")
@@ -2318,7 +2336,7 @@ async def _wizard_fetch_step1(
             context,
             reply_target,
             "⚠️ No open NIFTY option positions found in your broker account\\.\n\n"
-            "Deploy your Batman iron condor on Dhan first, then run /register\\.",
+            "Deploy your Batman iron condor on Zerodha first, then run /register\\.",
             prefer_edit=prefer_edit,
         )
         return ConversationHandler.END
@@ -3053,6 +3071,9 @@ async def _wizard_show_summary(query: CallbackQuery, context: ContextTypes.DEFAU
     ce_exit_raw = wizard_data.get("wiz_ce_exit_buffer", wizard_data.get("wiz_ce_retrace_points", 5))
     pe_exit_raw = wizard_data.get("wiz_pe_exit_buffer", wizard_data.get("wiz_pe_retrace_points", 5))
     poll_interval_seconds = cast(int | None, wizard_data.get("wiz_poll_interval_seconds"))
+    if poll_interval_seconds is None:
+        poll_interval_seconds = 2
+        wizard_data["wiz_poll_interval_seconds"] = poll_interval_seconds
     ato_manage_sides = cast(str, wizard_data.get("wiz_ato_manage_sides", "both"))
     lot_size = int((params.get("strategy") or {}).get("lot_size", 65))
     scope = build_registration_scope(
@@ -3201,6 +3222,9 @@ async def wizard_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     ce_exit_raw = wizard_data.get("wiz_ce_exit_buffer", wizard_data.get("wiz_ce_retrace_points", 5))
     pe_exit_raw = wizard_data.get("wiz_pe_exit_buffer", wizard_data.get("wiz_pe_retrace_points", 5))
     poll_interval_seconds = cast(int | None, wizard_data.get("wiz_poll_interval_seconds"))
+    if poll_interval_seconds is None:
+        poll_interval_seconds = 2
+        wizard_data["wiz_poll_interval_seconds"] = poll_interval_seconds
     break_even = cast(dict[str, int], wizard_data.get("wiz_break_even", {}))
     break_even_skipped = bool(wizard_data.get("wiz_break_even_skipped", False))
     ato_manage_sides = cast(str, wizard_data.get("wiz_ato_manage_sides", "both"))
@@ -3925,7 +3949,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def cmd_dyn_hedge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show Yes/No toggle for exiting 30% dynamic hedge on first ATO trigger."""
+    """Show Yes/No toggle for exiting 30% dynamic hedge on any ATO trigger."""
     message = _require_message(update)
     state = context.bot_data.get("state")
     enabled = bool(state.get("dyn_hedge.exit_enabled", False)) if state else False
@@ -3933,12 +3957,12 @@ async def cmd_dyn_hedge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # Explain the opposite choice (what changes if they flip the setting).
     if enabled:
         help_line = (
-            "_When No : On the first ATO trigger of the day for a side, "
+            "_When No : When ATO fires on a side, "
             "that side’s 30% dynamic hedge leg will not be exited\\._"
         )
     else:
         help_line = (
-            "_When YES: On the first ATO trigger of the day for a side, "
+            "_When YES: When ATO fires on a side, if that 30% hedge qty is still > 0, "
             "that side’s 30% dynamic hedge leg is exited in full — no re\\-entry\\._"
         )
     keyboard = InlineKeyboardMarkup(
@@ -4029,7 +4053,7 @@ async def cmd_batman_complete(update: Update, context: ContextTypes.DEFAULT_TYPE
         "• Archive the deployment file\n"
         "• Clear all state \\(positions, ATO strikes, flags\\)\n"
         "• Reset algo — fresh, ready for next deployment\n\n"
-        "_Your positions on Dhan are NOT closed automatically\\._",
+        "_Your positions on Zerodha are NOT closed automatically\\._",
         reply_markup=keyboard,
     )
 
@@ -4254,8 +4278,20 @@ async def on_hedge_box_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Plain-text catch-all — show alive menu (no slash-command list)."""
+    """Plain-text catch-all — token paste first, else alive menu."""
     message = _require_message(update)
+    text = (message.text or "").strip()
+    if text and not text.startswith("/"):
+        if kav_zerodha.is_awaiting_zerodha_token(context):
+            await kav_zerodha.process_pasted_zerodha_token(
+                update, text, context, reply_markup=_token_menu_keyboard()
+            )
+            return
+        if kav_token.is_awaiting_token(context) or kav_token.is_jwt(text):
+            await kav_token.process_pasted_token(
+                update, text, context, reply_markup=_token_menu_keyboard()
+            )
+            return
     await _send_alive_menu(message)
 
 
@@ -4354,6 +4390,87 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if action in {"main", "menu", "ping"}:
         await _send_alive_menu(message)
         return
+
+    async def _token_reply(text: str, markup=None) -> None:
+        await message.reply_text(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=markup if markup is not None else _token_menu_keyboard(),
+        )
+
+    if action == "token":
+        kav_token.set_awaiting_token(context, False)
+        kav_zerodha.set_awaiting_zerodha_token(context, False)
+        await _token_reply("Select")
+        return
+    if action == "tok_paste":
+        kav_zerodha.set_awaiting_zerodha_token(context, False)
+        kav_token.set_awaiting_token(context, True)
+        await _token_reply(
+            "🔑 <b>Dhan JWT</b>\n\nPaste the Dhan access token now.\n"
+            "It will be saved for <b>Kavach</b> and <b>Feeder</b>."
+        )
+        return
+    if action == "tok_zset":
+        kav_token.set_awaiting_token(context, False)
+        kav_zerodha.set_awaiting_zerodha_token(context, True)
+        await _token_reply(
+            "📡 <b>Feeder Zerodha token</b>\n\n"
+            "Paste the Kite <b>access_token</b> now (not a request_token URL).\n"
+            "This is for Feeder prices. Kavach orders also go to Zerodha."
+        )
+        return
+    if action == "tok_stat":
+        root = context.bot_data.get("workspace_root")
+        await _token_reply(kav_token.token_summary(kav_token.token_store(root), root=root))
+        return
+    if action == "tok_upd":
+        kav_token.set_awaiting_token(context, False)
+        kav_zerodha.set_awaiting_zerodha_token(context, False)
+        await kav_token.refresh_jwt_via_totp(
+            context, message, reply_markup=_token_menu_keyboard()
+        )
+        return
+    if action == "tok_off":
+        kav_token.set_awaiting_token(context, False)
+        kav_zerodha.set_awaiting_zerodha_token(context, False)
+        root = context.bot_data.get("workspace_root")
+        store = kav_token.token_store(root)
+        tok, saved_at = store.load()
+        if not tok:
+            await _token_reply(
+                "ℹ️ <b>No active token</b>\n\nTap <b>PASTE DHAN JWT</b> or <b>REFRESH JWT</b>."
+            )
+            return
+        saved_fmt = saved_at.strftime("%d-%b %H:%M IST") if saved_at else "unknown"
+        age = store.token_age_hours() or 0
+        kb = InlineKeyboardMarkup(
+            [
+                [
+                    _btn("✅ Yes, deactivate", f"{_CB_MENU}:tok_yes", style="danger"),
+                    _btn("Cancel", f"{_CB_MENU}:tok_no"),
+                ]
+            ]
+        )
+        await _token_reply(
+            "⚠️ <b>Deactivate Dhan token?</b>\n\n"
+            f"Saved at: <code>{saved_fmt}</code>\n"
+            f"Age: <code>{age:.1f} h</code>",
+            markup=kb,
+        )
+        return
+    if action == "tok_yes":
+        root = context.bot_data.get("workspace_root")
+        kav_token.token_store(root).clear()
+        kav_token.clear_token_runtime(context)
+        await _token_reply(
+            "🔴 <b>Token deactivated</b>\n\nTap <b>REFRESH JWT</b> or <b>PASTE DHAN JWT</b> to reconnect."
+        )
+        return
+    if action == "tok_no":
+        await _token_reply("✅ Cancelled. Token remains active.")
+        return
+
     if action == "register":
         # ConversationHandler owns register; avoid refreshing menu while wizard runs.
         return
@@ -4523,7 +4640,7 @@ def register_event_subscriptions(app: Application) -> None:
                 chat_id,
                 f"🛡 *{_md2(side)} \\- 30% Dynamic Hedge EXITED*\n"
                 f"`{_md2_code(f'{symbol}  qty={qty}')}`\n"
-                "One\\-shot exit on first ATO trigger — no re\\-entry today\\.",
+                "Exited on ATO trigger — hedge is not bought back\\.",
             )
         )
 
@@ -4683,7 +4800,7 @@ def register_event_subscriptions(app: Application) -> None:
                     "⚠️ *Manual protect adopted*\n\n"
                     f"Side: `{side}`\n"
                     f"Symbol: `{symbol}`\n\n"
-                    "Registered protect found on Dhan — exit\\-only; no second BUY on this side\\.",
+                    "Registered protect found on Zerodha — exit\\-only; no second BUY on this side\\.",
                 )
             )
             return
@@ -4722,7 +4839,7 @@ def register_event_subscriptions(app: Application) -> None:
                     next_action=str(
                         payload.get(
                             "next_action",
-                            "Check Dhan portal; Resume when book is readable.",
+                            "Check Kite / Zerodha; Resume when book is readable.",
                         )
                     ),
                 )
@@ -4813,6 +4930,13 @@ def build_application(broker=None, state=None, event_bus=None) -> Application:
     app.bot_data["event_bus"] = event_bus
     app.bot_data["chat_id"] = cfg.chat_id
     app.bot_data["params"] = params
+    try:
+        from core.batman_mode import workspace_root as _ws_root
+
+        app.bot_data["workspace_root"] = _ws_root()
+    except Exception:
+        app.bot_data["workspace_root"] = None
+    app.bot_data["client_code"] = kav_token.resolve_client_code()
     try:
         from core.config import Config
 

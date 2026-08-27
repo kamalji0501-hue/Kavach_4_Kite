@@ -325,7 +325,7 @@ def prod_hostname_guard(root: Path | None = None) -> str | None:
     if not is_prod(root):
         return None
     host = socket.gethostname().lower()
-    if any(tag in host for tag in ("vps", "server", "prod", "aws", "azure")):
+    if any(tag in host for tag in ("vps", "server", "prod", "aws", "azure", "ip-172", "ec2", "compute")):
         return None
     return (
         f"Mode is prod but hostname looks like a laptop ({host!r}). "

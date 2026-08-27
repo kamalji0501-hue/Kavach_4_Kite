@@ -47,7 +47,7 @@ _CE_BLOCK = (
     "ce_exit",
 )
 _SHARED_LEADING = ("order_mode",)
-_SHARED = ("poll", "confirm")
+_SHARED = ("confirm",)
 
 
 def max_wizard_question_count() -> int:

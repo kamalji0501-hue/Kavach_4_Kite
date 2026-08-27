@@ -1,6 +1,6 @@
 {
   "_comment": "Single switch: dev | uat | prod. Prefer Mode/*.bat on laptop \u2014 do not edit by hand unless needed. Logs + data/reports live outside repo (see logs_root, data_reports_root).",
-  "mode": "uat",
+  "mode": "prod",
   "logs_root": "/home/ubuntu/Trading_Runtime_Rahul/Logs",
   "data_reports_root": "/home/ubuntu/Trading_Runtime_Rahul/Data",
   "secrets_root": "/home/ubuntu/Trading_Runtime_Rahul/Credentials",
@@ -21,10 +21,10 @@
     },
     "prod": {
       "label": "Production",
-      "description": "VPS + static IP: real Dhan positions and orders.",
-      "broker": "dhan_live",
+      "description": "VPS: real Zerodha (Kite REST) positions and orders. Datafeedbot owns KiteTicker.",
+      "broker": "zerodha_live",
       "orders": "live",
-      "positions_source": "dhan_live"
+      "positions_source": "zerodha_live"
     }
   }
 }

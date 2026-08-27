@@ -1,5 +1,5 @@
 {
-  "_comment": "Proven KAVACH2 ATO recipe. poll applies on deploy; buffers and manage_sides are NOT overwritten (Register wins). Set apply_*_on_deploy_confirm true only to force recipe values.",
+  "_comment": "Proven KAVACH2 ATO recipe. Buffers, manage_sides, and Register poll are NOT overwritten (Register wins). Set apply_poll_on_deploy_confirm true only to force recipe poll.",
   "schema_version": 1,
   "label": "kavach2_uat_proven_2026-07-16",
   "manage_sides": "pe",
@@ -14,6 +14,8 @@
   "ce_retrace_points": 5,
   "apply_on_ato_restore": false,
   "apply_on_deploy_confirm": true,
+  "apply_poll_on_deploy_confirm": false,
+  "apply_poll_on_ato_restore": false,
   "apply_buffers_on_deploy_confirm": false,
   "apply_buffers_on_ato_restore": false,
   "apply_manage_sides_on_deploy_confirm": false

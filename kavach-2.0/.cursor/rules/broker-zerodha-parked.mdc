@@ -1,25 +1,13 @@
 ---
-description: Parked Dhan/Zerodha broker decision — resume only when user explicitly commands
+description: Kavach 2.0 live orders use Zerodha Kite REST
 alwaysApply: true
 ---
 
-# Parked: Zerodha / multi-broker work
+# Kavach broker = Zerodha (Kite Connect v3 REST)
 
-User parked a broker-migration discussion (2026-07-15). **Do not implement** until they explicitly command it.
+User commanded the switch (2026-08-26). Kavach 2.0 live orders go through
+`core/zerodha_broker.py` (Kite REST). Paper still uses OrderManager/FakeBroker.
+UAT still uses ShadowBroker.
 
-## Read first
-
-`context/BROKER_MULTI_ZERODHA_PARKED.md`
-
-## Current fact
-
-Live stack is **Dhan-only**. No Zerodha/Kite code. `broker_factory` is Shadow vs Dhan, not multi-vendor.
-
-## When they resume
-
-They will choose:
-
-- **Option A:** Keep Dhan + add Zerodha with selector (~12–20h agent coding)
-- **Option B:** Switch entirely to Zerodha (~10–16h agent coding)
-
-Wait for an explicit implement command before changing broker code.
+Do **not** start a second KiteTicker from Kavach. Datafeedbot owns the WS.
+Do **not** add a Dhan order client back unless the user explicitly asks.

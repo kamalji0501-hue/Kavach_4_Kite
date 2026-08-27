@@ -174,6 +174,28 @@ def current_totp_code(secret: str) -> str:
     return pyotp.TOTP(secret).now()
 
 
+def _friendly_dhan_auth_error(payload: Any, fallback: str = "") -> str:
+    msg = ""
+    if isinstance(payload, dict):
+        msg = str(payload.get("message") or payload.get("error") or "").strip()
+    if not msg:
+        msg = (fallback or "").strip()
+    low = msg.lower()
+    if "2 minutes" in low or "once every" in low:
+        return (
+            "Dhan allows a new JWT only once every 2 minutes. "
+            "Wait a bit, then tap REFRESH JWT again."
+        )
+    if "invalid totp" in low:
+        return (
+            "Invalid TOTP. Dhan already used this 30-second code "
+            "(usually because GO on the other server refreshed at the same time). "
+            "Wait 30 seconds, then tap REFRESH JWT again. "
+            "JWT refresh should run only on Kavach."
+        )
+    return msg or "Dhan JWT mint failed."
+
+
 def generate_access_token(
     client_code: str,
     pin: str,
@@ -181,28 +203,34 @@ def generate_access_token(
     *,
     timeout: float = 30.0,
 ) -> str:
-    """Call Dhan generateAccessToken; return JWT string."""
-    params = {
+    """Call Dhan generateAccessToken; return JWT string.
+
+    PIN and TOTP are sent as form fields so they never appear in httpx URL logs.
+    """
+    form = {
         "dhanClientId": client_code,
         "pin": pin,
         "totp": totp_code,
     }
     with httpx.Client(timeout=timeout) as client:
-        resp = client.post(_GENERATE_URL, params=params)
-    if resp.status_code >= 400:
-        detail = resp.text.strip()[:300]
-        raise RuntimeError(f"Dhan generateAccessToken HTTP {resp.status_code}: {detail}")
+        resp = client.post(_GENERATE_URL, data=form)
+    payload: Any = None
     try:
         payload = resp.json()
-    except Exception as exc:
-        raise RuntimeError(f"Dhan generateAccessToken bad JSON: {exc}") from exc
+    except Exception:
+        payload = None
+    if resp.status_code >= 400:
+        snippet = (resp.text or "").strip()[:180]
+        raise RuntimeError(_friendly_dhan_auth_error(payload, snippet or f"HTTP {resp.status_code}"))
+    if not isinstance(payload, dict):
+        raise RuntimeError("Dhan generateAccessToken returned invalid JSON")
 
     token = payload.get("accessToken") or payload.get("access_token")
     data = payload.get("data")
     if not token and isinstance(data, dict):
         token = data.get("accessToken") or data.get("access_token")
     if not token or not isinstance(token, str):
-        raise RuntimeError(f"Dhan generateAccessToken missing accessToken: {payload}")
+        raise RuntimeError(_friendly_dhan_auth_error(payload, "missing accessToken"))
     return token.strip()
 
 
@@ -217,7 +245,9 @@ def renew_and_save(root: Path | None = None) -> str:
 
     code = current_totp_code(creds.totp_secret)
     token = generate_access_token(creds.client_code, creds.pin, code)
-    TokenStore(path=access_token_path(root)).save(token)
+    from core.token_fanout import persist_dhan_jwt
+
+    persist_dhan_jwt(token, root=root, source="kavach2_totp")
 
     meta = load_meta(root)
     now = datetime.now(_IST)

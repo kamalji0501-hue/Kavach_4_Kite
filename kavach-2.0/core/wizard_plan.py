@@ -49,7 +49,7 @@ _CE_BLOCK = (
     "ce_exit",
 )
 _SHARED_LEADING = ("order_mode", "reg_scope")
-_SHARED = ("poll", "ato_mon", "confirm")
+_SHARED = ("ato_mon", "confirm")
 
 
 def max_wizard_question_count() -> int:
@@ -64,7 +64,7 @@ def build_wizard_plan(
 ) -> list[str]:
     """Build ordered step ids; includes confirm as the last question.
 
-    Operator picks register scope (both/CE/PE), then leg blocks; after poll
+    Operator picks register scope (both/CE/PE), then leg blocks; after legs
     picks ATO manage scope (independent).
     """
     steps: list[str] = list(_SHARED_LEADING)

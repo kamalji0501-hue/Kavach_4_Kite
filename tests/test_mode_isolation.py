@@ -28,16 +28,16 @@ def _write_mode_config(root: Path, mode: str) -> None:
 
 
 @pytest.mark.parametrize("mode", ["dev", "prod"])
-def test_non_uat_modes_use_batman_broker(mode: str, tmp_path: Path) -> None:
+def test_non_uat_modes_use_zerodha_broker(mode: str, tmp_path: Path) -> None:
     _write_mode_config(tmp_path, mode)
     assert get_mode(tmp_path) == mode
     assert not is_uat(tmp_path)
 
-    live_mock = MagicMock(name="BatmanBroker")
-    with patch("core.broker.BatmanBroker.connect_with_token", return_value=live_mock) as connect:
+    live_mock = MagicMock(name="ZerodhaBroker")
+    with patch("core.zerodha_broker.ZerodhaBroker.connect", return_value=live_mock) as connect:
         broker = create_broker("CLIENT", "token", root=tmp_path)
 
-    connect.assert_called_once_with("CLIENT", "token")
+    connect.assert_called_once()
     assert broker is live_mock
     assert type(broker).__name__ != "ShadowBroker"
 

@@ -38,6 +38,8 @@ except Exception:  # pragma: no cover
 OrderMode = Literal["paper", "live"]
 
 _PLACE_ORDER_ROOTS = (
+    Path("/home/ubuntu/BlitzBot/GO"),
+    Path("/home/ubuntu/GoBot/GO"),
     Path("/home/ubuntu/place-order-bot"),
     Path.home() / "place-order-bot",
 )
@@ -61,6 +63,7 @@ class OrderManager:
     mode: OrderMode = "paper"
     ledger_dir: Path | None = None
     default_ltp: float = 100.0
+    live_broker: Any = None
 
     def __post_init__(self) -> None:
         self.mode = "paper" if str(self.mode).lower() != "live" else "live"
@@ -75,6 +78,7 @@ class OrderManager:
         self.ledger_dir.mkdir(parents=True, exist_ok=True)
         self._paper_wf: Any = None
         self.last_result: Any = None
+        self._live_wf: Any = None
 
     @property
     def is_paper(self) -> bool:
@@ -98,6 +102,49 @@ class OrderManager:
         )
         return self._paper_wf
 
+    def _punch_live(
+        self,
+        *,
+        symbol: str,
+        qty: int,
+        side: str,
+        product: str,
+        reason: str,
+        ltp: float | None,
+        bid: float | None,
+    ) -> str:
+        broker = self.live_broker
+        if broker is None:
+            raise RuntimeError("OrderManager live mode has no broker")
+        try:
+            px = float(ltp or 0)
+        except (TypeError, ValueError):
+            px = 0.0
+        if px <= 0:
+            raise RuntimeError(f"ATO live punch needs option LTP for {symbol}")
+        from core.ato_exec import place_buy_resting, place_sell_sl_limit
+
+        if side == "BUY":
+            out = place_buy_resting(
+                broker, symbol=symbol, qty=qty, ltp=px, product=product
+            )
+        else:
+            out = place_sell_sl_limit(
+                broker, symbol=symbol, qty=qty, ltp=px, product=product
+            )
+        oid = str(out.get("order_id") or "")
+        self.last_result = out
+        logger.info(
+            "OrderManager LIVE punch symbol=%s side=%s qty=%s ltp=%.2f id=%s reason=%s",
+            symbol,
+            side,
+            qty,
+            px,
+            oid,
+            reason,
+        )
+        return oid
+
     def punch_ato(
         self,
         *,
@@ -107,6 +154,8 @@ class OrderManager:
         product: str = "MARGIN",
         security_id: str | None = None,
         reason: str = "ato_protect",
+        ltp: float | None = None,
+        bid: float | None = None,
     ) -> str:
         """Punch immediately when ATO engages. Returns broker/paper order id string."""
         side_u = str(side).strip().upper()
@@ -119,9 +168,14 @@ class OrderManager:
 
         sec = str(security_id or symbol).strip()
         if self.mode == "live":
-            raise RuntimeError(
-                "OrderManager live mode not enabled in this sandbox — "
-                "use paper or wire ExecutionEngine with LIVE_ORDERS checklist first"
+            return self._punch_live(
+                symbol=symbol,
+                qty=int(qty),
+                side=side_u,
+                product=str(product or "MARGIN"),
+                reason=str(reason),
+                ltp=ltp,
+                bid=bid,
             )
 
         if _ensure_place_order_on_path() is None:

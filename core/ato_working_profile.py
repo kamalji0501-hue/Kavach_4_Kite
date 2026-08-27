@@ -45,9 +45,9 @@ def apply_working_profile_to_state(
     force: bool = False,
     for_deploy: bool = False,
 ) -> bool:
-    """Overlay proven manage_sides / poll onto live state.
+    """Overlay proven recipe onto live state.
 
-    Buffers are **not** overwritten unless ``apply_buffers_on_deploy_confirm`` /
+    Buffers, manage_sides, and Register poll are **not** overwritten unless ``apply_buffers_on_deploy_confirm`` /
     ``apply_buffers_on_ato_restore`` is true (or ``force``), so Register / Buffer
     Manager values stick.
     """
@@ -95,21 +95,31 @@ def apply_working_profile_to_state(
         state.set("ato.manage_sides", profile.get("manage_sides", "pe"), save=False)
     manage_now = state.get("ato.manage_sides", profile.get("manage_sides", "pe"))
 
+    # Register poll wins unless the profile explicitly forces it.
+    apply_poll = bool(
+        force
+        or profile.get(
+            "apply_poll_on_deploy_confirm" if for_deploy else "apply_poll_on_ato_restore",
+            False,
+        )
+    )
     poll = profile.get("poll_interval_seconds")
-    if poll is not None:
+    if apply_poll and poll is not None:
         state.set("ato.poll_interval_seconds", int(poll), save=False)
+    poll_now = state.get("ato.poll_interval_seconds", poll)
     if save:
         state.save()
     logger.info(
         "ATO working profile applied to state (%s): buffers=%s PE entry=%s retrace=%s "
-        "manage=%s%s poll=%s",
+        "manage=%s%s poll=%s%s",
         profile.get("label", "unnamed"),
         "yes" if apply_buffers else "kept",
         pe_entry,
         pe_retrace,
         manage_now,
         "" if apply_manage else " (kept)",
-        poll,
+        poll_now,
+        "" if apply_poll else " (kept)",
     )
     return True
 
@@ -120,9 +130,9 @@ def apply_working_profile_to_deploy(
     root: Path | None = None,
     force: bool = False,
 ) -> bool:
-    """Overlay proven poll onto a deployment dict (mutates in place).
+    """Overlay proven recipe onto a deployment dict (mutates in place).
 
-    Operator entry/exit buffers and manage_sides are preserved unless explicitly
+    Operator entry/exit buffers, manage_sides, and Register poll are preserved unless explicitly
     enabled in the profile (or ``force``).
     """
     profile = load_working_profile(root)
@@ -157,8 +167,9 @@ def apply_working_profile_to_deploy(
         ato["ce_entry_buffer_points"] = legacy_int_from_buffer(ce_entry)
         ato["ce_retrace_points"] = legacy_int_from_buffer(ce_retrace, default=5)
 
+    apply_poll = bool(force or profile.get("apply_poll_on_deploy_confirm", False))
     poll = profile.get("poll_interval_seconds")
-    if poll is not None:
+    if apply_poll and poll is not None:
         ato["poll_interval_seconds"] = int(poll)
 
     apply_manage = bool(force or profile.get("apply_manage_sides_on_deploy_confirm", False))
