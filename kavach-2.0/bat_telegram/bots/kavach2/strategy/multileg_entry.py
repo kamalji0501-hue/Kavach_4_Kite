@@ -18,6 +18,15 @@ logger = logging.getLogger("batman.kavach2.multileg")
 NotifyFn = Callable[[str], None]
 
 
+# Sell legs must wait until that side's planned BUY legs (qty>0) are fully filled.
+_SIDE_BUY_KEYS_BEFORE_SELL: dict[str, tuple[str, ...]] = {
+    "ce_sell": ("ce_buy", "ce_margin_hedge", "ce_dyn_hedge"),
+    "pe_sell": ("pe_buy", "pe_margin_hedge", "pe_dyn_hedge"),
+}
+
+
+
+
 def resolve_expiry(expiry: date | str | None = None) -> date:
     """Nearest weekly expiry from instrument master, or explicit override."""
     if expiry is not None:
@@ -93,7 +102,7 @@ def deploy_multileg(
     params: dict[str, Any] | None = None,
     notify: NotifyFn | None = None,
 ) -> dict[str, Any]:
-    """Place all 8 legs sequentially. On failure: stop, status=partial.
+    """Place all 8 legs sequentially (buys before sell per side). On failure: stop, status=partial.
 
     Returns a result dict for Telegram (does not write GO books or batman_*.json).
     Operator should Register Batman afterwards to arm Phase 1 / ATO.
@@ -121,9 +130,60 @@ def deploy_multileg(
             except Exception:
                 pass
 
+    def _buys_filled_for_sell(sell_key: str) -> list[str]:
+        """Return planned buy keys for this sell that are not yet fully filled."""
+        required = _SIDE_BUY_KEYS_BEFORE_SELL.get(sell_key) or ()
+        planned = {p.key: p for p in legs_plan}
+        need = [k for k in required if k in planned and int(planned[k].qty) > 0]
+        filled_ok = {r["key"] for r in filled if r.get("status") == "filled"}
+        return [k for k in need if k not in filled_ok]
+
     for leg in legs_plan:
         if leg.qty <= 0:
             continue
+
+        # Hard gate: never open a SELL until that side's BUY legs are fully filled.
+        if leg.key in _SIDE_BUY_KEYS_BEFORE_SELL:
+            missing = _buys_filled_for_sell(leg.key)
+            if missing:
+                error = (
+                    f"Cannot place {leg.key}: buy legs not fully filled yet "
+                    f"({', '.join(missing)})"
+                )
+                logger.error(error)
+                filled.append(
+                    {
+                        "key": leg.key,
+                        "side": leg.side,
+                        "option_type": leg.option_type,
+                        "strike": leg.strike,
+                        "qty": leg.qty,
+                        "role": leg.role,
+                        "symbol": None,
+                        "order_id": None,
+                        "status": "skipped",
+                        "error": error,
+                    }
+                )
+                pending_keys = [k for k in pending_keys if k != leg.key]
+                for rest in legs_plan:
+                    if rest.key in pending_keys and rest.qty > 0:
+                        filled.append(
+                            {
+                                "key": rest.key,
+                                "side": rest.side,
+                                "option_type": rest.option_type,
+                                "strike": rest.strike,
+                                "qty": rest.qty,
+                                "role": rest.role,
+                                "symbol": None,
+                                "order_id": None,
+                                "status": "skipped",
+                            }
+                        )
+                status = "partial"
+                break
+
         try:
             symbol, _ = resolve_symbol(leg.strike, leg.option_type, exp)
         except Exception as exc:

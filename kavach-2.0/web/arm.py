@@ -78,15 +78,7 @@ def nifty_ltp() -> float | None:
     fresh = _cache_ltp_if_fresh(5.0)
     if fresh is not None:
         return fresh
-    try:
-        px = _kite_nifty_quote()
-        if px:
-            from core.nifty_ltp_feed import seed_nifty_ltp_cache
-
-            seed_nifty_ltp_cache(px, source="ZERODHA_QUOTE", poll_interval_seconds=2)
-            return px
-    except Exception as exc:
-        logger.warning("Kite NIFTY quote failed: %s", exc)
+    # Feeder-only: web desk reads Feeder cache; no Kite REST seed.
     try:
         from core.nifty_ltp_feed import read_nifty_ltp_cache
 

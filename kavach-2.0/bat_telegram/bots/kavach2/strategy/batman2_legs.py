@@ -22,16 +22,16 @@ class LegPlan:
         return asdict(self)
 
 
-# Place order after core to limit naked risk on partial fills.
+# Place buys (core + hedges) before sell on each side — never naked sell.
 PLACE_SEQUENCE: tuple[str, ...] = (
     "ce_buy",
     "ce_margin_hedge",
+    "ce_dyn_hedge",
     "ce_sell",
     "pe_buy",
     "pe_margin_hedge",
-    "pe_sell",
-    "ce_dyn_hedge",
     "pe_dyn_hedge",
+    "pe_sell",
 )
 
 

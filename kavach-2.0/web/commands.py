@@ -233,9 +233,10 @@ def batman_complete(*, confirm: bool = False) -> dict[str, Any]:
             "ok": True,
             "need_confirm": True,
             "text": (
-                "Batman Complete?\n"
-                "This will stop ATO, archive the deployment, and clear state.\n"
-                "Zerodha positions are NOT closed automatically."
+                "This stops ATO and clears Kavach state for this deployment.\n"
+                "Broker positions are left as-is on Zerodha.\n"
+                "\n"
+                "IMPORTANT: Square off any open legs manually on the broker terminal — Kavach will not exit them."
             ),
         }
     dep = _active_deployment()
@@ -381,3 +382,9 @@ def deploy_note() -> dict[str, Any]:
             "Confirm legs in Telegram Deploy Batman 2.0 — same backend, no second strategy."
         ),
     }
+
+
+def payoff_graph() -> dict[str, Any]:
+    from web.payoff import payoff_snapshot
+
+    return payoff_snapshot()

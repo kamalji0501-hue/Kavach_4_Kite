@@ -249,7 +249,7 @@ class NiftyLtpCacheSnapshot:
     poll_interval_seconds: int = 2
     consecutive_failures: int = 0
     unchanged_seconds: float = 0.0
-    collector: str = "drishti"
+    collector: str = "feeder"
     collector_pid: int | None = None
     # Present when source=uat_replay — market clock of the emitted tick (ISO IST).
     replay_market_time: str | None = None
@@ -270,7 +270,7 @@ class NiftyLtpCacheSnapshot:
     def ready_for_consumers(
         self, max_age_seconds: float | None = None, now: datetime | None = None
     ) -> bool:
-        """True when KAVACH/ATO may trust this cache without calling DRISHTI."""
+        """True when KAVACH/ATO may trust this cache without a live broker quote."""
         if max_age_seconds is not None:
             age_limit = float(max_age_seconds)
         else:
@@ -465,7 +465,7 @@ def resolve_nifty_ltp_from_cache(
     max_age_seconds: float | None = None,
     path: Path | None = None,
 ) -> float:
-    """Return fresh NIFTY LTP from DRISHTI cache — sole path for trading bots."""
+    """Return fresh NIFTY LTP from Feeder cache — sole path for trading bots."""
     from core.exceptions import BrokerConnectionError
 
     age = consumer_max_age_for_trading(config_override=max_age_seconds)

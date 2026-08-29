@@ -44,6 +44,7 @@ from core.state import StateManager
 from core.token_store import TokenStore
 from core.token_watch import start_token_watch
 from core.daily_ato_prompt import daily_ato_prompt_status_line
+from core.feeder_nifty_collector import start_feeder_nifty_collector, stop_feeder_nifty_collector
 from modules.ato_protection import ATOProtection, apply_ato_analytics_paths
 
 ROOT = Path(__file__).parent
@@ -159,6 +160,7 @@ def _start_ato_module(
 
 def _shutdown_ato() -> None:
     global _ATO_MODULE, _TOKEN_WATCH_STOP
+    stop_feeder_nifty_collector()
     if _TOKEN_WATCH_STOP is not None:
         _TOKEN_WATCH_STOP.set()
         _TOKEN_WATCH_STOP = None
@@ -258,6 +260,7 @@ def main() -> None:
             "No broker at startup — will bootstrap when Zerodha access_token is available"
         )
 
+    start_feeder_nifty_collector()
     start_health_heartbeat(ROOT, "kavach2", extra_provider=_kavach_health)
     if state.get("deployment.confirmed", False):
         logger.info(

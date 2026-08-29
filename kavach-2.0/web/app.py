@@ -282,6 +282,12 @@ async def api_deploy(request: Request) -> Response:
     return _cmd(commands.deploy_batman, body)
 
 
+
+async def api_payoff(request: Request) -> Response:
+    bad = _need_auth(request)
+    return bad or _cmd(commands.payoff_graph)
+
+
 def create_app() -> Starlette:
     routes = [
         Route("/", index),
@@ -308,6 +314,7 @@ def create_app() -> Starlette:
         Route("/api/token/zerodha", api_zerodha, methods=["POST"]),
         Route("/api/register", api_register, methods=["GET", "POST"]),
         Route("/api/deploy", api_deploy, methods=["GET", "POST"]),
+        Route("/api/payoff", api_payoff),
         WebSocketRoute("/ws/state", ws_state),
         Mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static"),
     ]

@@ -198,9 +198,11 @@
     if (pnlEl) {
       const v = live.day_pnl;
       pnlEl.textContent = fmtPnl(v);
-      pnlEl.className = (v == null || v === "") ? "" : clsPnl(v);
+      const base = pnlEl.classList.contains("home-pnl-big") ? "home-pnl-big" : "";
+      const tone = (v == null || v === "") ? "" : clsPnl(v);
+      pnlEl.className = [base, tone].filter(Boolean).join(" ");
     }
-    paintToggle($("runToggle"), $("runLbl"), resumed, "RESUMED", "PAUSED");
+    paintToggle($("runToggle"), $("runLbl"), resumed, "KAVACH RESUMED", "KAVACH PAUSED");
     paintToggle($("hedgeToggle"), $("hedgeLbl"), hedgeOn, "HEDGE ON", "HEDGE OFF");
     paintPositions(live.positions);
   }
@@ -227,23 +229,23 @@
     const health = d.health_class || (d.present ? "healthy" : "missing");
     const healthLabel = d.present ? cap(d.status || health) : "Missing";
     view.innerHTML = `
-      <header class="page-head"><h3>Authorisation</h3></header>
+      <header class="page-head"><h3>AUTHORISATION</h3></header>
       <div class="row2 tok-grid">
         <div class="card tok-card tok-card-green">
-          <h3 class="tok-title"><img class="tok-logo" src="/static/dhan.svg" alt="" />DHAN TOKEN</h3>
+          <h3 class="tok-title"><img class="tok-logo" src="/static/dhan.png" alt="" />DHAN TOKEN</h3>
           <div class="tok-meta">
             <div class="kv"><span>Status</span><b class="${d.present ? "buy" : "sell"}">${esc(healthLabel)}</b></div>
             <div class="kv"><span>Last4</span><b>${d.last4 ? "····" + esc(d.last4) : "—"}</b></div>
             <div class="kv"><span>Saved</span><b>${esc(d.saved_at || "—")}</b></div>
             <div class="kv"><span>Expires</span><b>${esc(d.jwt_exp || d.expires_at || "—")}</b></div>
             <div class="kv"><span>Age / Left</span><b>${d.age_hours == null || !d.present ? "—" : d.age_hours + "h / " + (d.expires_in_hours == null ? "—" : d.expires_in_hours + "h")}</b></div>
-            <div class="kv tok-extra"><span>TOTP Auto-Renew</span><b>${totp.configured ? (totp.auto_renew ? "ON" : "OFF") : "Not configured"}</b></div>
-            <div class="kv tok-extra"><span>TOTP Secret Due</span><b>${totp.days_left == null ? "—" : fmtDays(totp.days_left)}</b></div>
-            <div class="kv tok-extra"><span>Last TOTP Refresh</span><b>${esc(totp.last_refresh || "never")}</b></div>
+            <div class="kv"><span>TOTP Auto-Renew</span><b>${totp.configured ? (totp.auto_renew ? "ON" : "OFF") : "Not configured"}</b></div>
+            <div class="kv"><span>TOTP Secret Due</span><b>${totp.days_left == null ? "—" : fmtDays(totp.days_left)}</b></div>
+            <div class="kv"><span>Last TOTP Refresh</span><b>${esc(totp.last_refresh || "never")}</b></div>
           </div>
           ${totp.last_error ? `<p class="sub tok-err">${esc(totp.last_error)}</p>` : ""}
           <label class="muted" for="jwtBox">Paste Dhan Token</label>
-          <textarea id="jwtBox" class="tokbox" rows="2" autocomplete="off" spellcheck="false" placeholder="Paste DHAN Token Here"></textarea>
+          <textarea id="jwtBox" class="tokbox" rows="3" autocomplete="off" spellcheck="false" placeholder="Paste DHAN Token Here"></textarea>
           <div class="row2">
             <button type="button" class="btn btn-green" id="tokRef">REFRESH JWT</button>
             <button type="button" class="btn btn-green-outline" id="tokPaste">SAVE DHAN TOKEN</button>
@@ -261,7 +263,7 @@
             <div class="kv"><span>Saved</span><b>${esc(z.saved_at || "—")}</b></div>
           </div>
           <label class="muted" for="zBox">Paste Zerodha Token</label>
-          <textarea id="zBox" class="tokbox" rows="2" autocomplete="off" spellcheck="false" placeholder="Paste ZERODHA Token Here"></textarea>
+          <textarea id="zBox" class="tokbox" rows="3" autocomplete="off" spellcheck="false" placeholder="Paste ZERODHA Token Here"></textarea>
           <button type="button" class="btn btn-red" id="tokZ">SAVE ZERODHA TOKEN</button>
         </div>
       </div>
@@ -306,6 +308,165 @@
       body: JSON.stringify({ token: $("zBox").value }),
     }));
   }
+
+  
+  function drawPayoffChart(svg, points, spot, opts) {
+    if (!svg) return;
+    const pts = Array.isArray(points) ? points : [];
+    const o = opts || {};
+    const step = Number(o.step) || 50;
+    const W = 1000, H = 420;
+    const pad = { l: 64, r: 24, t: 28, b: 52 };
+    const innerW = W - pad.l - pad.r;
+    const innerH = H - pad.t - pad.b;
+    if (!pts.length) {
+      svg.innerHTML = `<text x="500" y="210" text-anchor="middle" fill="#7A7494" font-size="18">No payoff points</text>`;
+      return;
+    }
+    const xs = pts.map((p) => Number(p.x));
+    const ys = pts.map((p) => Number(p.y));
+    let xmin = Math.min(...xs), xmax = Math.max(...xs);
+    let ymin = Math.min(...ys, 0), ymax = Math.max(...ys, 0);
+    if (xmin === xmax) { xmin -= step; xmax += step; }
+    if (ymin === ymax) { ymin -= 100; ymax += 100; }
+    // Keep spot visually centered: domain already ATM±10; if spot exists, shift domain symmetrically around spot.
+    if (spot != null && Number(spot) > 0) {
+      const half = (xmax - xmin) / 2;
+      const s = Number(spot);
+      xmin = s - half;
+      xmax = s + half;
+    }
+    const xScale = (x) => pad.l + ((x - xmin) / (xmax - xmin)) * innerW;
+    const yScale = (y) => pad.t + ((ymax - y) / (ymax - ymin)) * innerH;
+    const zeroY = yScale(0);
+
+    // Split payoff into profit (green) / loss (red); interpolate at zero crossings.
+    const greenSegs = [];
+    const redSegs = [];
+    let seg = [];
+    let segSign = 0;
+    const flushSeg = () => {
+      if (seg.length >= 2) {
+        const d = seg.map((c, i) => `${i ? "L" : "M"}${c[0].toFixed(1)},${c[1].toFixed(1)}`).join(" ");
+        if (segSign >= 0) greenSegs.push(d);
+        else redSegs.push(d);
+      }
+      seg = [];
+    };
+    for (let i = 0; i < pts.length; i++) {
+      const x = Number(pts[i].x);
+      const y = Number(pts[i].y);
+      const px = xScale(x);
+      const py = yScale(y);
+      const sign = y > 0 ? 1 : y < 0 ? -1 : 0;
+      if (i === 0) {
+        seg = [[px, py]];
+        segSign = sign || 1;
+        continue;
+      }
+      const y0 = Number(pts[i - 1].y);
+      const px0 = xScale(Number(pts[i - 1].x));
+      if ((y0 > 0 && y < 0) || (y0 < 0 && y > 0)) {
+        const t = Math.abs(y0) / (Math.abs(y0) + Math.abs(y));
+        const zx = px0 + t * (px - px0);
+        const zy = zeroY;
+        seg.push([zx, zy]);
+        flushSeg();
+        seg = [[zx, zy], [px, py]];
+        segSign = sign;
+      } else {
+        if (sign && segSign && sign !== segSign) {
+          flushSeg();
+          seg = [[px0, yScale(y0)], [px, py]];
+          segSign = sign;
+        } else {
+          if (sign) segSign = sign;
+          seg.push([px, py]);
+        }
+      }
+    }
+    flushSeg();
+
+    const pathAll = pts.map((p, i) => `${i ? "L" : "M"}${xScale(p.x).toFixed(1)},${yScale(p.y).toFixed(1)}`).join(" ");
+    const area = `${pathAll} L${xScale(pts[pts.length - 1].x).toFixed(1)},${zeroY.toFixed(1)} L${xScale(pts[0].x).toFixed(1)},${zeroY.toFixed(1)} Z`;
+    const greenPaths = greenSegs.map((d) => `<path d="${d}" fill="none" stroke="#1ED760" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />`).join("");
+    const redPaths = redSegs.map((d) => `<path d="${d}" fill="none" stroke="#FF3B5C" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />`).join("");
+
+    let grid = "";
+    const atm = o.atm != null ? Number(o.atm) : null;
+    const strikeStart = Math.ceil(xmin / step) * step;
+    const strikes = [];
+    for (let x = strikeStart; x <= xmax + 0.01; x += step) strikes.push(Math.round(x));
+    strikes.forEach((x, idx) => {
+      const px = xScale(x);
+      const isAtm = atm != null && Math.abs(x - atm) < 0.1;
+      const showLabel = isAtm || idx === 0 || idx === strikes.length - 1 || idx % 2 === 0;
+      grid += `<line x1="${px}" y1="${pad.t}" x2="${px}" y2="${H - pad.b}" stroke="${isAtm ? "rgba(43,179,192,0.35)" : "rgba(124,106,232,0.10)"}" />`;
+      if (showLabel) {
+        grid += `<text x="${px}" y="${H - 16}" text-anchor="middle" fill="${isAtm ? "#2BB3C0" : "#7A7494"}" font-size="${isAtm ? 13 : 11}" font-weight="${isAtm ? 700 : 500}">${x}</text>`;
+      }
+    });
+    for (let i = 0; i <= 4; i++) {
+      const y = ymin + ((ymax - ymin) * i) / 4;
+      const py = yScale(y);
+      grid += `<line x1="${pad.l}" y1="${py}" x2="${W - pad.r}" y2="${py}" stroke="rgba(124,106,232,0.10)" />`;
+      grid += `<text x="${pad.l - 10}" y="${py + 4}" text-anchor="end" fill="#7A7494" font-size="13">${Math.round(y)}</text>`;
+    }
+
+    let peakLbl = "";
+    const iMax = ys.indexOf(Math.max(...ys));
+    const iMin = ys.indexOf(Math.min(...ys));
+    if (iMax >= 0 && ys[iMax] > 0) {
+      const mx = xScale(xs[iMax]), my = yScale(ys[iMax]);
+      peakLbl += `<text x="${mx}" y="${Math.max(pad.t + 14, my - 10)}" text-anchor="middle" fill="#1ED760" font-size="12" font-weight="800">MAX +${Math.round(ys[iMax])}</text>`;
+    }
+    if (iMin >= 0 && ys[iMin] < 0) {
+      const mx = xScale(xs[iMin]), my = yScale(ys[iMin]);
+      peakLbl += `<text x="${mx}" y="${Math.min(H - pad.b - 6, my + 18)}" text-anchor="middle" fill="#FF3B5C" font-size="12" font-weight="800">MAX −${Math.round(Math.abs(ys[iMin]))}</text>`;
+    }
+
+    let spotLine = "";
+    if (spot != null && Number(spot) > 0) {
+      const s = Number(spot);
+      const sx = xScale(s);
+      let spotY = null;
+      for (let i = 1; i < pts.length; i++) {
+        const x0 = Number(pts[i - 1].x), x1 = Number(pts[i].x);
+        if ((s >= x0 && s <= x1) || (s >= x1 && s <= x0)) {
+          const t = x1 === x0 ? 0 : (s - x0) / (x1 - x0);
+          spotY = Number(pts[i - 1].y) + t * (Number(pts[i].y) - Number(pts[i - 1].y));
+          break;
+        }
+      }
+      if (spotY == null) spotY = 0;
+      const sy = yScale(spotY);
+      const pnlCol = spotY >= 0 ? "#1ED760" : "#FF3B5C";
+      const pnlTxt = (spotY >= 0 ? "+" : "") + Math.round(spotY);
+      spotLine = `<line x1="${sx}" y1="${pad.t}" x2="${sx}" y2="${H - pad.b}" stroke="#7C6AE8" stroke-width="2.5" />
+        <circle cx="${sx}" cy="${sy}" r="6" fill="#7C6AE8" stroke="#fff" stroke-width="1.5" />
+        <text x="${sx}" y="${pad.t + 18}" text-anchor="middle" fill="#7C6AE8" font-size="14" font-weight="800">SPOT ${s.toFixed(0)}</text>
+        <text x="${sx + 10}" y="${sy - 10}" text-anchor="start" fill="${pnlCol}" font-size="13" font-weight="800">PnL ${pnlTxt}</text>`;
+    }
+
+    const uid = "pf" + Math.floor(Math.random() * 1e9);
+    svg.innerHTML = `
+      <defs>
+        <clipPath id="${uid}up"><rect x="${pad.l}" y="${pad.t}" width="${innerW}" height="${Math.max(0, zeroY - pad.t)}" /></clipPath>
+        <clipPath id="${uid}dn"><rect x="${pad.l}" y="${zeroY}" width="${innerW}" height="${Math.max(0, H - pad.b - zeroY)}" /></clipPath>
+      </defs>
+      <rect x="0" y="0" width="${W}" height="${H}" fill="transparent" />
+      ${grid}
+      <line x1="${pad.l}" y1="${zeroY}" x2="${W - pad.r}" y2="${zeroY}" stroke="#2A2450" stroke-width="1.5" opacity="0.45" />
+      <path d="${area}" fill="rgba(30,215,96,0.14)" clip-path="url(#${uid}up)" />
+      <path d="${area}" fill="rgba(255,59,92,0.12)" clip-path="url(#${uid}dn)" />
+      ${greenPaths}
+      ${redPaths}
+      ${peakLbl}
+      ${spotLine}
+    `;
+  }
+
+
 
   function go(p) {
     page = p;
@@ -358,11 +519,11 @@
       ? `<p class="reg-note">Batman is already armed (${esc(d.file)}). Confirm will archive it and register again.</p>`
       : "";
     view.innerHTML = `
-      <header class="page-head"><h3>Register Batman</h3></header>
+      <header class="page-head"><h3>REGISTER BATMAN</h3></header>
       ${note}${armed}
       <div class="card add-form reg-form">
         <div class="reg-top-grid">
-          ${qBlock(1, "Paper or Live trade", `
+          ${qBlock(1, "Select Mode", `
             <select id="regMode">
               <option value="paper" ${d.order_mode !== "live" ? "selected" : ""}>Paper</option>
               <option value="live" ${d.order_mode === "live" ? "selected" : ""}>Live</option>
@@ -376,7 +537,7 @@
         </div>
         <div class="reg-grid">
           <section class="reg-side reg-side-ce dep-card-green" id="regCeBlock">
-            <h4 class="sec-title">CE side</h4>
+            <h4 class="sec-title">CE SIDE</h4>
             ${qBlock(10, "Core BUY leg", `<select id="regCeBuy">${optionHtml(d.ce_long, "", "Core BUY")}</select>`)}
             ${qBlock(11, "Margin Hedge", `<select id="regCeHedge">${optionHtml(d.ce_long, "", "None — not required")}</select>`)}
             ${qBlock(12, "30% Dynamic Hedge", `<select id="regCeDyn">${optionHtml(d.ce_long, "", "None — not required")}</select>`)}
@@ -388,13 +549,12 @@
                   <option value="custom">Custom strike</option>
                 </select>
                 <input id="regCeAto" type="number" placeholder="Auto ${esc(ceHint)}" />
-              </div>
-              <p class="sub" id="regCeAtoHint"></p>`)}
-            ${qBlock(15, "Entry NIFTY level", `<input id="regCeEntry" type="number" placeholder="${esc(d.entry_placeholder || "NIFTY level")}" />`)}
-            ${qBlock(16, "Exit NIFTY level (retrace)", `<input id="regCeExit" type="number" placeholder="${esc(d.exit_placeholder || "NIFTY level")}" />`)}
+              </div>`)}
+            ${qBlock(15, "ATO Entry Level", `<input id="regCeEntry" type="number" placeholder="${esc(d.entry_placeholder || "NIFTY level")}" />`)}
+            ${qBlock(16, "ATO Exit Level (Retrace)", `<input id="regCeExit" type="number" placeholder="${esc(d.exit_placeholder || "NIFTY level")}" />`)}
           </section>
           <section class="reg-side reg-side-pe dep-card-red" id="regPeBlock">
-            <h4 class="sec-title">PE side</h4>
+            <h4 class="sec-title">PE SIDE</h4>
             ${qBlock(3, "Core BUY leg", `<select id="regPeBuy">${optionHtml(d.pe_long, "", "Core BUY")}</select>`)}
             ${qBlock(4, "Margin Hedge", `<select id="regPeHedge">${optionHtml(d.pe_long, "", "None — not required")}</select>`)}
             ${qBlock(5, "30% Dynamic Hedge", `<select id="regPeDyn">${optionHtml(d.pe_long, "", "None — not required")}</select>`)}
@@ -406,10 +566,9 @@
                   <option value="custom">Custom strike</option>
                 </select>
                 <input id="regPeAto" type="number" placeholder="Auto ${esc(peHint)}" />
-              </div>
-              <p class="sub" id="regPeAtoHint"></p>`)}
-            ${qBlock(8, "Entry NIFTY level", `<input id="regPeEntry" type="number" placeholder="${esc(d.entry_placeholder || "NIFTY level")}" />`)}
-            ${qBlock(9, "Exit NIFTY level (retrace)", `<input id="regPeExit" type="number" placeholder="${esc(d.exit_placeholder || "NIFTY level")}" />`)}
+              </div>`)}
+            ${qBlock(8, "ATO Entry Level", `<input id="regPeEntry" type="number" placeholder="${esc(d.entry_placeholder || "NIFTY level")}" />`)}
+            ${qBlock(9, "ATO Exit Level (Retrace)", `<input id="regPeExit" type="number" placeholder="${esc(d.exit_placeholder || "NIFTY level")}" />`)}
           </section>
         </div>
         <div class="reg-top-grid">
@@ -419,7 +578,7 @@
               <option value="ce" ${d.ato_mon === "ce" ? "selected" : ""}>Manage CE only</option>
               <option value="pe" ${d.ato_mon === "pe" ? "selected" : ""}>Manage PE only</option>
             </select>`)}
-          ${qBlock(18, "Confirm deployment", `<button type="button" class="btn gold" id="regGo">REGISTER — ARM KAVACH</button>`)}
+          ${qBlock(18, "Confirm Deployment", `<button type="button" class="btn gold" id="regGo">REGISTER — ARM KAVACH</button>`)}
         </div>
         <p class="sub" id="regMsg"></p>
       </div>`;
@@ -470,8 +629,6 @@
       const ceSell = strikeOf(d.ce_short, $("regCeSell").value);
       const peAuto = autoProtect("PE", peSell, step);
       const ceAuto = autoProtect("CE", ceSell, step);
-      $("regPeAtoHint").textContent = peOn && peAuto ? "Auto ATO: " + peAuto + " PE" : "Auto ATO after PE SELL is chosen";
-      $("regCeAtoHint").textContent = ceOn && ceAuto ? "Auto ATO: " + ceAuto + " CE" : "Auto ATO after CE SELL is chosen";
       const peCustom = $("regPeAtoMode").value === "custom";
       const ceCustom = $("regCeAtoMode").value === "custom";
       if (peOn) {
@@ -543,25 +700,84 @@
     try {
       setBusy(true);
       if (page === "home") {
-        const s = await api("/api/state");
+        const [s, a, b, sum, tok] = await Promise.all([
+          api("/api/state"),
+          api("/api/ato-status"),
+          api("/api/buffer"),
+          api("/api/trade-summary"),
+          api("/api/token/status"),
+        ]);
         applyChrome(s);
         const pnlCls = s.day_pnl == null || s.day_pnl === "" ? "" : clsPnl(s.day_pnl);
+        const mode = String(s.order_mode || "paper").toUpperCase();
+        const armed = !!s.deployment;
+        const dhan = (tok && tok.dhan) || {};
+        const kite = (tok && tok.zerodha) || {};
+        const dhanLbl = dhan.present ? cap(dhan.status || dhan.health_class || "OK") : "Missing";
+        const kiteLbl = kite.present ? "Set" : "Missing";
+        const open = (sum && sum.open) || [];
+        const openHtml = open.length
+          ? open.map((leg) => `
+              <div class="kv"><span>${esc(leg.side)} ATO</span><b>${esc(leg.symbol || "—")}</b></div>
+              <div class="kv"><span>Strike</span><b>${esc(leg.protect_strike || "—")}</b></div>
+              <div class="kv"><span>Status</span><b class="buy">OPEN</b></div>`).join("")
+          : `<p class="sub home-empty">No open ATO protect leg.</p>`;
+        const lvl = (v) => (v == null || v === "" ? "—" : esc(v));
         view.innerHTML = `
-          <header class="page-head"><h3>Home</h3></header>
-          <div class="stats stats1 home-pnl-row">
-            <div class="stat"><kbd>PNL</kbd><b id="statPnl" class="${pnlCls}">${esc(fmtPnl(s.day_pnl))}</b></div>
-          </div>
-          <div class="card hist-wrap pos-card">
-            <h4 class="sec-title">BROKER POSITIONS</h4>
-            <table class="hist-table pos-table"><thead><tr>
-              <th>Symbol</th><th>Qty</th><th>Avg</th><th>LTP</th><th>PnL</th>
-            </tr></thead><tbody id="posBody">${posRowsHtml(s.positions)}</tbody></table>
+          <header class="page-head"><h3>HOME</h3></header>
+          <div class="home-dash">
+            <div class="home-strip">
+              <div class="home-strip-group home-strip-ops">
+                <span class="home-chip ${s.paused ? "bad" : "ok"}">${s.paused ? "KAVACH PAUSED" : "KAVACH RESUMED"}</span>
+                <span class="home-chip ${s.dyn_hedge ? "ok" : "bad"}">${s.dyn_hedge ? "HEDGE ON" : "HEDGE OFF"}</span>
+                <span class="home-chip">${esc(mode)}</span>
+                <span class="home-chip ${s.broker ? "ok" : "bad"}">${s.broker ? "BROKER OK" : "BROKER OFF"}</span>
+                <span class="home-chip ${armed ? "ok" : "bad"}">${armed ? "ARMED" : "NOT ARMED"}</span>
+              </div>
+              <div class="home-strip-group home-strip-ato">
+                <span class="home-chip ${s.ce_ato ? "ok" : ""}">CE ATO ${s.ce_ato ? "ACTIVE" : "IDLE"}</span>
+                <span class="home-chip ${s.pe_ato ? "ok" : ""}">PE ATO ${s.pe_ato ? "ACTIVE" : "IDLE"}</span>
+              </div>
+              <div class="home-strip-group home-strip-tok">
+                <span class="home-chip ${dhan.present ? "ok" : "bad"}">DHAN · ${esc(dhanLbl)}</span>
+                <span class="home-chip ${kite.present ? "ok" : "bad"}">KITE · ${esc(kiteLbl)}</span>
+              </div>
+            </div>
+
+            <div class="home-main-grid">
+              <div class="card home-card home-pnl-card">
+                <h4 class="sec-title">DAY PNL</h4>
+                <div id="statPnl" class="home-pnl-big ${pnlCls}">${esc(fmtPnl(s.day_pnl))}</div>
+              </div>
+              <div class="card home-card dep-card-blue home-open-card">
+                <h4 class="sec-title">OPEN ATO</h4>
+                <div class="home-kv-wrap">${openHtml}</div>
+                <div class="kv"><span>Manage</span><b>${esc(a.manage || "—")}</b></div>
+                <div class="kv"><span>CE protect</span><b>${esc(a.ce_protect || s.ce_symbol || "N/A")}</b></div>
+                <div class="kv"><span>PE protect</span><b>${esc(a.pe_protect || s.pe_symbol || "N/A")}</b></div>
+              </div>
+              <div class="card home-card dep-card-green">
+                <h4 class="sec-title">ATO LEVELS</h4>
+                <div class="kv"><span>CE Entry</span><b>${lvl(b.ce_entry)}</b></div>
+                <div class="kv"><span>CE Exit</span><b>${lvl(b.ce_retrace)}</b></div>
+                <div class="kv"><span>PE Entry</span><b>${lvl(b.pe_entry)}</b></div>
+                <div class="kv"><span>PE Exit</span><b>${lvl(b.pe_retrace)}</b></div>
+                <div class="kv"><span>NIFTY</span><b>${lvl(b.nifty_ltp != null ? Number(b.nifty_ltp).toFixed(2) : s.nifty)}</b></div>
+              </div>
+            </div>
+
+            <div class="card hist-wrap pos-card home-pos-card">
+              <h4 class="sec-title">BROKER POSITIONS</h4>
+              <table class="hist-table pos-table"><thead><tr>
+                <th>Symbol</th><th>Qty</th><th>Avg</th><th>LTP</th><th>PnL</th>
+              </tr></thead><tbody id="posBody">${posRowsHtml(s.positions)}</tbody></table>
+            </div>
           </div>`;
         playViewIn(view);
         return;
       }
       if (page === "status") {
-        view.innerHTML = `<header class="page-head"><h3>Kavach Status</h3></header>` + pre((await api("/api/status")).text);
+        view.innerHTML = `<header class="page-head"><h3>KAVACH STATUS</h3></header>` + pre((await api("/api/status")).text);
       
       } else if (page === "summary") {
         const d = await api("/api/trade-summary");
@@ -593,7 +809,7 @@
             </tr></tfoot>`
           : "";
         view.innerHTML = `
-          <header class="page-head"><h3>ATO Summary</h3></header>
+          <header class="page-head"><h3>ATO SUMMARY</h3></header>
           <div class="card hist-wrap">
             <table class="hist-table"><thead><tr>
               <th>#</th><th>Side</th><th>Protect</th><th>Entry Time</th><th>Entry Px</th>
@@ -634,10 +850,10 @@
               <div class="kv"><span>Manage</span><b>${esc(a.manage || "—")}</b></div>
             </div>`;
         view.innerHTML = `
-          <header class="page-head"><h3>ATO Manager</h3></header>
+          <header class="page-head"><h3>ATO MANAGER</h3></header>
           <div class="ato-mgr">
             <div class="card add-form ato-mgr-buf dep-card-green">
-              <h4 class="sec-title">Buffer Manager</h4>
+              <h4 class="sec-title">BUFFER MANAGER</h4>
               <div class="field"><label class="ato-lab">CE ENTRY</label><input id="ce_entry" type="number" inputmode="decimal" placeholder="${esc(b.ce_entry_placeholder || "NIFTY level")}" value="${esc(b.ce_entry)}" /></div>
               <div class="field"><label class="ato-lab">CE EXIT</label><input id="ce_retrace" type="number" inputmode="decimal" placeholder="${esc(b.ce_retrace_placeholder || "NIFTY level")}" value="${esc(b.ce_retrace)}" /></div>
               <div class="field"><label class="ato-lab">PE ENTRY</label><input id="pe_entry" type="number" inputmode="decimal" placeholder="${esc(b.pe_entry_placeholder || "NIFTY level")}" value="${esc(b.pe_entry)}" /></div>
@@ -646,13 +862,13 @@
               <p class="sub" id="bufMsg"></p>
             </div>
             <div class="card ato-mgr-status dep-card-blue">
-              <h4 class="sec-title">ATO Status</h4>
+              <h4 class="sec-title">ATO STATUS</h4>
               <div class="ato-status-wrap">${statusHtml}</div>
-              <h4 class="sec-title ato-open-title">Open ATO</h4>
+              <h4 class="sec-title ato-open-title">OPEN ATO</h4>
               <div class="ato-open-wrap">${openHtml}</div>
             </div>
             <div class="card add-form ato-mgr-poll dep-card-red">
-              <h4 class="sec-title">Poll Interval</h4>
+              <h4 class="sec-title">POLL INTERVAL</h4>
               <div class="field"><select id="pollSel">${pollOpts}</select></div>
               <button type="button" class="btn btn-red" id="pollSave">SAVE</button>
               <p class="sub" id="pollMsg"></p>
@@ -709,45 +925,46 @@
           api("/api/complete", { method: "POST", body: "{}" }),
         ]);
         view.innerHTML = `
-          <header class="page-head"><h3>Deploy / Complete</h3></header>
+          <header class="page-head"><h3>DEPLOY / COMPLETE</h3></header>
           <div class="dep-complete">
             <div class="card add-form dep-card-green">
-              <h4 class="sec-title">Deploy Batman 2.0</h4>
+              <h4 class="sec-title">DEPLOY BATMAN 2.0</h4>
               <p class="sub dep-card-sub">Preview the 8 legs, then confirm to place them.</p>
               <div class="field"><label class="ato-lab">NIFTY CENTER LEVEL</label><input id="depLevel" type="number" placeholder="${esc(d.placeholder_level || "NIFTY level")}" value="${esc(d.level || "")}" /></div>
               <div class="field"><label class="ato-lab">LOTS</label><input id="depLots" type="number" placeholder="Lots" value="${esc(d.lots || 1)}" /></div>
+              <p class="sub dep-hint">Enter a NIFTY center level, then Preview.</p>
               <div class="row2">
                 <button type="button" class="btn btn-green-outline" id="depPrev">PREVIEW LEGS</button>
                 <button type="button" class="btn btn-green" id="depGo">CONFIRM DEPLOY</button>
               </div>
               <p class="sub" id="depMsg"></p>
-              <div class="dep-out" id="depOut"><pre>Enter a NIFTY center level, then Preview.</pre></div>
+              <div class="dep-out" id="depOut"></div>
             </div>
             <div class="card add-form dep-card-red">
-              <h4 class="sec-title">Complete Batman</h4>
-              <p class="sub dep-card-sub">Stop ATO and archive deployment. Positions stay on Zerodha.</p>
-              <pre class="complete-pre" id="doneMsg">${esc(c.text || c.error || "")}</pre>
-              <button type="button" class="btn btn-red" id="doneYes">YES — COMPLETE</button>
+              <h4 class="sec-title">COMPLETE BATMAN</h4>
+              <p class="sub dep-card-sub">End this deployment safely</p>
+              <div class="complete-pre" id="doneMsg">${esc(c.text || c.error || "")}</div>
+              <button type="button" class="btn btn-red" id="doneYes">CONFIRM COMPLETE</button>
             </div>
           </div>`;
         $("depPrev").onclick = async () => {
           try {
             const r = await api("/api/deploy", { method: "POST", body: JSON.stringify({ preview: true, level: $("depLevel").value, lots: $("depLots").value }) });
-            $("depOut").innerHTML = "<pre>" + esc(r.text || r.error) + "</pre>";
+            $("depOut").textContent = r.text || r.error;
             $("depMsg").textContent = r.ok ? "Preview ready. Confirm only if the legs look right." : (r.error || "");
           } catch (err) {
-            $("depOut").innerHTML = "<pre>" + esc(err.message) + "</pre>";
+            $("depOut").textContent = err.message;
           }
         };
         $("depGo").onclick = async () => {
           if (!window.confirm("Place Batman 2.0 legs now?")) return;
           try {
             const r = await api("/api/deploy", { method: "POST", body: JSON.stringify({ confirm: true, level: $("depLevel").value, lots: $("depLots").value }) });
-            $("depOut").innerHTML = "<pre>" + esc(r.text || r.error) + "</pre>";
+            $("depOut").textContent = r.text || r.error;
             $("depMsg").textContent = r.ok ? "Deploy finished." : (r.error || "failed");
             toast(r.ok ? "Deploy finished" : r.error || "failed", !!r.ok);
           } catch (err) {
-            $("depOut").innerHTML = "<pre>" + esc(err.message) + "</pre>";
+            $("depOut").textContent = err.message;
             toast(err.message, false);
           }
         };
@@ -765,6 +982,38 @@
             toast(err.message, false);
           }
         };
+      } else if (page === "payoff") {
+        const d = await api("/api/payoff");
+        const legs = d.legs || [];
+        const pts = d.points || [];
+        const spot = d.spot;
+        const be = (d.breakevens || []).map((x) => Number(x).toFixed(0)).join(" · ") || "—";
+        const maxP = d.max_profit == null ? "—" : fmtPnl(d.max_profit);
+        const maxL = d.max_loss == null ? "—" : fmtPnl(d.max_loss);
+        const atm = d.atm;
+        view.innerHTML = `
+          <header class="page-head payoff-head"><h3>PAYOFF</h3></header>
+          <div class="payoff-page">
+            <div class="payoff-stats">
+              <div class="card home-chip-card"><kbd>SPOT</kbd><b>${spot == null ? "—" : Number(spot).toFixed(2)}</b></div>
+              <div class="card home-chip-card"><kbd>ATM</kbd><b>${atm == null ? "—" : Number(atm).toFixed(0)}</b></div>
+              <div class="card home-chip-card"><kbd>MAX PROFIT*</kbd><b class="buy">${esc(maxP)}</b></div>
+              <div class="card home-chip-card"><kbd>MAX LOSS*</kbd><b class="sell">${esc(maxL)}</b></div>
+              <div class="card home-chip-card payoff-be"><kbd>BREAKEVENS*</kbd><b>${esc(be)}</b></div>
+            </div>
+            <div class="card payoff-chart-card">
+              <div class="payoff-chart-top">
+                <h4 class="sec-title">EXPIRY PAYOFF</h4>
+                <span class="sub payoff-sub">ATM ± 10 strikes · spot at center</span>
+              </div>
+              <div class="payoff-chart-wrap">
+                <svg id="payoffSvg" class="payoff-svg" viewBox="0 0 1000 420" preserveAspectRatio="none" role="img" aria-label="Payoff chart"></svg>
+              </div>
+            </div>
+          </div>`;
+        drawPayoffChart($("payoffSvg"), pts, spot, { atm: atm, step: d.step || 50 });
+        playViewIn(view);
+
       } else if (page === "token") {
         await renderTokenPage(view);
       }
