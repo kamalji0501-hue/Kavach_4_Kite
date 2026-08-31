@@ -334,6 +334,7 @@ class ATOProtection(ModuleBase):
                         return
                     continue
                 if self.state.get("algo.paused", False):
+                    self._maybe_run_pnl_exits(refresh_positions=True)
                     if self._sleep(self._effective_poll_interval(cfg_ato)):
                         return
                     continue
@@ -344,6 +345,7 @@ class ATOProtection(ModuleBase):
                     continue
 
                 self._check_breach()
+                self._maybe_run_pnl_exits()
 
             except Exception as exc:
                 self.log.error("ATO check error: %s", exc)
@@ -396,9 +398,32 @@ class ATOProtection(ModuleBase):
             if self._sleep(10):
                 return
 
+
+    def _maybe_run_pnl_exits(self, *, refresh_positions: bool = False) -> None:
+        """Safe Exit / Take Profit vs day PnL (same poll cadence)."""
+        try:
+            from core.pnl_exit_guard import check_and_maybe_fire
+
+            st = self.state
+            armed = bool(st.get("pnl_exit.safe_on") or st.get("pnl_exit.tp_on"))
+            if refresh_positions and armed and self.broker is not None:
+                try:
+                    self.broker.get_positions()
+                except Exception:
+                    pass
+            try:
+                from core.day_pnl_cache import refresh_hybrid_day_pnl
+
+                refresh_hybrid_day_pnl(broker=self.broker)
+            except Exception:
+                pass
+            check_and_maybe_fire(broker=self.broker, state=self.state, events=self.events)
+        except Exception as exc:
+            self.log.warning("pnl_exit check soft-failed: %s", exc)
+
     def _effective_poll_interval(self, cfg_ato: dict[str, Any]) -> int:
         state_poll = self.state.get("ato.poll_interval_seconds")
-        if isinstance(state_poll, int) and state_poll > 0:
+        if isinstance(state_poll, int) and state_poll >= 0:
             return state_poll
         return int(cfg_ato.get("poll_interval_seconds", 2))
 
@@ -572,8 +597,13 @@ class ATOProtection(ModuleBase):
             return
         if not getattr(self, "_ltp_failure_alerted", False):
             self._ltp_failure_alerted = True
+            try:
+                from core.ato_readiness_notify import tick as _ato_ready_tick
+                _ato_ready_tick()
+            except Exception:
+                pass
             self.log.error(
-                "ATO: %d consecutive LTP cache failures — DRISHTI feed required (no Dhan poll from KAVACH)",
+                "ATO: %d consecutive LTP cache failures — Feeder/Datafeedbot feed required (no Dhan poll from KAVACH)",
                 failures,
             )
             self.events.publish(
@@ -582,7 +612,7 @@ class ATOProtection(ModuleBase):
                     "module": self.name,
                     "scenario": "module_error",
                     "failures": failures,
-                    "error": "NIFTY LTP cache stale or missing — check DRISHTI / nifty_ltp_cache.json",
+                    "error": "NIFTY LTP cache stale or missing — check Datafeedbot / nifty_ltp_cache.json",
                 },
             )
         pause_after = int(cfg_ato.get("ltp_failure_pause_after", threshold))
@@ -590,7 +620,7 @@ class ATOProtection(ModuleBase):
             self.state.set("algo.paused", True)
             self.state.set("algo.pause_reason", "nifty_ltp_cache_stale")
             self.log.warning(
-                "ATO: pausing algo after %d stale cache reads — restart DRISHTI or wait for cache",
+                "ATO: pausing algo after %d stale cache reads — restart Datafeedbot or wait for cache",
                 failures,
             )
 
@@ -1246,6 +1276,35 @@ class ATOProtection(ModuleBase):
                     pass
         return last
 
+
+    def _quote_protect_ltp_kite(self, symbol: str) -> float | None:
+        """ATO prod: Kite /quote/ltp only — skip Feeder peek for faster punch."""
+        if not symbol:
+            return None
+        getter = getattr(self.broker, "get_ltp", None)
+        if not callable(getter):
+            return None
+        try:
+            try:
+                prices = getter([str(symbol)], kite_only=True)
+            except TypeError:
+                prices = getter([str(symbol)])
+        except Exception as exc:
+            self.log.debug("ATO Kite protect LTP failed for %s: %s", symbol, exc)
+            return None
+        if not isinstance(prices, dict):
+            return None
+        raw = prices.get(symbol) or prices.get(str(symbol))
+        if raw is None:
+            tail = str(symbol).split(":")[-1]
+            for k, v in prices.items():
+                if str(k).split(":")[-1] == tail:
+                    raw = v
+                    break
+        if raw is not None and float(raw) > 0:
+            return float(raw)
+        return None
+
     def _resolve_option_premium(
         self, symbol: str | None, order_id: str | None = None, *, spot: float | None = None
     ) -> float | None:
@@ -1290,28 +1349,14 @@ class ATOProtection(ModuleBase):
         except Exception:
             in_uat = False
 
-        # Prod: quote the exact tradingsymbol via Kite REST.
+        # Prod: Kite REST only on ATO hot path (no Feeder 3s peek).
         # Never pass UAT fixture expiry into live quotes — 2026-08-04 resolved
         # to nothing and ATO halted with "needs option LTP".
         if not in_uat:
-            getter_sym = getattr(self.broker, "get_ltp", None)
-            if callable(getter_sym):
-                try:
-                    prices = getter_sym([str(symbol)])
-                    raw = None
-                    if isinstance(prices, dict):
-                        raw = prices.get(symbol) or prices.get(str(symbol))
-                        if raw is None:
-                            tail = str(symbol).split(":")[-1]
-                            for k, v in prices.items():
-                                if str(k).split(":")[-1] == tail:
-                                    raw = v
-                                    break
-                    if raw is not None and float(raw) > 0:
-                        self.log.info("ATO option LTP via Kite REST %s=%.2f", symbol, float(raw))
-                        return float(raw)
-                except Exception as exc:
-                    self.log.warning("Kite option LTP failed for %s: %s", symbol, exc)
+            raw = self._quote_protect_ltp_kite(str(symbol))
+            if raw is not None and raw > 0:
+                self.log.info("ATO option LTP via Kite REST (no Feeder) %s=%.2f", symbol, raw)
+                return raw
 
         strike, opt = _parse_protect_strike_opt(symbol)
         if not strike or not opt:
@@ -1338,7 +1383,14 @@ class ATOProtection(ModuleBase):
                         expiry = fixture_expiry_date(load_positions_fixture(_ROOT))
                     except Exception:
                         expiry = None
-                prices = getter([(strike, opt)], expiry_date=expiry)
+                try:
+                    prices = getter(
+                        [(strike, opt)],
+                        expiry_date=expiry,
+                        kite_only=not in_uat,
+                    )
+                except TypeError:
+                    prices = getter([(strike, opt)], expiry_date=expiry)
                 raw = prices.get((strike, opt)) if isinstance(prices, dict) else None
                 if raw is not None:
                     value = float(raw)
@@ -1364,7 +1416,7 @@ class ATOProtection(ModuleBase):
         # Do not invent premiums (old intrinsic+5 / 5.00 floor) — SARANSH shows blank.
         return fill if fill is not None else None
 
-    def _watch_ato_buy_fill_rescue(self) -> None:
+    def _watch_ato_buy_fill_rescue(self, *, position_reader=None) -> None:
         """If parked BUY is still short and LTP ran +1 Rs, Rescue completes the BUY."""
         from core.ato_exec import remaining_qty, rescue_complete_buy, should_fill_rescue
 
@@ -1384,13 +1436,10 @@ class ATOProtection(ModuleBase):
             if not oid or not trig or qty <= 0 or not sym:
                 continue
             ltp = None
-            getter = getattr(broker, "get_ltp", None)
-            if callable(getter):
-                try:
-                    quotes = getter([str(sym)]) or {}
-                    ltp = float(quotes.get(sym) or quotes.get(str(sym)) or 0)
-                except Exception:
-                    ltp = None
+            try:
+                ltp = self._quote_protect_ltp_kite(str(sym))
+            except Exception:
+                ltp = None
             if not ltp:
                 try:
                     ltp = self._resolve_option_premium(str(sym), None, spot=0.0)
@@ -1402,7 +1451,7 @@ class ATOProtection(ModuleBase):
             try:
                 from core.ato_book_validation import net_qty_for_symbol
 
-                net = net_qty_for_symbol(broker, str(sym))
+                net = net_qty_for_symbol(broker, str(sym), position_reader=position_reader)
                 filled = abs(int(net or 0))
             except Exception:
                 filled = 0
@@ -1422,7 +1471,7 @@ class ATOProtection(ModuleBase):
             except Exception as exc:
                 self.log.warning("ATO %s BUY fill-Rescue failed: %s", tag, exc)
 
-    def _watch_ato_sell_exit_rescue(self) -> None:
+    def _watch_ato_sell_exit_rescue(self, *, position_reader=None) -> None:
         """If an ATO SELL is still pending and we still hold the protect, flatten it."""
         from core.ato_exec import rescue_flatten_sell
 
@@ -1439,20 +1488,17 @@ class ATOProtection(ModuleBase):
             try:
                 from core.ato_book_validation import net_qty_for_symbol
 
-                net = net_qty_for_symbol(broker, str(sym))
+                net = net_qty_for_symbol(broker, str(sym), position_reader=position_reader)
                 held = max(0, int(net or 0))
             except Exception:
                 continue
             if held <= 0:
                 continue
             ltp = None
-            getter = getattr(broker, "get_ltp", None)
-            if callable(getter):
-                try:
-                    quotes = getter([str(sym)]) or {}
-                    ltp = float(quotes.get(sym) or quotes.get(str(sym)) or 0)
-                except Exception:
-                    ltp = None
+            try:
+                ltp = self._quote_protect_ltp_kite(str(sym))
+            except Exception:
+                ltp = None
             if not ltp:
                 try:
                     ltp = self._resolve_option_premium(str(sym), None, spot=0.0)
@@ -1480,6 +1526,21 @@ class ATOProtection(ModuleBase):
                 )
             except Exception as exc:
                 self.log.warning("ATO %s SELL exit-Rescue failed: %s", tag, exc)
+
+
+    def _signal_web_order_fill(self, *, side: str, kind: str, order_id: str) -> None:
+        """Stamp batman_state so the web desk can play engage/exit on real fills."""
+        if not side or not kind:
+            return
+        oid = str(order_id or "").strip()
+        if not oid or oid in {"MANUAL_PRE_ALGO"}:
+            return
+        token = f"{side.upper()}|{kind}|{oid}|{utils.now_ist().isoformat()}"
+        key = "ato.web_buy_fill_token" if kind == "buy" else "ato.web_sell_fill_token"
+        try:
+            self.state.set(key, token)
+        except Exception as exc:
+            self.log.debug("web fill token soft-failed: %s", exc)
 
     def _ensure_ledger_state(self) -> None:
 
@@ -1541,6 +1602,9 @@ class ATOProtection(ModuleBase):
             )
         except Exception as exc:
             self.log.warning("ATO cycle feed buy soft-failed: %s", exc)
+        # Desk audio: auto protect BUY after order path (book/fill already checked upstream)
+        if str(entry_source or "") == "auto":
+            self._signal_web_order_fill(side=side, kind="buy", order_id=str(order_id))
 
     def _append_trade_ledger_row(self, row: dict[str, Any]) -> None:
         try:
@@ -1698,6 +1762,7 @@ class ATOProtection(ModuleBase):
             "premium_pnl_rupees": _fmt_premium(premium_pnl_rupees),
             "poll_interval_seconds_used": self._effective_poll_interval(self.config.get("ato", {})),
         }
+        self._signal_web_order_fill(side=side, kind="sell", order_id=str(order_id))
         self._append_trade_ledger_row(row)
         self._write_ledger_snapshot_copy()
         try:
@@ -1840,15 +1905,16 @@ class ATOProtection(ModuleBase):
             (confirmed if sym in broker_symbols else missing).append(entry)
         return confirmed, missing
 
-    def _check_managed_qty_mismatch(self) -> None:
+    def _check_managed_qty_mismatch(self, *, broker_df: Any = None) -> None:
         """Halt CE/PE independently when broker qty is below managed Batman legs."""
         if not self.state.get("deployment.confirmed", False):
             return
-        try:
-            broker_df = self.broker.get_positions()
-        except Exception as exc:
-            self.log.warning("Managed qty check skipped — broker error: %s", exc)
-            return
+        if broker_df is None:
+            try:
+                broker_df = self.broker.get_positions()
+            except Exception as exc:
+                self.log.warning("Managed qty check skipped — broker error: %s", exc)
+                return
 
         sym_qty: dict[str, int] = {}
         if broker_df is not None and not broker_df.empty:
@@ -2445,10 +2511,25 @@ class ATOProtection(ModuleBase):
         if not ce_sell and not pe_sell:
             return  # no positions deployed yet
 
+        broker_df = None
+        position_reader = None
+        if self.broker is not None:
+            try:
+                broker_df = self.broker.get_positions()
+                try:
+                    from core.day_pnl_cache import refresh_hybrid_day_pnl
+
+                    refresh_hybrid_day_pnl(broker=self.broker, force=True)
+                except Exception:
+                    pass
+                position_reader = lambda df=broker_df: df
+            except Exception as exc:
+                self.log.debug("ATO position book prefetch failed: %s", exc)
+
         try:
             spot = self._resolve_nifty_spot()
-            self._watch_ato_buy_fill_rescue()
-            self._watch_ato_sell_exit_rescue()
+            self._watch_ato_buy_fill_rescue(position_reader=position_reader)
+            self._watch_ato_sell_exit_rescue(position_reader=position_reader)
         except Exception as exc:
             self.log.warning("ATO breach check skipped — LTP unavailable: %s", exc)
             self._consecutive_ltp_failures = getattr(self, "_consecutive_ltp_failures", 0) + 1
@@ -2460,14 +2541,21 @@ class ATOProtection(ModuleBase):
 
         self._apply_resume_reevaluate_flags()
 
-        sym_qty, had_book_failure = self._read_symbol_qty_with_retry()
+        if position_reader is not None:
+            sym_qty, had_book_failure = read_positions_with_retry(
+                self.broker,
+                max_retries=1,
+                position_reader=position_reader,
+            )
+        else:
+            sym_qty, had_book_failure = self._read_symbol_qty_with_retry()
         if sym_qty is None:
             self._handle_unreadable_position_book()
             return
         if had_book_failure:
             self._handle_position_book_recovered()
 
-        self._check_managed_qty_mismatch()
+        self._check_managed_qty_mismatch(broker_df=broker_df)
 
         manage_sides = self.state.get("ato.manage_sides", "both")
 

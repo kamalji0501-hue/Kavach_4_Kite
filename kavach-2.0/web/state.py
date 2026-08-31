@@ -16,6 +16,24 @@ def _state_get(state: Any, key: str, default: Any = None) -> Any:
         return default
 
 
+
+def _pnl_exit_snap(state: Any) -> dict[str, Any]:
+    try:
+        from core.pnl_exit_guard import snapshot_pnl_exit
+
+        return snapshot_pnl_exit(state)
+    except Exception:
+        return {
+            "safe_on": False,
+            "safe_level_rs": None,
+            "tp_on": False,
+            "tp_level_rs": None,
+            "firing": False,
+            "last_reason": None,
+            "last_pnl": None,
+            "last_at": None,
+        }
+
 def snapshot() -> dict[str, Any]:
     rt = get_runtime()
     state = rt.state if rt else None
@@ -39,13 +57,33 @@ def snapshot() -> dict[str, Any]:
     day_pnl = None
     positions = []
     try:
-        from core.day_pnl_cache import cached_day_pnl, cached_positions
+        from core.day_pnl_cache import cached_day_pnl, cached_positions, refresh_hybrid_day_pnl
 
+        if rt and rt.broker:
+            try:
+                refresh_hybrid_day_pnl(broker=rt.broker)
+            except Exception:
+                pass
         day_pnl = cached_day_pnl()
         positions = cached_positions() or []
     except Exception:
         day_pnl = None
         positions = []
+
+    ato_readiness: dict[str, Any] = {}
+    try:
+        from core.ato_readiness import compute_ato_readiness
+
+        ato_readiness = compute_ato_readiness(state=state, positions=positions)
+    except Exception as exc:
+        ato_readiness = {
+            "armed": False,
+            "blocked_reasons": ["readiness_error"],
+            "hard_blocked_reasons": ["readiness_error"],
+            "summary_line": f"ATO BLOCKED — readiness error: {exc}",
+            "feed": {"ready": nifty_ok, "ltp": nifty_ltp, "age_s": None},
+        }
+
     return {
         "ok": True,
         "broker": bool(rt and rt.broker),
@@ -63,4 +101,8 @@ def snapshot() -> dict[str, Any]:
         "order_mode": _state_get(state, "order_mode") or "paper",
         "day_pnl": day_pnl,
         "positions": positions,
+        "ato_readiness": ato_readiness,
+        "ato_buy_fill_token": _state_get(state, "ato.web_buy_fill_token") or "",
+        "ato_sell_fill_token": _state_get(state, "ato.web_sell_fill_token") or "",
+        "pnl_exit": _pnl_exit_snap(state),
     }

@@ -57,6 +57,15 @@ _ATO_MODULE: ATOProtection | None = None
 _TOKEN_WATCH_STOP: threading.Event | None = None
 
 
+def _telegram_disabled() -> bool:
+    return (os.environ.get("KAVACH2_TELEGRAM_DISABLED") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _configure_logging() -> None:
     configure_bot_logging(workspace_root=ROOT, bot_name="kavach2")
 
@@ -182,6 +191,11 @@ def main() -> None:
     warn = prod_hostname_guard(ROOT)
     if warn:
         logger.warning(warn)
+    if _telegram_disabled():
+        logger.warning(
+            "KAVACH2_TELEGRAM_DISABLED=1 — Telegram polling OFF (web desk + ATO still run)"
+        )
+
     _apply_mode_paths()
     global LOCK_PATH
     LOCK_PATH = bot_lock_path("kavach2", ROOT)
@@ -205,12 +219,12 @@ def main() -> None:
     atexit.register(_shutdown_ato)
 
     _health_state: dict = {"state": None}
-    _runtime: dict = {"broker": None}
+    _runtime: dict = {"broker": None, "telegram_app": None}
 
     def _kavach_health() -> dict:
         st = _health_state.get("state")
         ok, detail = cache_consumer_status(path=default_cache_path())
-        return {
+        extra = {
             "deployment_confirmed": bool(st.get("deployment.confirmed")) if st else False,
             "ce_ato_active": bool(st.get("ato.ce_ato_active")) if st else False,
             "pe_ato_active": bool(st.get("ato.pe_ato_active")) if st else False,
@@ -218,6 +232,18 @@ def main() -> None:
             "nifty_cache_detail": detail,
             "broker_connected": _runtime["broker"] is not None,
         }
+        try:
+            from core.ato_readiness import compute_ato_readiness
+
+            ready = compute_ato_readiness(state=st, check_services=True)
+            extra["ato_armed"] = bool(ready.get("armed"))
+            extra["ato_blocked_reasons"] = list(ready.get("hard_blocked_reasons") or [])
+            extra["ato_summary"] = ready.get("summary_line")
+        except Exception as exc:
+            extra["ato_armed"] = False
+            extra["ato_blocked_reasons"] = ["readiness_error"]
+            extra["ato_summary"] = f"ATO readiness error: {exc}"
+        return extra
 
     client_code = _load_dhan_client_code()
     if not client_code:
@@ -233,6 +259,25 @@ def main() -> None:
     _health_state["state"] = state
     event_bus = EventBus()
 
+
+    def _sync_broker_everywhere(broker) -> None:
+        """Keep web desk + Telegram bot_data in sync after late token bootstrap."""
+        _runtime["broker"] = broker
+        try:
+            from web.runtime import get_runtime
+
+            rt = get_runtime()
+            if rt is not None:
+                rt.broker = broker
+        except Exception as exc:
+            logger.debug("web runtime broker sync skipped: %s", exc)
+        app = _runtime.get("telegram_app")
+        if app is not None:
+            try:
+                app.bot_data["broker"] = broker
+            except Exception as exc:
+                logger.debug("telegram broker sync skipped: %s", exc)
+
     def _bootstrap_from_token(token: str) -> None:
         global _ATO_MODULE
         if _runtime["broker"] is not None:
@@ -242,7 +287,7 @@ def main() -> None:
         except Exception as exc:
             logger.error("KAVACH broker bootstrap failed: %s", exc)
             return
-        _runtime["broker"] = boot_broker
+        _sync_broker_everywhere(boot_broker)
         apply_runtime_mode_provider(boot_broker, state)
         logger.info("KAVACH 2.0 broker bootstrapped from token file")
         if _ATO_MODULE is None:
@@ -262,6 +307,14 @@ def main() -> None:
 
     start_feeder_nifty_collector()
     start_health_heartbeat(ROOT, "kavach2", extra_provider=_kavach_health)
+    if _telegram_disabled():
+        logger.info("ATO readiness Telegram notifier skipped (telegram disabled)")
+    else:
+        try:
+            from core.ato_readiness_notify import start_ato_readiness_notifier
+            start_ato_readiness_notifier()
+        except Exception as exc:
+            logger.warning("ATO readiness notifier not started: %s", exc)
     if state.get("deployment.confirmed", False):
         logger.info(
             "KAVACH 2.0 session restore: deployment.confirmed=True ce_ato=%s pe_ato=%s",
@@ -314,6 +367,18 @@ def main() -> None:
     except Exception as exc:
         logger.warning("Kavach web desk not started: %s", exc)
 
+    if _telegram_disabled():
+        logger.info(
+            "Telegram halted — holding web desk + ATO only. "
+            "Remove KAVACH2_TELEGRAM_DISABLED and restart batman-kavach2 to resume."
+        )
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            logger.info("KAVACH 2.0 stopped by operator")
+            return
+
     restart_policy = PollingRestartPolicy()
     session = 0
     failure_streak = 0
@@ -324,6 +389,7 @@ def main() -> None:
             app = build_application(
                 broker=_runtime["broker"], state=state, event_bus=event_bus
             )
+            _runtime["telegram_app"] = app
             app.run_polling(drop_pending_updates=True)
             failure_streak += 1
             restart_delay = restart_policy.delay_for_exception(None, failure_streak=failure_streak)

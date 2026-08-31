@@ -8,7 +8,7 @@
   <link rel="icon" href="/static/logo.png" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/app.css?v=20260828mob24" />
+  <link rel="stylesheet" href="/static/app.css?v=20260831pagecache1" />
 </head>
 <body>
   <div id="login" class="login">
@@ -177,19 +177,41 @@
             <span class="knob"></span>
             <span class="tog-copy"><span class="tog-name">HEDGE</span><span id="hedgeLbl">HEDGE OFF</span></span>
           </label>
-          <span class="chip" id="chipBroker">BROKER</span>
+          <div class="top-exit-box toggle rg exit-sl" title="Stop loss floor — day PnL ≤ level">
+            <input id="safeExitLevel" class="top-exit-inp" type="number" step="1" placeholder="₹" aria-label="Stop loss level" />
+            <label class="exit-switch">
+              <input id="safeExitOn" type="checkbox" />
+              <span class="knob"></span>
+            </label>
+            <span class="tog-copy"><span class="tog-name">STOP LOSS</span><span id="safeExitLbl">STOP LOSS OFF</span></span>
+          </div>
+          <div class="top-exit-box toggle rg exit-tp" title="Target ceiling — day PnL ≥ level">
+            <input id="tpExitLevel" class="top-exit-inp" type="number" step="1" placeholder="₹" aria-label="Target level" />
+            <label class="exit-switch">
+              <input id="tpExitOn" type="checkbox" />
+              <span class="knob"></span>
+            </label>
+            <span class="tog-copy"><span class="tog-name">TARGET</span><span id="tpExitLbl">TARGET OFF</span></span>
+          </div>
         </div>
         <div class="grow"></div>
         <div class="top-spot">
-          <span class="chip chip-spot" id="niftyTop">NIFTY  —</span>
-          <span class="chip chip-spot" id="clock">—</span>
+          <div class="chip chip-spot chip-spot-stack" id="spotStack">
+            <span id="niftyTop">NIFTY —</span>
+            <span id="clock">—</span>
+          </div>
         </div>
+      </div>
+      <div class="top-alert-row" id="topAlertRow">
+        <div id="atoBanner" class="ato-banner hidden" role="alert"></div>
+        <span id="navPerf" class="nav-perf hidden" aria-live="polite"></span>
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
       </div>
       <div class="body" id="view"></div>
       <div id="goNotice" class="go-notice hidden"></div>
     </div>
   </div>
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  
   <nav class="tabbar" id="tabs">
     <span data-go="home" class="on">HOME</span>
     <span data-go="ato">ATO</span>
@@ -200,6 +222,6 @@
   <div id="busyGate" class="busy-gate hidden" aria-hidden="true">
     <div class="spinner" role="status" aria-label="Loading"></div>
   </div>
-  <script src="/static/app.js?v=20260828mob21"></script>
+  <script src="/static/app.js?v=20260831pagecache1"></script>
 </body>
 </html>

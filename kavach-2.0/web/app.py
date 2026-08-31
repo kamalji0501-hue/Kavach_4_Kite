@@ -80,7 +80,7 @@ async def index(request: Request) -> Response:
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     html = re.sub(
         r'app\.(css|js)\?v=[^"]+',
-        lambda m: f'app.{m.group(1)}?v=20260827pos1',
+        lambda m: f'app.{m.group(1)}?v=20260829pay2',
         html,
     )
     return Response(html, media_type="text/html")
@@ -115,6 +115,19 @@ async def api_me(request: Request) -> Response:
     return JSONResponse({"ok": True, "auth": True})
 
 
+
+async def api_ato_readiness(request: Request) -> Response:
+    if not _authed(request):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        from core.ato_readiness import ato_readiness_snapshot
+        data = ato_readiness_snapshot()
+        data["ok"] = True
+        return JSONResponse(data)
+    except Exception as exc:
+        return _err(exc)
+
+
 async def api_state(request: Request) -> Response:
     if not _authed(request):
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
@@ -131,7 +144,19 @@ async def ws_state(ws: WebSocket) -> None:
     try:
         while True:
             await ws.send_json(snapshot())
-            await asyncio.sleep(1.5)
+            poll = 2
+            try:
+                rt = get_runtime()
+                st = rt.state if rt else None
+                raw = st.get("ato.poll_interval_seconds") if st else None
+                if isinstance(raw, int) and raw >= 0:
+                    poll = raw
+                elif raw is not None:
+                    poll = int(raw)
+            except Exception:
+                poll = 2
+            # Floor 1s when poll=0 — never busy-push the browser
+            await asyncio.sleep(1.0 if poll <= 0 else float(poll))
     except WebSocketDisconnect:
         return
     except Exception:
@@ -283,6 +308,63 @@ async def api_deploy(request: Request) -> Response:
 
 
 
+
+async def api_safe_exit(request: Request) -> Response:
+    bad = _need_auth(request)
+    if bad:
+        return bad
+    from core.pnl_exit_guard import set_safe_exit, snapshot_pnl_exit, current_day_pnl
+    from web.runtime import require_runtime
+
+    rt = require_runtime()
+    if request.method == "GET":
+        return JSONResponse(
+            {
+                "ok": True,
+                "pnl_exit": snapshot_pnl_exit(rt.state),
+                "day_pnl": current_day_pnl(),
+            }
+        )
+    body = await request.json()
+    on = bool(body.get("on"))
+    level = body.get("level_rs", body.get("level"))
+    try:
+        level_f = None if level is None or level == "" else float(level)
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "Safe Exit level must be a number."}, status_code=400)
+    out = set_safe_exit(rt.state, on=on, level=level_f)
+    code = 200 if out.get("ok") else 400
+    return JSONResponse(out, status_code=code)
+
+
+async def api_take_profit(request: Request) -> Response:
+    bad = _need_auth(request)
+    if bad:
+        return bad
+    from core.pnl_exit_guard import set_take_profit, snapshot_pnl_exit, current_day_pnl
+    from web.runtime import require_runtime
+
+    rt = require_runtime()
+    if request.method == "GET":
+        return JSONResponse(
+            {
+                "ok": True,
+                "pnl_exit": snapshot_pnl_exit(rt.state),
+                "day_pnl": current_day_pnl(),
+            }
+        )
+    body = await request.json()
+    on = bool(body.get("on"))
+    level = body.get("level_rs", body.get("level"))
+    try:
+        level_f = None if level is None or level == "" else float(level)
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "Take Profit level must be a number."}, status_code=400)
+    out = set_take_profit(rt.state, on=on, level=level_f)
+    code = 200 if out.get("ok") else 400
+    return JSONResponse(out, status_code=code)
+
+
 async def api_payoff(request: Request) -> Response:
     bad = _need_auth(request)
     return bad or _cmd(commands.payoff_graph)
@@ -295,6 +377,7 @@ def create_app() -> Starlette:
         Route("/api/logout", logout, methods=["POST"]),
         Route("/api/me", api_me),
         Route("/api/state", api_state),
+        Route("/api/ato-readiness", api_ato_readiness),
         Route("/api/status", api_status),
         Route("/api/ato-status", api_ato_status),
         Route("/api/positions", api_positions),
@@ -314,6 +397,8 @@ def create_app() -> Starlette:
         Route("/api/token/zerodha", api_zerodha, methods=["POST"]),
         Route("/api/register", api_register, methods=["GET", "POST"]),
         Route("/api/deploy", api_deploy, methods=["GET", "POST"]),
+        Route("/api/safe-exit", api_safe_exit, methods=["GET", "POST"]),
+        Route("/api/take-profit", api_take_profit, methods=["GET", "POST"]),
         Route("/api/payoff", api_payoff),
         WebSocketRoute("/ws/state", ws_state),
         Mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static"),

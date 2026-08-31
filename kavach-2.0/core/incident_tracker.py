@@ -716,9 +716,9 @@ def record_from_log_record(
     if record.levelno >= logging.CRITICAL:
         cause_hint = "Critical log level — inspect stack trace and robot health."
     elif "stale" in message.lower() or "ltp" in message.lower():
-        cause_hint = "LTP/cache or feed issue — check DRISHTI feed and market hours."
+        cause_hint = "LTP/cache or feed issue — check Datafeedbot / Feeder and market hours."
     elif "token" in message.lower():
-        cause_hint = "Broker token issue — refresh JWT via DRISHTI."
+        cause_hint = "Broker token issue — refresh JWT via Kavach TOKEN menu."
 
     ctx: dict[str, Any] = {
         "logger": record.name,

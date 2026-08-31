@@ -65,8 +65,16 @@ def persist_dhan_jwt(token: str, *, root: Path | None = None, source: str = "kav
         raise
 
 
+def _kavach_zerodha_env_path() -> Path:
+    return Path("/home/ubuntu/Trading_Runtime_Rahul/Credentials/zerodha/zerodha.env")
+
+
 def persist_zerodha_token(
-    access_token: str, *, root: Path | None = None, source: str = "kavach2"
+    access_token: str,
+    *,
+    root: Path | None = None,
+    source: str = "kavach2",
+    user_id: str = "",
 ) -> datetime:
     token = (access_token or "").strip()
     if not token:
@@ -79,14 +87,15 @@ def persist_zerodha_token(
     }
     _atomic_write_json(kavach_zerodha_json_path(root), payload)
     _atomic_write_json(feeder_zerodha_json_path(), payload)
-    env_path = feeder_zerodha_env_path()
-    try:
-        from datafeedbot.auth.zerodha_token import _upsert_env_token
+    env_targets = [feeder_zerodha_env_path(), _kavach_zerodha_env_path()]
+    for env_path in env_targets:
+        try:
+            from datafeedbot.auth.zerodha_token import _upsert_env_token
 
-        _upsert_env_token(env_path, token)
-    except Exception as exc:
-        logger.warning("zerodha.env upsert via datafeedbot helper failed: %s", exc)
-        _upsert_zerodha_env_local(env_path, token)
+            _upsert_env_token(env_path, token, user_id=user_id)
+        except Exception as exc:
+            logger.warning("zerodha.env upsert failed (%s): %s", env_path, exc)
+            _upsert_zerodha_env_local(env_path, token)
     logger.info(
         "Zerodha token saved last4=%s feeder=%s kavach=%s",
         token[-4:],

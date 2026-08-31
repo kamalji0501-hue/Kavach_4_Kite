@@ -415,7 +415,7 @@ def read_nifty_ltp_cache(path: Path | None = None) -> NiftyLtpCacheSnapshot | No
                 poll_interval_seconds=int(raw.get("poll_interval_seconds", 2)),
                 consecutive_failures=int(raw.get("consecutive_failures", 0)),
                 unchanged_seconds=float(raw.get("unchanged_seconds", 0.0)),
-                collector=str(raw.get("collector", "drishti")),
+                collector=str(raw.get("collector", "feeder")),
                 collector_pid=int(raw["collector_pid"]) if raw.get("collector_pid") else None,
                 replay_market_time=(
                     str(raw["replay_market_time"])
@@ -472,8 +472,8 @@ def resolve_nifty_ltp_from_cache(
     cached = get_cached_nifty_ltp(max_age_seconds=age, path=path)
     if cached is None:
         raise BrokerConnectionError(
-            "NIFTY LTP cache stale or missing. Ensure DRISHTI feed is running "
-            "(REST or WebSocket mode)."
+            "NIFTY LTP cache stale or missing. Ensure Datafeedbot / Feeder is running "
+            "(cache + IPC)."
         )
     return cached
 

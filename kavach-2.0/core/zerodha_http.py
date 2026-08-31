@@ -1,7 +1,7 @@
 """Optimized Kite Connect v3 REST client for Kavach 2.0 orders.
 
 Persistent httpx session (keepalive + pool), serialized order calls, 429 backoff.
-Quotes are last-resort only — ATO LTP stays on the Feeder. No KiteTicker here.
+Quotes paced for ATO protect pricing (Kite REST, no Feeder on hot path). No KiteTicker here.
 Docs: https://kite.trade/docs/connect/v3/orders/
 """
 

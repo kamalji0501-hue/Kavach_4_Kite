@@ -649,7 +649,7 @@ def _buffer_keyboard(same_value: int | None = None) -> InlineKeyboardMarkup:
 
 def _poll_interval_keyboard() -> InlineKeyboardMarkup:
     """Selection-only polling interval keyboard (locked values only)."""
-    options = [1, 2, 3, 4, 5, 10, 15]
+    options = [0, 1, 2, 3, 4, 5, 10, 15]
     row1 = [_btn(f"{v}s", f"{_CB_POLL}:{v}", style="primary") for v in options[:5]]
     row2 = [_btn(f"{v}s", f"{_CB_POLL}:{v}", style="primary") for v in options[5:]]
     cancel = [_btn("❌ Cancel", f"{_CB_POLL}:cancel", style="danger")]
@@ -1718,6 +1718,14 @@ def _sync_state_from_deployment_file(filepath: Path, state) -> None:
     state.set("ato.pe_ato_active", False, save=False)
     state.set("ato.ce_awaiting_clearance", False, save=False)
     state.set("ato.pe_awaiting_clearance", False, save=False)
+    try:
+        from core.ato_side_state import clear_all_side_halts
+        clear_all_side_halts(state, save=False)
+    except Exception:
+        state.set("ato.ce_side_halted", False, save=False)
+        state.set("ato.pe_side_halted", False, save=False)
+        state.set("ato.ce_halt_reason", None, save=False)
+        state.set("ato.pe_halt_reason", None, save=False)
     state.set("deployment.confirmed", True, save=False)
     state.set("deployment.batman_complete", False, save=False)
     state.set("deployment.file", str(filepath), save=False)
@@ -1986,7 +1994,7 @@ async def wizard_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         saransh_session_reset_feeds_only()
     except Exception as exc:
         logger.warning("SARANSH register feed reset soft-failed: %s", exc)
-    # ── Token gate — DRISHTI must have supplied a live Dhan token (prod/dev) ─
+    # ── Token gate — Kavach TOKEN / Feeder must have a live Dhan token ─
     broker = context.bot_data.get("broker")
     from core.batman_mode import is_uat, workspace_root
 
@@ -2242,7 +2250,11 @@ async def _wizard_fetch_step1(
     prefer_edit: bool = False,
 ) -> int:
     """Fetch NIFTY positions from broker and start Step 1."""
-    broker = context.bot_data.get("broker")
+    from core.broker_resolve import resolve_kavach_broker
+
+    broker = resolve_kavach_broker(runtime_broker=context.bot_data.get("broker"))
+    if broker is not None:
+        context.bot_data["broker"] = broker
 
     if not broker:
         await _wizard_show(
@@ -2322,7 +2334,7 @@ async def _wizard_fetch_step1(
             context,
             reply_target,
             f"⚠️ Could not fetch positions from broker: {_md2(exc)}\n\n"
-            "Check DRISHTI /health and retry /register\\.",
+            "Check Datafeedbot health and retry /register\\.",
             prefer_edit=prefer_edit,
         )
         _append_log("wizard_cancelled", reason="broker_error")
@@ -3582,7 +3594,7 @@ async def cmd_resume_blocked(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     if query is not None:
         await query.answer(
-            f"{LABEL_WAITING_FOR_FEED}. DRISHTI is retrying. "
+            f"{LABEL_WAITING_FOR_FEED}. Feeder is recovering. "
             f"Wait for feed-ready message or tap {LABEL_MANUAL_HANDLING}.",
             show_alert=True,
         )
@@ -3590,7 +3602,7 @@ async def cmd_resume_blocked(update: Update, context: ContextTypes.DEFAULT_TYPE)
     message = _require_message(update)
     await message.reply_text(
         f"⛔ <b>{LABEL_WAITING_FOR_FEED}</b> — NIFTY cache is not ready.\n\n"
-        "DRISHTI is retrying WebSocket ↔ REST. "
+        "Datafeedbot / Feeder is recovering. "
         "KAVACH will refresh this menu when the feed is back.",
         parse_mode=ParseMode.HTML,
         reply_markup=_main_menu_keyboard(),
@@ -3618,8 +3630,8 @@ async def cmd_recovery_operator(update: Update, context: ContextTypes.DEFAULT_TY
     message = _require_message(update)
     await message.reply_text(
         f"🙋 <b>{LABEL_MANUAL_HANDLING}</b> — you are in control\n\n"
-        "DRISHTI keeps retrying the NIFTY feed in the background.\n"
-        "DRISHTI will message you when the feed is back.\n"
+        "Datafeedbot keeps the NIFTY feed running in the background.\n"
+        "Kavach will message you when the feed is back.\n"
         "JAGRAN feed alerts are downgraded to <b>warning</b> while you handle this.\n\n"
         "Then tap <b>Resume</b> here when you want KAVACH to monitor positions.",
         parse_mode=ParseMode.HTML,
@@ -3633,7 +3645,7 @@ async def cmd_recovery_auto(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     message = _require_message(update)
     await message.reply_text(
         f"🤖 Switch to <b>{LABEL_AUTO_RESUME}</b>?\n\n"
-        "DRISHTI will auto-resume ATO when the NIFTY cache is fresh.\n"
+        "Kavach will auto-resume ATO when the NIFTY cache is fresh.\n"
         "<i>Only confirm if you are not mid-fix on token or VPS.</i>",
         parse_mode=ParseMode.HTML,
         reply_markup=_recovery_auto_confirm_keyboard(),
@@ -3641,13 +3653,13 @@ async def cmd_recovery_auto(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def cmd_recovery_auto_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    from core.feed_recovery import LABEL_AUTO_RESUME, OWNER_DRISHTI, set_recovery_owner
+    from core.feed_recovery import LABEL_AUTO_RESUME, OWNER_FEEDER, set_recovery_owner
 
-    set_recovery_owner(OWNER_DRISHTI, by="kavach_button")
+    set_recovery_owner(OWNER_FEEDER, by="kavach_button")
     message = _require_message(update)
     await message.reply_text(
         f"🤖 <b>{LABEL_AUTO_RESUME}</b> enabled\n\n"
-        "DRISHTI will auto-resume ATO when the NIFTY cache is fresh and healthy.",
+        "Kavach will auto-resume ATO when the NIFTY cache is fresh and healthy.",
         parse_mode=ParseMode.HTML,
         reply_markup=_main_menu_keyboard(),
     )
@@ -3812,7 +3824,7 @@ async def cmd_positions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not broker:
         await _reply_md2(
             message,
-            "⚠️ No broker connection\\. Send token to DRISHTI first\\.",
+            "⚠️ No broker connection\\. Update token via Kavach TOKEN menu first\\.",
             reply_markup=_main_menu_keyboard(),
         )
         return
@@ -3879,7 +3891,7 @@ async def cmd_funds(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not broker:
         await _reply_md2(
             message,
-            "⚠️ No broker connection\\. Send token to DRISHTI first\\.",
+            "⚠️ No broker connection\\. Update token via Kavach TOKEN menu first\\.",
             reply_markup=_main_menu_keyboard(),
         )
         return

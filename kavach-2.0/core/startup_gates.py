@@ -1,4 +1,4 @@
-"""Sequential Phase 1 startup gates (DRISHTI → KAVACH → JAGRAN)."""
+"""Sequential Phase 1 startup gates (Feeder/Datafeedbot → KAVACH → JAGRAN)."""
 
 from __future__ import annotations
 

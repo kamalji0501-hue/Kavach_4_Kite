@@ -47,7 +47,7 @@ KAVACH2_SERVICE = os.environ.get("BATMAN_KAVACH2_SERVICE", "batman-kavach2.servi
 MARKET_OPEN = (9, 10)
 MARKET_CLOSE = (15, 35)
 STALE_CACHE_SECONDS = float(os.environ.get("MARKET_STACK_STALE_SECONDS", "20"))
-RESTART_COOLDOWN_SECONDS = int(os.environ.get("MARKET_STACK_RESTART_COOLDOWN", "600"))
+RESTART_COOLDOWN_SECONDS = int(os.environ.get("MARKET_STACK_RESTART_COOLDOWN", "300"))
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -131,6 +131,21 @@ def read_ops_flags() -> dict[str, object]:
     return out
 
 
+def _ato_summary() -> dict:
+    try:
+        from core.ato_readiness import ato_readiness_snapshot
+
+        snap = ato_readiness_snapshot()
+        return {
+            "armed": snap.get("armed"),
+            "summary_line": snap.get("summary_line"),
+            "hard_blocked_reasons": snap.get("hard_blocked_reasons"),
+            "checked_at": snap.get("checked_at"),
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def main() -> int:
     now = datetime.now(IST)
     status: dict[str, object] = {
@@ -208,6 +223,10 @@ def main() -> int:
     if ops.get("pe_side_halted"):
         log.warning("Note: PE side halted (%s) — operator action may be needed", ops.get("pe_halt_reason"))
 
+    try:
+        status["ato_readiness"] = _ato_summary()
+    except Exception:
+        pass
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATE_PATH.write_text(json.dumps(status, indent=2) + "\n")
     print(json.dumps(status))

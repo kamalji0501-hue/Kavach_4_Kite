@@ -290,18 +290,34 @@ def format_preview_text(
     *,
     expiry_label: str,
     base_lots: int,
+    all_legs: list[LegPlan] | None = None,
 ) -> str:
+    shown = {row["key"] for row in legs_preview}
+    skipped = [
+        leg for leg in (all_legs or [])
+        if leg.qty <= 0 and leg.key not in shown
+    ]
+    n_place = len(legs_preview)
+    n_plan = len(all_legs) if all_legs else n_place
     lines = [
         f"Batman 2.0 preview — center {center_level:.0f}",
-        f"Expiry: {expiry_label} | lots: {base_lots}",
+        f"Expiry: {expiry_label} | lots: {base_lots} | {n_place} legs to place"
+        + (f" (of {n_plan} in plan)" if n_plan != n_place else ""),
         "─" * 36,
     ]
     for row in legs_preview:
         lines.append(
             f"{row['key']:<16} {row['side']:<4} {row['type']} {row['strike']} × {row['qty']}"
         )
+    if skipped:
+        lines.append("─" * 36)
+        lines.append("Skipped (30% dyn hedge < 1 lot at this size):")
+        for leg in skipped:
+            lines.append(
+                f"{leg.key:<16} {leg.side:<4} {leg.option_type} {leg.strike} × 0"
+            )
     lines.append("─" * 36)
-    lines.append("Confirm to place all legs (entry only).")
+    lines.append("Confirm to place all legs above (entry only).")
     lines.append("Then Register Batman to arm Phase 1 / ATO.")
     return "\n".join(lines)
 

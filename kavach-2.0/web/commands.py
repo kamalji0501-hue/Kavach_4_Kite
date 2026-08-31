@@ -357,9 +357,22 @@ def token_deactivate() -> dict[str, Any]:
 
 def token_zerodha(token: str) -> dict[str, Any]:
     from core.token_fanout import persist_zerodha_token
+    from core.zerodha_token_exchange import resolve_kite_access_token
 
-    persist_zerodha_token((token or "").strip(), root=_root(), source="kavach_web")
-    return {"ok": True, "text": "Zerodha feeder token saved."}
+    try:
+        access, detail = resolve_kite_access_token(token)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    persist_zerodha_token(
+        access,
+        root=_root(),
+        source="kavach_web",
+        user_id=str(detail) if detail not in ("ok", "") else "",
+    )
+    return {
+        "ok": True,
+        "text": f"Zerodha token exchanged and saved (last4=····{access[-4:]}). Feeder + Kavach updated.",
+    }
 
 
 def register_note() -> dict[str, Any]:

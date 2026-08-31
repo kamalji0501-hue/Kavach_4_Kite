@@ -181,24 +181,35 @@ async def process_pasted_zerodha_token(
         )
         return
 
-    if not looks_like_kite_access_token(raw):
+    try:
+        from core.zerodha_token_exchange import resolve_kite_access_token
+
+        access, detail = resolve_kite_access_token(raw)
+    except ValueError as exc:
         await _reply(
-            "🔴 <b>Not a Kite access_token</b>\n\n"
-            "Paste the access_token string only — not a URL and not a request_token."
+            "🔴 <b>Could not use that Kite token</b>\n\n"
+            f"<code>{html.escape(str(exc))}</code>\n\n"
+            "Paste the full login redirect URL (with <code>request_token=</code>) "
+            "right after Kite login, or a fresh access_token."
         )
         return
 
-    ok, reason = validate_kite_token(raw)
+    ok, reason = validate_kite_token(access)
     if not ok:
         await _reply(
             "🔴 <b>Kite rejected the token</b>\n\n"
-            "Nothing was saved. Paste a fresh Kite access_token."
+            "Nothing was saved. Paste a fresh Kite login URL or access_token."
         )
         return
 
     try:
         root = context.bot_data.get("workspace_root")
-        saved_at = persist_zerodha_token(raw, root=root, source="kavach2_telegram")
+        saved_at = persist_zerodha_token(
+            access,
+            root=root,
+            source="kavach2_telegram",
+            user_id=str(detail) if detail not in ("ok", "") else "",
+        )
     except Exception as exc:
         logger.error("Feeder Zerodha token persist failed: %s", exc)
         await _reply(
@@ -213,7 +224,7 @@ async def process_pasted_zerodha_token(
         extra = f"\nKite user: <code>{html.escape(reason)}</code>"
     await _reply(
         "✅ <b>Zerodha token saved for Kavach and Feeder</b>\n\n"
-        f"Last4: ····{html.escape(_last4(raw))}\n"
+        f"Last4: ····{html.escape(_last4(access))}\n"
         f"Saved: {html.escape(saved_fmt)}\n"
         "Feeder will use this for Zerodha data. Kavach orders also go to Zerodha."
         f"{extra}"

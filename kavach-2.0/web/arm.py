@@ -209,10 +209,10 @@ def buffer_form() -> dict[str, Any]:
         "pe_entry": _level(pe_entry_off, "PE", pe_strike, "entry"),
         "ce_retrace": _level(ce_ret, "CE", ce_strike, "exit", hide_sentinel=True),
         "pe_retrace": _level(pe_ret, "PE", pe_strike, "exit", hide_sentinel=True),
-        "ce_entry_placeholder": "NIFTY level (e.g. 24200)",
-        "pe_entry_placeholder": "NIFTY level (e.g. 24100)",
-        "ce_retrace_placeholder": "NIFTY level (e.g. 24150)",
-        "pe_retrace_placeholder": "NIFTY level (e.g. 24150)",
+        "ce_entry_placeholder": "Nifty Level",
+        "pe_entry_placeholder": "Nifty Level",
+        "ce_retrace_placeholder": "Nifty Level",
+        "pe_retrace_placeholder": "Nifty Level",
         "ce_sell_strike": ce_strike,
         "pe_sell_strike": pe_strike,
         "nifty_ltp": nifty_ltp(),
@@ -274,12 +274,12 @@ def poll_form() -> dict[str, Any]:
         cur = int(raw) if raw is not None else 2
     except (TypeError, ValueError):
         cur = 2
-    if cur not in [1, 2, 3, 4, 5, 10, 15]:
+    if cur not in [0, 1, 2, 3, 4, 5, 10, 15]:
         cur = 2
     return {
         "ok": True,
         "poll_interval": cur,
-        "poll_options": [1, 2, 3, 4, 5, 10, 15],
+        "poll_options": [0, 1, 2, 3, 4, 5, 10, 15],
         "default": 2,
     }
 
@@ -288,12 +288,13 @@ def poll_save(payload: dict[str, Any]) -> dict[str, Any]:
     st = require_runtime().state
     if not st:
         return {"ok": False, "error": "No state"}
+    raw = payload.get("poll_interval", 2)
     try:
-        poll = int(payload.get("poll_interval") or 2)
+        poll = 2 if raw is None or raw == "" else int(raw)
     except (TypeError, ValueError):
         return {"ok": False, "error": "Poll interval must be a number of seconds."}
-    if poll not in (1, 2, 3, 4, 5, 10, 15):
-        return {"ok": False, "error": "Poll interval must be 1, 2, 3, 4, 5, 10, or 15 seconds."}
+    if poll not in (0, 1, 2, 3, 4, 5, 10, 15):
+        return {"ok": False, "error": "Poll interval must be 0, 1, 2, 3, 4, 5, 10, or 15 seconds."}
     st.set("ato.poll_interval_seconds", poll)
     path = _active_deployment()
     if path:
@@ -410,7 +411,11 @@ def _load_register_book() -> tuple[list[dict[str, Any]], str]:
     note = ""
     positions: list[dict[str, Any]] = []
     rt = require_runtime()
-    broker = getattr(rt, "broker", None)
+    from core.broker_resolve import resolve_kavach_broker
+
+    broker = resolve_kavach_broker(root=getattr(rt, "root", None), runtime_broker=getattr(rt, "broker", None))
+    if broker is not None and getattr(rt, "broker", None) is None:
+        rt.broker = broker
     if broker:
         try:
             refresh = getattr(broker, "refresh_fixture_positions", None)
@@ -586,7 +591,7 @@ def register_defaults() -> dict[str, Any]:
         "nifty_ltp": px,
         "lot_size": lot_size,
         "ato_step": ATO_STEP,
-        "poll_options": [1, 2, 3, 4, 5, 10, 15],
+        "poll_options": [0, 1, 2, 3, 4, 5, 10, 15],
         "poll_interval": 2,
         "ato_mon": "both" if book_pe and book_ce else ("pe" if book_pe else "ce"),
         "pe_long": pe_long,
@@ -744,11 +749,12 @@ def register_batman(payload: dict[str, Any]) -> dict[str, Any]:
         if cerr:
             return {"ok": False, "error": cerr}
 
+    raw = payload.get("poll_interval", 2)
     try:
-        poll = int(payload.get("poll_interval") or 2)
+        poll = 2 if raw is None or raw == "" else int(raw)
     except (TypeError, ValueError):
         poll = 2
-    if poll not in (1, 2, 3, 4, 5, 10, 15):
+    if poll not in (0, 1, 2, 3, 4, 5, 10, 15):
         poll = 2
 
     ato_mon = str(payload.get("ato_mon") or "both").strip().lower()
@@ -905,6 +911,16 @@ def _sync_state(filepath: Path, state: Any) -> None:
     state.set("ato.pe_triggered", False, save=False)
     state.set("ato.ce_ato_active", False, save=False)
     state.set("ato.pe_ato_active", False, save=False)
+    state.set("ato.ce_awaiting_clearance", False, save=False)
+    state.set("ato.pe_awaiting_clearance", False, save=False)
+    try:
+        from core.ato_side_state import clear_all_side_halts
+        clear_all_side_halts(state, save=False)
+    except Exception:
+        state.set("ato.ce_side_halted", False, save=False)
+        state.set("ato.pe_side_halted", False, save=False)
+        state.set("ato.ce_halt_reason", None, save=False)
+        state.set("ato.pe_halt_reason", None, save=False)
     state.set("deployment.confirmed", True, save=False)
     state.set("deployment.batman_complete", False, save=False)
     state.set("deployment.file", str(filepath), save=False)
@@ -940,10 +956,10 @@ def deploy_preview(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": "Enter a NIFTY center level and lots."}
     if lots < 1:
         return {"ok": False, "error": "Lots must be at least 1."}
-    _, preview = multileg_entry.build_preview(level, base_lots=lots, lot_size=LOT_SIZE, params={})
+    legs, preview = multileg_entry.build_preview(level, base_lots=lots, lot_size=LOT_SIZE, params={})
     exp = multileg_entry.resolve_expiry()
     text = multileg_entry.format_preview_text(
-        level, preview, expiry_label=expiry_label_from_date(exp), base_lots=lots
+        level, preview, expiry_label=expiry_label_from_date(exp), base_lots=lots, all_legs=legs
     )
     return {"ok": True, "text": text, "level": level, "lots": lots, "expiry": exp.isoformat()}
 

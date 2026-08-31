@@ -166,7 +166,7 @@ async def b2_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     broker = context.bot_data.get("broker")
     if not broker:
-        await query.edit_message_text("No broker — update JWT in DRISHTI first.")
+        await query.edit_message_text("No broker — update JWT via Kavach TOKEN menu first.")
         _clear_data(context)
         return ConversationHandler.END
 

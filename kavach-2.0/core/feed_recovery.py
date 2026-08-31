@@ -26,7 +26,8 @@ def default_state_path() -> Path:
     """Mode-aware batman_state.json (UAT → data/uat/batman_state.json)."""
     return state_path(workspace_root())
 
-OWNER_DRISHTI = "drishti"
+OWNER_DRISHTI = "drishti"  # legacy alias; prefer OWNER_FEEDER on Feeder-only VPS
+OWNER_FEEDER = "feeder"
 OWNER_OPERATOR = "operator"
 
 ALERT_INTERVAL_SECONDS = 30
@@ -69,17 +70,19 @@ def _save_blob(sm: StateManager, blob: dict[str, Any]) -> None:
 
 def get_recovery_owner(state_path: Path | str | None = None) -> str:
     blob = _recovery_blob(_sm(state_path))
-    owner = str(blob.get("owner", OWNER_DRISHTI))
-    return owner if owner in (OWNER_DRISHTI, OWNER_OPERATOR) else OWNER_DRISHTI
+    owner = str(blob.get("owner", OWNER_FEEDER))
+    if owner == OWNER_DRISHTI:
+        return OWNER_FEEDER  # surface Feeder on this VPS
+    return owner if owner in (OWNER_FEEDER, OWNER_OPERATOR, OWNER_DRISHTI) else OWNER_FEEDER
 
 
 def set_recovery_owner(
     owner: str,
     *,
-    by: str = "drishti",
+    by: str = "feeder",
     state_path: Path | str | None = None,
 ) -> None:
-    if owner not in (OWNER_DRISHTI, OWNER_OPERATOR):
+    if owner not in (OWNER_DRISHTI, OWNER_FEEDER, OWNER_OPERATOR):
         raise ValueError(f"invalid recovery owner: {owner}")
     sm = _sm(state_path)
     blob = _recovery_blob(sm)
@@ -87,7 +90,7 @@ def set_recovery_owner(
     blob["owner"] = owner
     blob["owner_set_at"] = now
     blob["owner_set_by"] = by
-    if owner == OWNER_DRISHTI:
+    if owner in (OWNER_DRISHTI, OWNER_FEEDER):
         blob["escalation_sent"] = False
     _save_blob(sm, blob)
     logger.info("NIFTY feed recovery owner=%s (by=%s)", owner, by)
@@ -178,9 +181,9 @@ def clear_recovery_at_eod(*, state_path: Path | str | None = None) -> bool:
     blob = _recovery_blob(sm)
     owner = get_recovery_owner(state_path)
     degraded = bool(blob.get("degraded"))
-    if owner == OWNER_DRISHTI and not degraded:
+    if owner in (OWNER_DRISHTI, OWNER_FEEDER) and not degraded:
         return False
-    set_recovery_owner(OWNER_DRISHTI, by="eod_reset", state_path=state_path)
+    set_recovery_owner(OWNER_FEEDER, by="eod_reset", state_path=state_path)
     clear_feed_degraded(state_path=state_path)
     logger.info("NIFTY feed recovery state cleared at EOD")
     return True
@@ -278,8 +281,8 @@ def is_feed_degraded(state_path: Path | str | None = None) -> bool:
 
 
 def should_auto_resume_ato(state_path: Path | str | None = None) -> bool:
-    """DRISHTI may auto-resume only when it owns recovery."""
-    return get_recovery_owner(state_path) == OWNER_DRISHTI
+    """Feeder/legacy Drishti owner may auto-resume when it owns recovery."""
+    return get_recovery_owner(state_path) in (OWNER_FEEDER, OWNER_DRISHTI)
 
 
 def should_send_recovery_alert(
@@ -323,7 +326,7 @@ def should_send_escalation(state_path: Path | str | None = None) -> bool:
     blob = _recovery_blob(sm)
     if not blob.get("degraded") or blob.get("escalation_sent"):
         return False
-    if get_recovery_owner(state_path) != OWNER_DRISHTI:
+    if get_recovery_owner(state_path) not in (OWNER_FEEDER, OWNER_DRISHTI):
         return False
     duration = degraded_duration_seconds(state_path)
     if duration is None or duration < ESCALATION_SECONDS:
@@ -411,16 +414,16 @@ def evaluate_kavach_resume(
 
     if ready:
         if get_recovery_owner(state_path) == OWNER_OPERATOR:
-            set_recovery_owner(OWNER_DRISHTI, by="kavach_resume_healthy", state_path=state_path)
+            set_recovery_owner(OWNER_FEEDER, by="kavach_resume_healthy", state_path=state_path)
         clear_feed_degraded(state_path=state_path)
         return True, ""
 
     age_txt = f"{age:.0f}s" if age is not None else "unknown"
     return (
         False,
-        f"NIFTY feed cache is not ready (age {age_txt}). DRISHTI is still retrying "
-        "(WebSocket ↔ REST). Tap <b>Manual handling</b> on DRISHTI or KAVACH if you "
-        "are fixing it yourself — DRISHTI will notify when the feed is back.",
+        f"NIFTY feed cache is not ready (age {age_txt}). Datafeedbot / Feeder is still "
+        "recovering. Tap <b>Manual handling</b> on KAVACH if you "
+        "are fixing it yourself — Kavach will notify when the feed is back.",
     )
 
 

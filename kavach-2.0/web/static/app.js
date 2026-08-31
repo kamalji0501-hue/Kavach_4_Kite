@@ -2,6 +2,88 @@
   const $ = (id) => document.getElementById(id);
   let page = "home";
   let live = {};
+  const pageHtmlCache = Object.create(null);
+  const pageCacheMeta = Object.create(null);
+  let navPerfTimer = 0;
+
+  const PAGE_LABELS = {
+    home: "Home",
+    status: "Status",
+    summary: "Summary",
+    ato: "ATO",
+    register: "Register",
+    deploy: "Deploy",
+    payoff: "Payoff",
+    token: "Token",
+  };
+
+  function invalidatePageCache(keys) {
+    if (keys == null) {
+      for (const k of Object.keys(pageHtmlCache)) delete pageHtmlCache[k];
+      for (const k of Object.keys(pageCacheMeta)) delete pageCacheMeta[k];
+      return;
+    }
+    const list = Array.isArray(keys) ? keys : [keys];
+    for (const k of list) {
+      delete pageHtmlCache[k];
+      delete pageCacheMeta[k];
+    }
+  }
+
+  function invalidateHomeCache() {
+    invalidatePageCache("home");
+  }
+
+  function savePageCache(key, html, meta) {
+    pageHtmlCache[key] = html;
+    if (meta !== undefined) pageCacheMeta[key] = meta;
+  }
+
+  function pageLabel(key) {
+    return PAGE_LABELS[key] || String(key || "Page");
+  }
+
+  function showNavPerf(key, mode, ms) {
+    const text = pageLabel(key) + " · " + mode + " · " + ms + "ms";
+    const el = $("navPerf");
+    if (el) {
+      el.textContent = text;
+      el.className = "nav-perf " + (mode === "cache" ? "ok" : "fetch");
+      el.classList.remove("hidden");
+    }
+    toast(text, true);
+    if (navPerfTimer) clearTimeout(navPerfTimer);
+    navPerfTimer = setTimeout(() => {
+      if (el) el.classList.add("hidden");
+      navPerfTimer = 0;
+    }, 3500);
+  }
+
+  function finishPageRender(key, view, meta, navT0) {
+    savePageCache(key, view.innerHTML, meta);
+    playViewIn(view);
+    showNavPerf(key, "fetch", Math.max(1, Math.round(performance.now() - navT0)));
+  }
+
+  function restorePageFromCache(view) {
+    const html = pageHtmlCache[page];
+    if (!html) return false;
+    const t0 = performance.now();
+    view.innerHTML = html;
+    wirePageHandlers(page, pageCacheMeta[page]);
+    playViewIn(view);
+    applyChrome(live);
+    showNavPerf(page, "cache", Math.max(1, Math.round(performance.now() - t0)));
+    return true;
+  }
+
+  function wirePageHandlers(key, meta) {
+    if (key === "register" && meta && meta.register) wireRegisterHandlers(meta.register);
+    else if (key === "ato") wireAtoMgrHandlers();
+    else if (key === "deploy") wireDeployHandlers();
+    else if (key === "payoff" && meta) wirePayoffChart(meta);
+    else if (key === "token") wireTokenHandlers($("view"));
+  }
   let clockTimer = 0;
   let toggling = false;
   let toastTimer = 0;
@@ -75,7 +157,7 @@
       el.textContent = "";
       el.className = "toast";
       toastTimer = 0;
-    }, 2000);
+    }, 6000);
   }
 
   function setGoNotice(msg, kind) {
@@ -117,7 +199,20 @@
     </div>`;
   }
 
+  function wrapPageFrame(view) {
+    if (!view) return;
+    if (view.querySelector(":scope > .home-dash, :scope > .page-frame")) return;
+    const head = view.querySelector(":scope > .page-head");
+    if (!head) return;
+    const frame = document.createElement("div");
+    frame.className = "page-frame";
+    while (head.nextSibling) frame.appendChild(head.nextSibling);
+    if (!frame.childNodes.length) return;
+    view.appendChild(frame);
+  }
+
   function playViewIn(view) {
+    wrapPageFrame(view);
     if (!view || reduceMotion()) return;
     view.classList.remove("view-in");
     void view.offsetWidth;
@@ -134,6 +229,10 @@
       second: "2-digit",
       hour12: false,
     });
+  }
+
+  function isMobileUi() {
+    return window.matchMedia("(max-width: 900px)").matches;
   }
 
   function paintToggle(el, lbl, on, onText, offText) {
@@ -173,37 +272,300 @@
     body.innerHTML = posRowsHtml(positions);
   }
 
+
+  /* ---- ATO surety audio (always on; unlock on first gesture) ---- */
+  const ATO_AUDIO = {
+    down: "/static/audio/kavach_down_final.wav",
+    up: "/static/audio/kavach_up_final.wav",
+    welcome: "/static/audio/welcome_final.wav",
+    register: "/static/audio/register_arm_final.wav",
+    complete: "/static/audio/complete_final.wav",
+    engage: "/static/audio/ato_engage_final.wav",
+    exit: "/static/audio/ato_exit_final.wav",
+  };
+  let _audioUnlocked = false;
+  let _lastArmed = null;
+  let _lastBuyFillToken = null;
+  let _lastSellFillToken = null;
+  let _welcomePlayed = false;
+  let _suppressReadinessAudioUntil = 0;
+  const PROTECT_BOOK_BLOCK_REASONS = new Set([
+    "pe_protect_in_book",
+    "ce_protect_in_book",
+  ]);
+
+  function unlockAudio() {
+    if (_audioUnlocked) return;
+    _audioUnlocked = true;
+    try {
+      const a = new Audio(ATO_AUDIO.up);
+      a.volume = 0.01;
+      a.play().then(() => { a.pause(); a.currentTime = 0; }).catch(() => {});
+    } catch (_) {}
+  }
+
+  function playAtoClip(kind) {
+    const src = ATO_AUDIO[kind];
+    if (!src) return;
+    try {
+      const a = new Audio(src);
+      a.volume = 1;
+      a.play().catch(() => {});
+    } catch (_) {}
+  }
+
+  ["pointerdown", "keydown", "touchstart"].forEach((ev) => {
+    window.addEventListener(ev, unlockAudio, { once: true, capture: true });
+  });
+
+  function feedAgeClass(age) {
+    if (age == null || Number.isNaN(Number(age))) return "feed-bad";
+    const n = Number(age);
+    if (n <= 3) return "feed-ok";
+    if (n <= 10) return "feed-amber";
+    return "feed-bad";
+  }
+
+  function paintAtoBanner(s) {
+    const el = $("atoBanner");
+    if (!el) return;
+    const ar = (s && s.ato_readiness) || {};
+    const armed = !!ar.armed;
+    if (armed) {
+      el.classList.add("hidden");
+      el.textContent = "";
+      return;
+    }
+    const labels = ar.reason_labels || {};
+    const hard = ar.hard_blocked_reasons || ar.blocked_reasons || [];
+    const top = hard.slice(0, 2).map((r) => labels[r] || r).filter(Boolean);
+    const line = top.join(" · ") || (ar.summary_line || "ATO BLOCKED");
+    let action = "Check Datafeedbot service / Feeder cache.";
+    if (hard.indexOf("deployment_not_confirmed") >= 0) action = "Register / Arm Kavach first.";
+    else if (hard.indexOf("algo_paused") >= 0) action = "Tap RESUME when the feed is healthy.";
+    else if (hard.indexOf("datafeedbot_down") >= 0 || hard.indexOf("kavach2_down") >= 0) {
+      action = "Check VPS: datafeedbot.service / batman-kavach2.service.";
+    }
+    el.classList.remove("hidden");
+    el.innerHTML = `<div class="ato-banner-line">${esc(line)}</div><div class="ato-banner-actions">${esc(action)}</div>`;
+  }
+
+  function _hardBlockReasons(s) {
+    const ar = (s && s.ato_readiness) || {};
+    return ar.hard_blocked_reasons || ar.blocked_reasons || [];
+  }
+
+  function _protectBookOnlyBlock(hard) {
+    if (!hard || !hard.length) return false;
+    return hard.every((r) => PROTECT_BOOK_BLOCK_REASONS.has(r));
+  }
+
+  /** Trade clips (#6/#7) win over readiness (#4/#5) on the same tick. */
+  function onAtoDeskAudioEdges(s) {
+    if (!s) return;
+    const ar = (s && s.ato_readiness) || {};
+    const buy = String(s.ato_buy_fill_token || "");
+    const sell = String(s.ato_sell_fill_token || "");
+    const now = Date.now();
+    const initTokens = _lastBuyFillToken === null && _lastSellFillToken === null;
+    const buyNew = !initTokens && buy && buy !== _lastBuyFillToken;
+    const sellNew = !initTokens && sell && sell !== _lastSellFillToken;
+
+    if (initTokens) {
+      _lastBuyFillToken = buy;
+      _lastSellFillToken = sell;
+      if (typeof ar.armed === "boolean") _lastArmed = ar.armed;
+      return;
+    }
+
+    if (buyNew) {
+      playAtoClip("engage");
+      _suppressReadinessAudioUntil = now + 6000;
+    }
+    if (sellNew) {
+      playAtoClip("exit");
+      _suppressReadinessAudioUntil = now + 6000;
+    }
+
+    if (typeof ar.armed === "boolean" && _lastArmed !== null) {
+      const hard = _hardBlockReasons(s);
+      const readinessSuppressed = now < _suppressReadinessAudioUntil;
+
+      if (_lastArmed === true && ar.armed === false) {
+        const incidentBlock = !buyNew && !_protectBookOnlyBlock(hard) && !readinessSuppressed;
+        if (incidentBlock) playAtoClip("down");
+      }
+      if (_lastArmed === false && ar.armed === true) {
+        const incidentRecovery = !sellNew && !readinessSuppressed;
+        if (incidentRecovery) playAtoClip("up");
+      }
+      _lastArmed = ar.armed;
+    }
+
+    _lastBuyFillToken = buy;
+    _lastSellFillToken = sell;
+  }
+
+
+  function fmtExitLevel(v) {
+    if (v == null || v === "") return "";
+    const n = Number(v);
+    return Number.isFinite(n) ? String(n) : "";
+  }
+
+  function paintPnlExitChrome(s) {
+    const pe = (s && s.pnl_exit) || {};
+    const safeOn = !!pe.safe_on;
+    const tpOn = !!pe.tp_on;
+    const safeIn = $("safeExitOn");
+    const tpIn = $("tpExitOn");
+    const safeLvl = $("safeExitLevel");
+    const tpLvl = $("tpExitLevel");
+    const _mobExit = isMobileUi();
+    paintToggle(
+      safeIn,
+      $("safeExitLbl"),
+      safeOn,
+      _mobExit ? "ON" : "STOP LOSS ON",
+      _mobExit ? "OFF" : "STOP LOSS OFF"
+    );
+    paintToggle(
+      tpIn,
+      $("tpExitLbl"),
+      tpOn,
+      _mobExit ? "ON" : "TARGET ON",
+      _mobExit ? "OFF" : "TARGET OFF"
+    );
+    const slName = document.querySelector(".top-exit-box.exit-sl .tog-name");
+    const tpName = document.querySelector(".top-exit-box.exit-tp .tog-name");
+    if (slName) slName.textContent = _mobExit ? "SL" : "STOP LOSS";
+    if (tpName) tpName.textContent = _mobExit ? "TGT" : "TARGET";
+    if (safeLvl && document.activeElement !== safeLvl) {
+      safeLvl.value = fmtExitLevel(pe.safe_level_rs);
+    }
+    if (tpLvl && document.activeElement !== tpLvl) {
+      tpLvl.value = fmtExitLevel(pe.tp_level_rs);
+    }
+    // Reuse ATO banner strip for fire notice
+    const ban = $("atoBanner");
+    if (ban && pe.firing) {
+      ban.classList.remove("hidden");
+      ban.className = "ato-banner bad";
+      ban.textContent = "FLATTENING POSITIONS…";
+    } else if (ban && pe.last_reason && !((s && s.ato_readiness && !s.ato_readiness.armed))) {
+      // only show exit banner if readiness banner not already taking priority — paintAtoBanner may overwrite
+    }
+    if (pe.last_reason) {
+      const label = pe.last_reason === "take_profit" ? "TARGET FIRED" : "STOP LOSS FIRED";
+      const pnl = pe.last_pnl != null ? fmtPnl(pe.last_pnl) : "—";
+      // stash for paintAtoBanner companion
+      live._pnlExitBanner = label + " · PnL " + pnl;
+    } else {
+      live._pnlExitBanner = "";
+    }
+  }
+
+  async function postPnlExit(path, on, levelEl) {
+    const raw = levelEl ? levelEl.value : "";
+    const body = { on: !!on, level_rs: raw === "" ? null : Number(raw) };
+    try {
+      setBusy(true);
+      const r = await api(path, { method: "POST", body: JSON.stringify(body) });
+      toast(r.text || (r.ok ? "Saved" : (r.error || "Failed")), !!r.ok);
+      if (!r.ok) throw new Error(r.error || "failed");
+      if (r.pnl_exit) live.pnl_exit = r.pnl_exit;
+      applyChrome(live);
+      await render();
+    } catch (e) {
+      toast(String(e.message || e), false);
+      applyChrome(live);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function bindPnlExitControls() {
+    const safeIn = $("safeExitOn");
+    const tpIn = $("tpExitOn");
+    const safeLvl = $("safeExitLevel");
+    const tpLvl = $("tpExitLevel");
+    if (safeIn && !safeIn.dataset.bound) {
+      safeIn.dataset.bound = "1";
+      safeIn.addEventListener("change", () => postPnlExit("/api/safe-exit", !!safeIn.checked, safeLvl));
+    }
+    if (tpIn && !tpIn.dataset.bound) {
+      tpIn.dataset.bound = "1";
+      tpIn.addEventListener("change", () => postPnlExit("/api/take-profit", !!tpIn.checked, tpLvl));
+    }
+    const armSave = (el, path, tog) => {
+      if (!el || el.dataset.bound) return;
+      el.dataset.bound = "1";
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          postPnlExit(path, !!(tog && tog.checked), el);
+        }
+      });
+      el.addEventListener("change", () => {
+        if (tog && tog.checked) postPnlExit(path, true, el);
+      });
+    };
+    armSave(safeLvl, "/api/safe-exit", safeIn);
+    armSave(tpLvl, "/api/take-profit", tpIn);
+  }
+
   function applyChrome(s) {
     live = s || live;
     const paused = !!live.paused;
     const resumed = !paused;
     const hedgeOn = !!live.dyn_hedge;
-    const broker = !!live.broker;
-    const brokerEl = $("chipBroker");
     const nifty = $("niftyTop");
-    if (brokerEl) {
-      brokerEl.textContent = broker ? "BROKER CONNECTED" : "BROKER OFF";
-      brokerEl.className = "chip " + (broker ? "ok" : "live");
-    }
     if (nifty) {
-      const px = live.nifty_ltp != null && live.nifty_ltp !== ""
-        ? Number(live.nifty_ltp).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-        : (String(live.nifty || "").trim() || "—");
-      nifty.textContent = "NIFTY  " + px;
-      nifty.className = "chip chip-spot";
+      const ar = live.ato_readiness || {};
+      const feed = ar.feed || {};
+      const px = (feed.ltp != null && feed.ltp !== "")
+        ? Number(feed.ltp).toLocaleString("en-IN", { maximumFractionDigits: 0 })
+        : (live.nifty_ltp != null && live.nifty_ltp !== ""
+          ? Number(live.nifty_ltp).toLocaleString("en-IN", { maximumFractionDigits: 0 })
+          : (String(live.nifty || "").trim() || "—"));
+      const age = feed.age_s != null ? Math.round(Number(feed.age_s)) : null;
+      const ageTxt = age == null ? "?" : String(age) + "s";
+      const src = String(feed.source || "—").toUpperCase();
+      const col = String(feed.collector || "feeder");
+      nifty.textContent = "NIFTY " + px + " · " + ageTxt + " · " + src;
+      nifty.className = "";
+      const stack = $("spotStack");
+      if (stack) stack.className = "chip chip-spot chip-spot-stack " + feedAgeClass(age);
     }
+    paintAtoBanner(live);
+    const banEl = $("atoBanner");
+    if (banEl && live._pnlExitBanner && banEl.classList.contains("hidden")) {
+      banEl.classList.remove("hidden");
+      banEl.className = "ato-banner bad";
+      banEl.textContent = live._pnlExitBanner;
+    }
+    onAtoDeskAudioEdges(live);
     const clock = $("clock");
-    if (clock) clock.className = "chip chip-spot";
+    if (clock) clock.className = "";
     const pnlEl = $("statPnl");
     if (pnlEl) {
       const v = live.day_pnl;
       pnlEl.textContent = fmtPnl(v);
-      const base = pnlEl.classList.contains("home-pnl-big") ? "home-pnl-big" : "";
+      const base = pnlEl.classList.contains("home-pnl-strip-val")
+        ? "home-pnl-strip-val"
+        : (pnlEl.classList.contains("home-pnl-big") ? "home-pnl-big" : "");
       const tone = (v == null || v === "") ? "" : clsPnl(v);
       pnlEl.className = [base, tone].filter(Boolean).join(" ");
     }
-    paintToggle($("runToggle"), $("runLbl"), resumed, "KAVACH RESUMED", "KAVACH PAUSED");
+    paintToggle(
+      $("runToggle"),
+      $("runLbl"),
+      resumed,
+      isMobileUi() ? "KAVACH ON" : "KAVACH RESUMED",
+      isMobileUi() ? "KAVACH OFF" : "KAVACH PAUSED"
+    );
     paintToggle($("hedgeToggle"), $("hedgeLbl"), hedgeOn, "HEDGE ON", "HEDGE OFF");
+    paintPnlExitChrome(live);
     paintPositions(live.positions);
   }
 
@@ -268,45 +630,14 @@
         </div>
       </div>
       <p class="sub" id="tokMsg"></p>`;
+    wrapPageFrame(view);
   }
 
   async function renderTokenPage(view, msgText) {
     const t = await api("/api/token/status");
     paintTokenPage(view, t);
     if (msgText && $("tokMsg")) $("tokMsg").textContent = msgText;
-    async function tokenCall(fn) {
-      const msg = $("tokMsg");
-      try {
-        setBusy(true);
-        const r = await fn();
-        const text = r.text || r.error || (r.ok ? "Done" : "failed");
-        toast(text, !!r.ok);
-        if (r.ok) {
-          await renderTokenPage(view, text);
-          return;
-        }
-        if (msg) msg.textContent = text;
-      } catch (err) {
-        const text = err.message || "failed";
-        if (msg) msg.textContent = text;
-        toast(text, false);
-      } finally {
-        setBusy(false);
-      }
-    }
-    $("tokRef").onclick = () => tokenCall(() => api("/api/token/refresh", { method: "POST", body: "{}" }));
-    $("tokOff").onclick = () => tokenCall(() => api("/api/token/deactivate", { method: "POST", body: "{}" }));
-    if ($("tokStat")) {
-      $("tokStat").onclick = () => renderTokenPage(view, "Token status refreshed.");
-    }
-    $("tokPaste").onclick = () => tokenCall(() => api("/api/token/dhan-jwt", {
-      method: "POST",
-      body: JSON.stringify({ token: $("jwtBox").value }),
-    }));
-    $("tokZ").onclick = () => tokenCall(() => api("/api/token/zerodha", {
-      method: "POST",
-      body: JSON.stringify({ token: $("zBox").value }),
-    }));
+    wireTokenHandlers(view);
   }
 
   
@@ -507,6 +838,254 @@
     return `<div class="reg-q"><div class="q-lab"><span class="q-label">${esc(label)}</span></div><div class="field">${inner}</div></div>`;
   }
 
+
+  function wireAtoMgrHandlers() {
+    if ($("bufSave")) {
+      $("bufSave").onclick = async () => {
+        const body = {
+          ce_entry: $("ce_entry").value,
+          pe_entry: $("pe_entry").value,
+          ce_retrace: $("ce_retrace").value,
+          pe_retrace: $("pe_retrace").value,
+        };
+        const r = await api("/api/buffer", { method: "POST", body: JSON.stringify(body) });
+        $("bufMsg").textContent = r.ok ? "Saved" : r.error || "failed";
+        toast(r.ok ? "Buffer saved" : r.error || "failed", !!r.ok);
+        if (r.ok) invalidatePageCache(["home", "ato"]);
+      };
+    }
+    if ($("pollSave")) {
+      $("pollSave").onclick = async () => {
+        try {
+          const r = await api("/api/poll", { method: "POST", body: JSON.stringify({ poll_interval: $("pollSel").value }) });
+          $("pollMsg").textContent = r.ok ? (r.text || "Saved") : (r.error || "failed");
+          toast(r.ok ? ("Poll " + $("pollSel").value + "s") : (r.error || "failed"), !!r.ok);
+        } catch (err) {
+          $("pollMsg").textContent = err.message;
+          toast(err.message, false);
+        }
+      };
+    }
+  }
+
+  function wireDeployHandlers() {
+    if ($("depPrev")) {
+      $("depPrev").onclick = async () => {
+        try {
+          const r = await api("/api/deploy", { method: "POST", body: JSON.stringify({ preview: true, level: $("depLevel").value, lots: $("depLots").value }) });
+          $("depOut").textContent = r.text || r.error;
+          $("depMsg").textContent = r.ok ? "Preview ready. Confirm only if the legs look right." : (r.error || "");
+          savePageCache("deploy", $("view").innerHTML, pageCacheMeta.deploy);
+        } catch (err) {
+          $("depOut").textContent = err.message;
+        }
+      };
+    }
+    if ($("depGo")) {
+      $("depGo").onclick = async () => {
+        if (!window.confirm("Place Batman 2.0 legs now?")) return;
+        try {
+          const r = await api("/api/deploy", { method: "POST", body: JSON.stringify({ confirm: true, level: $("depLevel").value, lots: $("depLots").value }) });
+          $("depOut").textContent = r.text || r.error;
+          $("depMsg").textContent = r.ok ? "Deploy finished." : (r.error || "failed");
+          toast(r.ok ? "Deploy finished" : r.error || "failed", !!r.ok);
+          if (r.ok) invalidatePageCache();
+        } catch (err) {
+          $("depOut").textContent = err.message;
+          toast(err.message, false);
+        }
+      };
+    }
+    if ($("doneYes")) {
+      $("doneYes").onclick = async () => {
+        if (!window.confirm("Complete Batman now? ATO will stop and deployment will be archived.")) return;
+        try {
+          const dres = await api("/api/complete", {
+            method: "POST",
+            body: JSON.stringify({ confirm: true }),
+          });
+          $("doneMsg").textContent = dres.text || dres.error || "";
+          toast(dres.ok ? "Batman complete" : (dres.error || "failed"), !!dres.ok);
+          if (dres.ok) {
+            playAtoClip("complete");
+            invalidatePageCache();
+          }
+        } catch (err) {
+          $("doneMsg").textContent = err.message;
+          toast(err.message, false);
+        }
+      };
+    }
+  }
+
+  function wirePayoffChart(meta) {
+    drawPayoffChart($("payoffSvg"), meta.points || [], meta.spot, {
+      atm: meta.atm,
+      step: meta.step || 50,
+    });
+  }
+
+  function wireTokenHandlers(view) {
+    if (!view) return;
+    async function tokenCall(fn) {
+      const msg = $("tokMsg");
+      try {
+        setBusy(true);
+        const r = await fn();
+        const text = r.text || r.error || (r.ok ? "Done" : "failed");
+        toast(text, !!r.ok);
+        if (r.ok) {
+          invalidatePageCache("token");
+          await renderTokenPage(view, text);
+          return;
+        }
+        if (msg) msg.textContent = text;
+      } catch (err) {
+        const text = err.message || "failed";
+        if (msg) msg.textContent = text;
+        toast(text, false);
+      } finally {
+        setBusy(false);
+      }
+    }
+    if ($("tokRef")) $("tokRef").onclick = () => tokenCall(() => api("/api/token/refresh", { method: "POST", body: "{}" }));
+    if ($("tokOff")) $("tokOff").onclick = () => tokenCall(() => api("/api/token/deactivate", { method: "POST", body: "{}" }));
+    if ($("tokStat")) $("tokStat").onclick = () => renderTokenPage(view, "Token status refreshed.");
+    if ($("tokPaste")) {
+      $("tokPaste").onclick = () => tokenCall(() => api("/api/token/dhan-jwt", {
+        method: "POST",
+        body: JSON.stringify({ token: $("jwtBox").value }),
+      }));
+    }
+    if ($("tokZ")) {
+      $("tokZ").onclick = () => tokenCall(() => api("/api/token/zerodha", {
+        method: "POST",
+        body: JSON.stringify({ token: $("zBox").value }),
+      }));
+    }
+  }
+
+  function wireRegisterHandlers(d) {
+    const step = Number(d.ato_step || 50);
+
+    function refillLong(sel, rows, keep, used, noneLabel) {
+      const filtered = (rows || []).filter((p) => p.symbol === keep || !used.has(p.symbol));
+      sel.innerHTML = optionHtml(filtered, keep, noneLabel);
+    }
+
+    function sync() {
+      const scope = $("regScope").value;
+      const peOn = scope !== "ce";
+      const ceOn = scope !== "pe";
+      $("regPeBlock").classList.toggle("q-off", !peOn);
+      $("regCeBlock").classList.toggle("q-off", !ceOn);
+      $("regPeBlock").querySelectorAll("input,select").forEach((el) => { el.disabled = !peOn; });
+      $("regCeBlock").querySelectorAll("input,select").forEach((el) => { el.disabled = !ceOn; });
+
+      const peUsed = new Set();
+      if ($("regPeBuy").value) peUsed.add($("regPeBuy").value);
+      refillLong($("regPeHedge"), d.pe_long, $("regPeHedge").value, peUsed, "None — not required");
+      if ($("regPeHedge").value) peUsed.add($("regPeHedge").value);
+      refillLong($("regPeDyn"), d.pe_long, $("regPeDyn").value, peUsed, "None — not required");
+      const peHedgeLeft = (d.pe_long || []).filter((p) => p.symbol !== $("regPeBuy").value);
+      const peDynLeft = peHedgeLeft.filter((p) => p.symbol !== $("regPeHedge").value);
+      $("regPeHedge").closest(".reg-q").classList.toggle("q-off", !peOn || peHedgeLeft.length === 0);
+      $("regPeDyn").closest(".reg-q").classList.toggle("q-off", !peOn || peDynLeft.length === 0);
+      if (peOn) {
+        $("regPeHedge").disabled = peHedgeLeft.length === 0;
+        $("regPeDyn").disabled = peDynLeft.length === 0;
+      }
+
+      const ceUsed = new Set();
+      if ($("regCeBuy").value) ceUsed.add($("regCeBuy").value);
+      refillLong($("regCeHedge"), d.ce_long, $("regCeHedge").value, ceUsed, "None — not required");
+      if ($("regCeHedge").value) ceUsed.add($("regCeHedge").value);
+      refillLong($("regCeDyn"), d.ce_long, $("regCeDyn").value, ceUsed, "None — not required");
+      const ceHedgeLeft = (d.ce_long || []).filter((p) => p.symbol !== $("regCeBuy").value);
+      const ceDynLeft = ceHedgeLeft.filter((p) => p.symbol !== $("regCeHedge").value);
+      $("regCeHedge").closest(".reg-q").classList.toggle("q-off", !ceOn || ceHedgeLeft.length === 0);
+      $("regCeDyn").closest(".reg-q").classList.toggle("q-off", !ceOn || ceDynLeft.length === 0);
+      if (ceOn) {
+        $("regCeHedge").disabled = ceHedgeLeft.length === 0;
+        $("regCeDyn").disabled = ceDynLeft.length === 0;
+      }
+
+      const peSell = strikeOf(d.pe_short, $("regPeSell").value);
+      const ceSell = strikeOf(d.ce_short, $("regCeSell").value);
+      const peAuto = autoProtect("PE", peSell, step);
+      const ceAuto = autoProtect("CE", ceSell, step);
+      const peCustom = $("regPeAtoMode").value === "custom";
+      const ceCustom = $("regCeAtoMode").value === "custom";
+      if (peOn) {
+        $("regPeAto").disabled = !peCustom;
+        $("regPeAto").closest(".reg-q").querySelector("input").classList.toggle("is-grey", !peCustom);
+        if (!peCustom) $("regPeAto").value = "";
+        $("regPeAto").placeholder = peAuto ? "Auto " + peAuto : "Custom NIFTY strike";
+      }
+      if (ceOn) {
+        $("regCeAto").disabled = !ceCustom;
+        if (!ceCustom) $("regCeAto").value = "";
+        $("regCeAto").placeholder = ceAuto ? "Auto " + ceAuto : "Custom NIFTY strike";
+      }
+
+      const atoMonQ = $("regAtoMon").closest(".reg-q");
+      if (peOn && ceOn) {
+        $("regAtoMon").disabled = false;
+        atoMonQ.classList.remove("q-off");
+      } else {
+        $("regAtoMon").value = peOn ? "pe" : "ce";
+        $("regAtoMon").disabled = true;
+        atoMonQ.classList.add("q-off");
+      }
+    }
+
+    ["regScope","regPeBuy","regPeHedge","regPeDyn","regPeSell","regPeAtoMode","regCeBuy","regCeHedge","regCeDyn","regCeSell","regCeAtoMode"].forEach((id) => {
+      const el = $(id);
+      if (el) el.onchange = sync;
+    });
+    sync();
+
+    if ($("regGo")) {
+      $("regGo").onclick = async () => {
+        const body = {
+          confirm: true,
+          order_mode: $("regMode").value,
+          reg_scope: $("regScope").value,
+          pe_buy: $("regPeBuy").value,
+          pe_margin_hedge: $("regPeHedge").value,
+          pe_dyn_hedge: $("regPeDyn").value,
+          pe_sell: $("regPeSell").value,
+          pe_ato_mode: $("regPeAtoMode").value,
+          pe_ato_strike: $("regPeAto").value,
+          pe_entry: $("regPeEntry").value,
+          pe_exit: $("regPeExit").value,
+          ce_buy: $("regCeBuy").value,
+          ce_margin_hedge: $("regCeHedge").value,
+          ce_dyn_hedge: $("regCeDyn").value,
+          ce_sell: $("regCeSell").value,
+          ce_ato_mode: $("regCeAtoMode").value,
+          ce_ato_strike: $("regCeAto").value,
+          ce_entry: $("regCeEntry").value,
+          ce_exit: $("regCeExit").value,
+          ato_mon: $("regAtoMon").value,
+        };
+        if (!window.confirm("Arm Kavach with these Register answers?")) return;
+        try {
+          const r = await api("/api/register", { method: "POST", body: JSON.stringify(body) });
+          $("regMsg").textContent = r.text || r.error || "done";
+          toast(r.ok ? "Batman armed" : r.error || "failed", !!r.ok);
+          if (r.ok) {
+            playAtoClip("register");
+            invalidatePageCache();
+          }
+        } catch (err) {
+          $("regMsg").textContent = err.message;
+          toast(err.message, false);
+        }
+      };
+    }
+  }
+
   function renderRegister(view, d) {
     window.__regQCount = Number(d.question_count || 18);
     const step = Number(d.ato_step || 50);
@@ -582,122 +1161,17 @@
         </div>
         <p class="sub" id="regMsg"></p>
       </div>`;
-
-    function refillLong(sel, rows, keep, used, noneLabel) {
-      const filtered = (rows || []).filter((p) => p.symbol === keep || !used.has(p.symbol));
-      sel.innerHTML = optionHtml(filtered, keep, noneLabel);
-    }
-
-    function sync() {
-      const scope = $("regScope").value;
-      const peOn = scope !== "ce";
-      const ceOn = scope !== "pe";
-      $("regPeBlock").classList.toggle("q-off", !peOn);
-      $("regCeBlock").classList.toggle("q-off", !ceOn);
-      $("regPeBlock").querySelectorAll("input,select").forEach((el) => { el.disabled = !peOn; });
-      $("regCeBlock").querySelectorAll("input,select").forEach((el) => { el.disabled = !ceOn; });
-
-      const peUsed = new Set();
-      if ($("regPeBuy").value) peUsed.add($("regPeBuy").value);
-      refillLong($("regPeHedge"), d.pe_long, $("regPeHedge").value, peUsed, "None — not required");
-      if ($("regPeHedge").value) peUsed.add($("regPeHedge").value);
-      refillLong($("regPeDyn"), d.pe_long, $("regPeDyn").value, peUsed, "None — not required");
-      const peHedgeLeft = (d.pe_long || []).filter((p) => p.symbol !== $("regPeBuy").value);
-      const peDynLeft = peHedgeLeft.filter((p) => p.symbol !== $("regPeHedge").value);
-      $("regPeHedge").closest(".reg-q").classList.toggle("q-off", !peOn || peHedgeLeft.length === 0);
-      $("regPeDyn").closest(".reg-q").classList.toggle("q-off", !peOn || peDynLeft.length === 0);
-      if (peOn) {
-        $("regPeHedge").disabled = peHedgeLeft.length === 0;
-        $("regPeDyn").disabled = peDynLeft.length === 0;
-      }
-
-      const ceUsed = new Set();
-      if ($("regCeBuy").value) ceUsed.add($("regCeBuy").value);
-      refillLong($("regCeHedge"), d.ce_long, $("regCeHedge").value, ceUsed, "None — not required");
-      if ($("regCeHedge").value) ceUsed.add($("regCeHedge").value);
-      refillLong($("regCeDyn"), d.ce_long, $("regCeDyn").value, ceUsed, "None — not required");
-      const ceHedgeLeft = (d.ce_long || []).filter((p) => p.symbol !== $("regCeBuy").value);
-      const ceDynLeft = ceHedgeLeft.filter((p) => p.symbol !== $("regCeHedge").value);
-      $("regCeHedge").closest(".reg-q").classList.toggle("q-off", !ceOn || ceHedgeLeft.length === 0);
-      $("regCeDyn").closest(".reg-q").classList.toggle("q-off", !ceOn || ceDynLeft.length === 0);
-      if (ceOn) {
-        $("regCeHedge").disabled = ceHedgeLeft.length === 0;
-        $("regCeDyn").disabled = ceDynLeft.length === 0;
-      }
-
-      const peSell = strikeOf(d.pe_short, $("regPeSell").value);
-      const ceSell = strikeOf(d.ce_short, $("regCeSell").value);
-      const peAuto = autoProtect("PE", peSell, step);
-      const ceAuto = autoProtect("CE", ceSell, step);
-      const peCustom = $("regPeAtoMode").value === "custom";
-      const ceCustom = $("regCeAtoMode").value === "custom";
-      if (peOn) {
-        $("regPeAto").disabled = !peCustom;
-        $("regPeAto").closest(".reg-q").querySelector("input").classList.toggle("is-grey", !peCustom);
-        if (!peCustom) $("regPeAto").value = "";
-        $("regPeAto").placeholder = peAuto ? "Auto " + peAuto : "Custom NIFTY strike";
-      }
-      if (ceOn) {
-        $("regCeAto").disabled = !ceCustom;
-        if (!ceCustom) $("regCeAto").value = "";
-        $("regCeAto").placeholder = ceAuto ? "Auto " + ceAuto : "Custom NIFTY strike";
-      }
-
-      const atoMonQ = $("regAtoMon").closest(".reg-q");
-      if (peOn && ceOn) {
-        $("regAtoMon").disabled = false;
-        atoMonQ.classList.remove("q-off");
-      } else {
-        $("regAtoMon").value = peOn ? "pe" : "ce";
-        $("regAtoMon").disabled = true;
-        atoMonQ.classList.add("q-off");
-      }
-    }
-
-    ["regScope","regPeBuy","regPeHedge","regPeDyn","regPeSell","regPeAtoMode","regCeBuy","regCeHedge","regCeDyn","regCeSell","regCeAtoMode"].forEach((id) => {
-      $(id).addEventListener("change", sync);
-    });
-    sync();
-
-    $("regGo").onclick = async () => {
-      const body = {
-        confirm: true,
-        order_mode: $("regMode").value,
-        reg_scope: $("regScope").value,
-        pe_buy: $("regPeBuy").value,
-        pe_margin_hedge: $("regPeHedge").value,
-        pe_dyn_hedge: $("regPeDyn").value,
-        pe_sell: $("regPeSell").value,
-        pe_ato_mode: $("regPeAtoMode").value,
-        pe_ato_strike: $("regPeAto").value,
-        pe_entry: $("regPeEntry").value,
-        pe_exit: $("regPeExit").value,
-        ce_buy: $("regCeBuy").value,
-        ce_margin_hedge: $("regCeHedge").value,
-        ce_dyn_hedge: $("regCeDyn").value,
-        ce_sell: $("regCeSell").value,
-        ce_ato_mode: $("regCeAtoMode").value,
-        ce_ato_strike: $("regCeAto").value,
-        ce_entry: $("regCeEntry").value,
-        ce_exit: $("regCeExit").value,
-        ato_mon: $("regAtoMon").value,
-      };
-      if (!window.confirm("Arm Kavach with these Register answers?")) return;
-      try {
-        const r = await api("/api/register", { method: "POST", body: JSON.stringify(body) });
-        $("regMsg").textContent = r.text || r.error || "done";
-        toast(r.ok ? "Batman armed" : r.error || "failed", !!r.ok);
-      } catch (err) {
-        $("regMsg").textContent = err.message;
-        toast(err.message, false);
-      }
-    };
+    wrapPageFrame(view);
+    wireRegisterHandlers(d);
   }
 
   async function render() {
     const view = $("view");
     if (!view) return;
     try {
+      if (restorePageFromCache(view)) return;
+      const navT0 = performance.now();
+      let pageMeta = null;
       setBusy(true);
       if (page === "home") {
         const [s, a, b, sum, tok] = await Promise.all([
@@ -727,12 +1201,16 @@
           <header class="page-head"><h3>HOME</h3></header>
           <div class="home-dash">
             <div class="home-strip">
+              <div class="home-pnl-strip" title="Day PnL">
+                <span class="home-pnl-strip-lab">DAY PNL</span>
+                <span id="statPnl" class="home-pnl-strip-val ${pnlCls}">${esc(fmtPnl(s.day_pnl))}</span>
+              </div>
               <div class="home-strip-group home-strip-ops">
                 <span class="home-chip ${s.paused ? "bad" : "ok"}">${s.paused ? "KAVACH PAUSED" : "KAVACH RESUMED"}</span>
                 <span class="home-chip ${s.dyn_hedge ? "ok" : "bad"}">${s.dyn_hedge ? "HEDGE ON" : "HEDGE OFF"}</span>
-                <span class="home-chip">${esc(mode)}</span>
                 <span class="home-chip ${s.broker ? "ok" : "bad"}">${s.broker ? "BROKER OK" : "BROKER OFF"}</span>
                 <span class="home-chip ${armed ? "ok" : "bad"}">${armed ? "ARMED" : "NOT ARMED"}</span>
+                <span class="home-chip ${(s.ato_readiness && s.ato_readiness.armed) ? "ok" : "bad"}">${(s.ato_readiness && s.ato_readiness.armed) ? "ATO ARMED" : "ATO BLOCKED"}</span>
               </div>
               <div class="home-strip-group home-strip-ato">
                 <span class="home-chip ${s.ce_ato ? "ok" : ""}">CE ATO ${s.ce_ato ? "ACTIVE" : "IDLE"}</span>
@@ -744,41 +1222,64 @@
               </div>
             </div>
 
-            <div class="home-main-grid">
-              <div class="card home-card home-pnl-card">
-                <h4 class="sec-title">DAY PNL</h4>
-                <div id="statPnl" class="home-pnl-big ${pnlCls}">${esc(fmtPnl(s.day_pnl))}</div>
+            <div class="home-body-grid">
+              <div class="home-left-stack">
+                <div class="card home-card dep-card-blue home-open-card">
+                  <h4 class="sec-title">OPEN ATO</h4>
+                  <div class="home-kv-wrap">${openHtml}</div>
+                  <div class="kv"><span>Manage</span><b>${esc(a.manage || "—")}</b></div>
+                  <div class="kv"><span>CE protect</span><b>${esc(a.ce_protect || s.ce_symbol || "N/A")}</b></div>
+                  <div class="kv"><span>PE protect</span><b>${esc(a.pe_protect || s.pe_symbol || "N/A")}</b></div>
+                </div>
+                <div class="card home-card dep-card-green">
+                  <h4 class="sec-title">ATO LEVELS</h4>
+                  <div class="kv"><span>CE Entry</span><b>${lvl(b.ce_entry)}</b></div>
+                  <div class="kv"><span>CE Exit</span><b>${lvl(b.ce_retrace)}</b></div>
+                  <div class="kv"><span>PE Entry</span><b>${lvl(b.pe_entry)}</b></div>
+                  <div class="kv"><span>PE Exit</span><b>${lvl(b.pe_retrace)}</b></div>
+                  <div class="kv"><span>NIFTY</span><b>${lvl(b.nifty_ltp != null ? Number(b.nifty_ltp).toFixed(2) : s.nifty)}</b></div>
+                </div>
+                <div class="card home-card ato-ready-card">
+                  <h4 class="sec-title">ATO READINESS</h4>
+                  <div class="kv"><span>Status</span><b class="${(s.ato_readiness && s.ato_readiness.armed) ? "ok" : "bad"}">${esc((s.ato_readiness && s.ato_readiness.summary_line) || "—")}</b></div>
+                  <div class="kv"><span>Feed age</span><b>${esc((s.ato_readiness && s.ato_readiness.feed && s.ato_readiness.feed.age_s != null) ? (Math.round(s.ato_readiness.feed.age_s) + "s") : "—")}</b></div>
+                  <div class="kv"><span>Checked</span><b>${esc((s.ato_readiness && s.ato_readiness.checked_at) || "—")}</b></div>
+                </div>
               </div>
-              <div class="card home-card dep-card-blue home-open-card">
-                <h4 class="sec-title">OPEN ATO</h4>
-                <div class="home-kv-wrap">${openHtml}</div>
-                <div class="kv"><span>Manage</span><b>${esc(a.manage || "—")}</b></div>
-                <div class="kv"><span>CE protect</span><b>${esc(a.ce_protect || s.ce_symbol || "N/A")}</b></div>
-                <div class="kv"><span>PE protect</span><b>${esc(a.pe_protect || s.pe_symbol || "N/A")}</b></div>
-              </div>
-              <div class="card home-card dep-card-green">
-                <h4 class="sec-title">ATO LEVELS</h4>
-                <div class="kv"><span>CE Entry</span><b>${lvl(b.ce_entry)}</b></div>
-                <div class="kv"><span>CE Exit</span><b>${lvl(b.ce_retrace)}</b></div>
-                <div class="kv"><span>PE Entry</span><b>${lvl(b.pe_entry)}</b></div>
-                <div class="kv"><span>PE Exit</span><b>${lvl(b.pe_retrace)}</b></div>
-                <div class="kv"><span>NIFTY</span><b>${lvl(b.nifty_ltp != null ? Number(b.nifty_ltp).toFixed(2) : s.nifty)}</b></div>
-              </div>
-            </div>
 
-            <div class="card hist-wrap pos-card home-pos-card">
-              <h4 class="sec-title">BROKER POSITIONS</h4>
-              <table class="hist-table pos-table"><thead><tr>
-                <th>Symbol</th><th>Qty</th><th>Avg</th><th>LTP</th><th>PnL</th>
-              </tr></thead><tbody id="posBody">${posRowsHtml(s.positions)}</tbody></table>
+              <div class="card hist-wrap pos-card home-pos-card">
+                <div class="home-pos-inner">
+                  <div class="home-pos-side" aria-label="Positions">POSITIONS</div>
+                  <div class="home-pos-table-wrap">
+                    <table class="hist-table pos-table"><thead><tr>
+                      <th>Symbol</th><th>Qty</th><th>Avg</th><th>LTP</th><th>PnL</th>
+                    </tr></thead><tbody id="posBody">${posRowsHtml(s.positions)}</tbody></table>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>`;
-        playViewIn(view);
+        finishPageRender("home", view, null, navT0);
         return;
       }
       if (page === "status") {
-        view.innerHTML = `<header class="page-head"><h3>KAVACH STATUS</h3></header>` + pre((await api("/api/status")).text);
-      
+        const stTxt = (await api("/api/status")).text;
+        let ready = {};
+        try { ready = await api("/api/ato-readiness"); } catch (_) { ready = {}; }
+        const hard = (ready.hard_blocked_reasons || []).map((r) => (ready.reason_labels && ready.reason_labels[r]) || r);
+        const svc = ready.services || {};
+        const feed = ready.feed || {};
+        view.innerHTML = `<header class="page-head"><h3>KAVACH STATUS</h3></header>
+          <div class="card ato-ready-card">
+            <h4 class="sec-title">ATO READINESS</h4>
+            <div class="kv"><span>Summary</span><b class="${ready.armed ? "ok" : "bad"}">${esc(ready.summary_line || "—")}</b></div>
+            <div class="kv"><span>Checked</span><b>${esc(ready.checked_at || "—")}</b></div>
+            <div class="kv"><span>Feed</span><b>${esc((feed.ltp != null ? feed.ltp : "—") + " · age " + (feed.age_s != null ? Math.round(feed.age_s) + "s" : "?") + " · " + (feed.source || "") + " · " + (feed.collector || ""))}</b></div>
+            <div class="kv"><span>Datafeedbot</span><b class="${svc.datafeedbot_active ? "ok" : "bad"}">${svc.datafeedbot_active ? "active" : "down"}</b></div>
+            <div class="kv"><span>Kavach2</span><b class="${svc.kavach2_active ? "ok" : "bad"}">${svc.kavach2_active ? "active" : "down"}</b></div>
+            <div class="kv"><span>Block reasons</span><b>${esc(hard.length ? hard.join("; ") : "none")}</b></div>
+          </div>` + pre(stTxt);
+
       } else if (page === "summary") {
         const d = await api("/api/trade-summary");
         const closed = d.closed || [];
@@ -839,7 +1340,7 @@
               )
               .join("")
           : `<p class="sub ato-open-empty">No open ATO protect leg.</p>`;
-        const pollOpts = (p.poll_options || [1, 2, 3, 4, 5, 10, 15])
+        const pollOpts = (p.poll_options || [0, 1, 2, 3, 4, 5, 10, 15])
           .map((v) => `<option value="${v}" ${Number(p.poll_interval) === Number(v) ? "selected" : ""}>${v}s</option>`)
           .join("");
         const statusHtml = a.deployed === false
@@ -854,10 +1355,12 @@
           <div class="ato-mgr">
             <div class="card add-form ato-mgr-buf dep-card-green">
               <h4 class="sec-title">BUFFER MANAGER</h4>
-              <div class="field"><label class="ato-lab">CE ENTRY</label><input id="ce_entry" type="number" inputmode="decimal" placeholder="${esc(b.ce_entry_placeholder || "NIFTY level")}" value="${esc(b.ce_entry)}" /></div>
-              <div class="field"><label class="ato-lab">CE EXIT</label><input id="ce_retrace" type="number" inputmode="decimal" placeholder="${esc(b.ce_retrace_placeholder || "NIFTY level")}" value="${esc(b.ce_retrace)}" /></div>
-              <div class="field"><label class="ato-lab">PE ENTRY</label><input id="pe_entry" type="number" inputmode="decimal" placeholder="${esc(b.pe_entry_placeholder || "NIFTY level")}" value="${esc(b.pe_entry)}" /></div>
-              <div class="field"><label class="ato-lab">PE EXIT</label><input id="pe_retrace" type="number" inputmode="decimal" placeholder="${esc(b.pe_retrace_placeholder || "NIFTY level")}" value="${esc(b.pe_retrace)}" /></div>
+              <div class="ato-buf-fields">
+                <div class="field"><label class="ato-lab" for="ce_entry">CE ENTRY</label><input id="ce_entry" type="number" inputmode="decimal" autocomplete="off" name="ato-ce-entry" placeholder="${esc(b.ce_entry_placeholder || "Nifty Level")}" value="${esc(b.ce_entry)}" /></div>
+                <div class="field"><label class="ato-lab" for="ce_retrace">CE EXIT</label><input id="ce_retrace" type="number" inputmode="decimal" autocomplete="off" name="ato-ce-exit" placeholder="${esc(b.ce_retrace_placeholder || "Nifty Level")}" value="${esc(b.ce_retrace)}" /></div>
+                <div class="field"><label class="ato-lab" for="pe_entry">PE ENTRY</label><input id="pe_entry" type="number" inputmode="decimal" autocomplete="off" name="ato-pe-entry" placeholder="${esc(b.pe_entry_placeholder || "Nifty Level")}" value="${esc(b.pe_entry)}" /></div>
+                <div class="field"><label class="ato-lab" for="pe_retrace">PE EXIT</label><input id="pe_retrace" type="number" inputmode="decimal" autocomplete="off" name="ato-pe-exit" placeholder="${esc(b.pe_retrace_placeholder || "Nifty Level")}" value="${esc(b.pe_retrace)}" /></div>
+              </div>
               <button type="button" class="btn btn-green" id="bufSave">SAVE</button>
               <p class="sub" id="bufMsg"></p>
             </div>
@@ -874,27 +1377,7 @@
               <p class="sub" id="pollMsg"></p>
             </div>
           </div>`;
-        $("bufSave").onclick = async () => {
-          const body = {
-            ce_entry: $("ce_entry").value,
-            pe_entry: $("pe_entry").value,
-            ce_retrace: $("ce_retrace").value,
-            pe_retrace: $("pe_retrace").value,
-          };
-          const r = await api("/api/buffer", { method: "POST", body: JSON.stringify(body) });
-          $("bufMsg").textContent = r.ok ? "Saved" : r.error || "failed";
-          toast(r.ok ? "Buffer saved" : r.error || "failed", !!r.ok);
-        };
-        $("pollSave").onclick = async () => {
-          try {
-            const r = await api("/api/poll", { method: "POST", body: JSON.stringify({ poll_interval: $("pollSel").value }) });
-            $("pollMsg").textContent = r.ok ? (r.text || "Saved") : (r.error || "failed");
-            toast(r.ok ? ("Poll " + $("pollSel").value + "s") : (r.error || "failed"), !!r.ok);
-          } catch (err) {
-            $("pollMsg").textContent = err.message;
-            toast(err.message, false);
-          }
-        };
+        wireAtoMgrHandlers();
       } else if (page === "legs") {
         page = "home";
         document.querySelectorAll("[data-go]").forEach((el) => {
@@ -911,7 +1394,7 @@
       } else if (page === "register") {
         const d = await api("/api/register");
         renderRegister(view, d);
-        playViewIn(view);
+        finishPageRender("register", view, { register: d }, navT0);
         return;
       } else if (page === "deploy" || page === "complete") {
         if (page === "complete") {
@@ -929,7 +1412,7 @@
           <div class="dep-complete">
             <div class="card add-form dep-card-green">
               <h4 class="sec-title">DEPLOY BATMAN 2.0</h4>
-              <p class="sub dep-card-sub">Preview the 8 legs, then confirm to place them.</p>
+              <p class="sub dep-card-sub">Preview the legs below, then confirm to place them.</p>
               <div class="field"><label class="ato-lab">NIFTY CENTER LEVEL</label><input id="depLevel" type="number" placeholder="${esc(d.placeholder_level || "NIFTY level")}" value="${esc(d.level || "")}" /></div>
               <div class="field"><label class="ato-lab">LOTS</label><input id="depLots" type="number" placeholder="Lots" value="${esc(d.lots || 1)}" /></div>
               <p class="sub dep-hint">Enter a NIFTY center level, then Preview.</p>
@@ -947,41 +1430,7 @@
               <button type="button" class="btn btn-red" id="doneYes">CONFIRM COMPLETE</button>
             </div>
           </div>`;
-        $("depPrev").onclick = async () => {
-          try {
-            const r = await api("/api/deploy", { method: "POST", body: JSON.stringify({ preview: true, level: $("depLevel").value, lots: $("depLots").value }) });
-            $("depOut").textContent = r.text || r.error;
-            $("depMsg").textContent = r.ok ? "Preview ready. Confirm only if the legs look right." : (r.error || "");
-          } catch (err) {
-            $("depOut").textContent = err.message;
-          }
-        };
-        $("depGo").onclick = async () => {
-          if (!window.confirm("Place Batman 2.0 legs now?")) return;
-          try {
-            const r = await api("/api/deploy", { method: "POST", body: JSON.stringify({ confirm: true, level: $("depLevel").value, lots: $("depLots").value }) });
-            $("depOut").textContent = r.text || r.error;
-            $("depMsg").textContent = r.ok ? "Deploy finished." : (r.error || "failed");
-            toast(r.ok ? "Deploy finished" : r.error || "failed", !!r.ok);
-          } catch (err) {
-            $("depOut").textContent = err.message;
-            toast(err.message, false);
-          }
-        };
-        $("doneYes").onclick = async () => {
-          if (!window.confirm("Complete Batman now? ATO will stop and deployment will be archived.")) return;
-          try {
-            const dres = await api("/api/complete", {
-              method: "POST",
-              body: JSON.stringify({ confirm: true }),
-            });
-            $("doneMsg").textContent = dres.text || dres.error || "";
-            toast(dres.ok ? "Batman complete" : (dres.error || "failed"), !!dres.ok);
-          } catch (err) {
-            $("doneMsg").textContent = err.message;
-            toast(err.message, false);
-          }
-        };
+        wireDeployHandlers();
       } else if (page === "payoff") {
         const d = await api("/api/payoff");
         const legs = d.legs || [];
@@ -1011,13 +1460,18 @@
               </div>
             </div>
           </div>`;
-        drawPayoffChart($("payoffSvg"), pts, spot, { atm: atm, step: d.step || 50 });
-        playViewIn(view);
+        pageMeta = { points: pts, spot: spot, atm: atm, step: d.step || 50 };
+        wirePayoffChart(pageMeta);
 
       } else if (page === "token") {
         await renderTokenPage(view);
       }
-      playViewIn(view);
+      if (page === "ato" || page === "buffer") page = "ato";
+      if (page === "status" || page === "summary" || page === "ato" || page === "deploy" || page === "payoff" || page === "token") {
+        finishPageRender(page, view, pageMeta, navT0);
+      } else {
+        playViewIn(view);
+      }
     } catch (err) {
       view.innerHTML = `<p class="sub" style="color:var(--sell)">${esc(err.message)}</p>`;
     } finally {
@@ -1171,9 +1625,11 @@
   $("hedgeToggle").addEventListener("change", (e) => {
     flipHedge(!!e.target.checked);
   });
+  bindPnlExitControls();
 
   $("logoutBtn").addEventListener("click", async () => {
     closeMenu();
+    invalidatePageCache();
     try {
       await api("/api/logout", { method: "POST", body: "{}" });
     } catch (_) {}
@@ -1189,6 +1645,8 @@
         method: "POST",
         body: JSON.stringify({ password: $("pw").value }),
       });
+      unlockAudio();
+      if (!_welcomePlayed) { _welcomePlayed = true; playAtoClip("welcome"); }
       showDesk();
     } catch (e) {
       $("loginErr").textContent = e.message;
