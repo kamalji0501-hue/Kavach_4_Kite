@@ -201,3 +201,121 @@ def infer_spot_from_fixture(fixture: dict[str, Any]) -> float:
     if strikes:
         return float(sum(strikes) / len(strikes))
     return 0.0
+
+
+_WEEK_SLOTS = (
+    ("this", "Expiry"),
+    ("next", "Expiry"),
+    ("week_after", "Expiry"),
+)
+
+
+def list_register_week_expiries(
+    *,
+    today: date | None = None,
+    root: Any = None,
+) -> list[dict[str, Any]]:
+    """Next three listed NIFTY weeklies, labeled this / next / week after in that order."""
+    today = today or date.today()
+    dates: list[date] = []
+    try:
+        from backtest_engine.resolver.instrument_master import list_nifty_option_expiries
+
+        dates = [d for d in list_nifty_option_expiries(on_or_after=today) if isinstance(d, date)]
+    except Exception:
+        dates = []
+    if not dates:
+        try:
+            from core.zerodha_instruments import load_nifty_options
+
+            rows = load_nifty_options(root=root)
+            dates = sorted({row.expiry for row in rows if row.expiry >= today})
+        except Exception:
+            dates = []
+    out: list[dict[str, Any]] = []
+    for i, exp in enumerate(dates[:3]):
+        slot, prefix = _WEEK_SLOTS[i]
+        out.append(
+            {
+                "id": slot,
+                "iso": exp.isoformat(),
+                "date": exp,
+                "label": f"{prefix} — {exp.strftime('%d %b %Y')}",
+            }
+        )
+    return out
+
+
+def position_expiry_date(pos: dict[str, Any]) -> date | None:
+    from core.zerodha_instruments import parse_kite_weekly_expiry
+
+    weekly = parse_kite_weekly_expiry(str(pos.get("symbol") or ""))
+    if weekly is not None:
+        return weekly
+    raw = str(pos.get("expiry") or "").strip()
+    if not raw or raw.upper() == "UNKNOWN":
+        return None
+    try:
+        return parse_expiry_label(raw)
+    except ValueError:
+        return None
+
+
+def filter_positions_for_expiry(
+    positions: list[dict[str, Any]],
+    expiry: date,
+) -> list[dict[str, Any]]:
+    from core.zerodha_instruments import kite_weekly_prefix, nifty_expiry_key
+
+    want_key = kite_weekly_prefix(expiry)
+    out: list[dict[str, Any]] = []
+    for pos in positions:
+        key = nifty_expiry_key(str(pos.get("symbol") or ""))
+        if key == want_key:
+            out.append(pos)
+            continue
+        got = position_expiry_date(pos)
+        if got == expiry:
+            out.append(pos)
+    return out
+
+
+def symbol_matches_register_expiry(symbol: str, expiry: date) -> bool:
+    from core.zerodha_instruments import kite_weekly_prefix, nifty_expiry_key, parse_kite_weekly_expiry
+
+    key = nifty_expiry_key(symbol)
+    if key == kite_weekly_prefix(expiry):
+        return True
+    weekly = parse_kite_weekly_expiry(symbol)
+    return weekly == expiry
+
+
+def choose_default_register_expiry(
+    book: list[dict[str, Any]],
+    options: list[dict[str, Any]],
+    *,
+    today: date | None = None,
+) -> str:
+    """Week with most open NIFTY option qty; else this week, or next week on expiry day."""
+    if not options:
+        return ""
+    today = today or date.today()
+    valid = {str(o["iso"]) for o in options}
+    qty: dict[str, int] = {}
+    for pos in book:
+        got = position_expiry_date(pos)
+        if got is None:
+            continue
+        iso = got.isoformat()
+        if iso not in valid:
+            continue
+        qty[iso] = qty.get(iso, 0) + abs(int(pos.get("qty") or 0))
+    if qty:
+        return max(qty.items(), key=lambda kv: kv[1])[0]
+    this = next((o for o in options if o.get("id") == "this"), None)
+    nxt = next((o for o in options if o.get("id") == "next"), None)
+    if this and str(this.get("iso")) == today.isoformat() and nxt:
+        return str(nxt["iso"])
+    if this:
+        return str(this["iso"])
+    return str(options[0]["iso"])

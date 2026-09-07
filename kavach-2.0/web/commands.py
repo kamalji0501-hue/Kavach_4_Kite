@@ -116,11 +116,11 @@ def core_legs() -> dict[str, Any]:
     order = [
         ("pe_buy", "PE BUY"),
         ("pe_margin_hedge", "PE MARGIN"),
-        ("pe_dyn_hedge", "PE 30%DYN"),
+        ("pe_dyn_hedge", "PE 35%DYN"),
         ("pe_sell", "PE SELL"),
         ("ce_buy", "CE BUY"),
         ("ce_margin_hedge", "CE MARGIN"),
-        ("ce_dyn_hedge", "CE 30%DYN"),
+        ("ce_dyn_hedge", "CE 35%DYN"),
         ("ce_sell", "CE SELL"),
     ]
     lines = ["Core Batman Legs", ""]
@@ -169,7 +169,18 @@ def pause() -> dict[str, Any]:
             bus.publish(Event.MODULE_STOPPED, {"module": "ato_protection", "by": "kavach_web_pause"})
         except Exception:
             pass
-    return {"ok": True, "text": "Algo paused. ATO monitoring suspended."}
+    from core.desk_alerts import emit_desk_alert
+
+    row = emit_desk_alert(
+        severity="orange",
+        category="ATO blocked",
+        alert="Kavach is paused — tap Resume when the feed is healthy.",
+        log="Algo paused. ATO monitoring suspended.",
+    )
+    out = {"ok": True, "text": "Algo paused. ATO monitoring suspended."}
+    if row:
+        out["desk_alert"] = row
+    return out
 
 
 def resume() -> dict[str, Any]:
@@ -203,7 +214,13 @@ def resume() -> dict[str, Any]:
             bus.publish(Event.MODULE_STARTED, {"module": "ato_protection", "by": "kavach_web_resume"})
         except Exception:
             pass
-    return {"ok": True, "text": "Algo resumed."}
+    from core.desk_alerts import tag_result
+
+    return tag_result(
+        {"ok": True, "text": "Algo resumed."},
+        category="ATO ready",
+        ok_alert="ATO is armed again — feed is OK.",
+    )
 
 
 def dyn_hedge_get() -> dict[str, Any]:
@@ -213,8 +230,8 @@ def dyn_hedge_get() -> dict[str, Any]:
         "ok": True,
         "enabled": enabled,
         "text": (
-            "30% Dynamic Hedge\n"
-            "Exit 30% qty when ATO triggers?\n"
+            "35% Dynamic Hedge\n"
+            "Exit 35% qty when ATO triggers?\n"
             f"Current: {'YES' if enabled else 'NO'}"
         ),
     }
@@ -224,7 +241,14 @@ def dyn_hedge_set(enabled: bool) -> dict[str, Any]:
     st = _state()
     if st:
         st.set("dyn_hedge.exit_enabled", bool(enabled))
-    return dyn_hedge_get()
+    out = dyn_hedge_get()
+    from core.desk_alerts import tag_result
+
+    return tag_result(
+        out,
+        category="Desk",
+        ok_alert="Dynamic hedge is on." if enabled else "Dynamic hedge is off.",
+    )
 
 
 def batman_complete(*, confirm: bool = False) -> dict[str, Any]:
@@ -240,27 +264,40 @@ def batman_complete(*, confirm: bool = False) -> dict[str, Any]:
             ),
         }
     dep = _active_deployment()
-    if not dep:
-        return {"ok": False, "error": "No active deployment to complete."}
     st = _state()
-    try:
-        from core.batman_mode import deployments_dir
+    if dep:
+        try:
+            from core.batman_mode import deployments_dir
 
-        archive = deployments_dir(_root()) / "archive"
-        archive.mkdir(parents=True, exist_ok=True)
-        dest = archive / dep.name
-        dep.replace(dest)
-    except Exception as exc:
-        logger.warning("archive deploy failed: %s", exc)
+            archive = deployments_dir(_root()) / "archive"
+            archive.mkdir(parents=True, exist_ok=True)
+            dest = archive / dep.name
+            dep.replace(dest)
+        except Exception as exc:
+            logger.warning("archive deploy failed: %s", exc)
+    elif st is None:
+        return {"ok": False, "error": "No active deployment to complete."}
     if st:
         try:
-            st.set("deployment.confirmed", False)
-            st.set("algo.paused", False)
-            st.set("ato.ce_ato_active", False)
-            st.set("ato.pe_ato_active", False)
-        except Exception:
-            pass
-    return {"ok": True, "text": "Batman complete. Deployment archived. Positions on Zerodha were not closed."}
+            from core.batman_cleanup import reset_state_after_complete
+
+            reset_state_after_complete(st)
+        except Exception as exc:
+            logger.warning("batman_complete state reset failed: %s", exc)
+            try:
+                st.set("deployment.confirmed", False)
+                st.set("algo.paused", False)
+                st.set("ato.ce_ato_active", False)
+                st.set("ato.pe_ato_active", False)
+            except Exception:
+                pass
+    from core.desk_alerts import tag_result
+
+    return tag_result(
+        {"ok": True, "text": "Batman complete. Deployment archived. Positions on Zerodha were not closed."},
+        category="Deploy",
+        ok_alert="Batman deploy finished.",
+    )
 
 
 def buffer_get() -> dict[str, Any]:
@@ -270,7 +307,14 @@ def buffer_get() -> dict[str, Any]:
 
 def buffer_set(payload: dict[str, Any]) -> dict[str, Any]:
     from web.arm import buffer_save
-    return buffer_save(payload)
+    from core.desk_alerts import tag_result
+
+    return tag_result(
+        buffer_save(payload),
+        category="Desk",
+        ok_alert="Buffer levels saved.",
+        fail_alert="Buffer save failed.",
+    )
 
 
 def poll_get() -> dict[str, Any]:
@@ -280,22 +324,35 @@ def poll_get() -> dict[str, Any]:
 
 def poll_set(payload: dict[str, Any]) -> dict[str, Any]:
     from web.arm import poll_save
-    return poll_save(payload)
+    from core.desk_alerts import tag_result
+
+    out = poll_save(payload)
+    secs = out.get("poll_interval") if isinstance(out, dict) else None
+    ok_line = f"Poll time saved ({secs}s)." if secs is not None else "Poll time saved."
+    return tag_result(out, category="Desk", ok_alert=ok_line, fail_alert="Poll save failed.")
 
 
-def register_defaults() -> dict[str, Any]:
+def register_defaults(expiry: str | None = None) -> dict[str, Any]:
     from web.arm import register_defaults as _rd
-    return _rd()
+    return _rd(expiry)
 
 
 def register_batman(payload: dict[str, Any]) -> dict[str, Any]:
     from web.arm import register_batman as _rb
-    return _rb(payload)
+    from core.desk_alerts import tag_result
+
+    return tag_result(
+        _rb(payload),
+        category="Desk",
+        ok_alert="Batman is armed.",
+        fail_severity="orange",
+        fail_alert="Batman arm failed.",
+    )
 
 
-def deploy_defaults() -> dict[str, Any]:
+def deploy_defaults(expiry: str | None = None) -> dict[str, Any]:
     from web.arm import deploy_defaults as _dd
-    return _dd()
+    return _dd(expiry)
 
 
 def deploy_preview(payload: dict[str, Any]) -> dict[str, Any]:
@@ -305,7 +362,47 @@ def deploy_preview(payload: dict[str, Any]) -> dict[str, Any]:
 
 def deploy_batman(payload: dict[str, Any]) -> dict[str, Any]:
     from web.arm import deploy_batman as _db
-    return _db(payload)
+    from core.desk_alerts import tag_result
+
+    if not payload.get("confirm"):
+        return _db(payload)
+    out = _db(payload)
+    fail_sev = "red"
+    err = str((out or {}).get("error") or "")
+    if "token" in err.lower() or "broker" in err.lower():
+        cat = "Tokens"
+        fail_line = "Kite token is off — live orders are blocked until you save a new one."
+    else:
+        cat = "Deploy"
+        fail_line = err or "Batman deploy failed."
+    return tag_result(
+        out,
+        category="Desk" if (out or {}).get("ok") else cat,
+        ok_alert="Batman deploy finished.",
+        fail_severity=fail_sev,
+        fail_alert=fail_line,
+    )
+
+
+def deploy_and_register_batman(payload: dict[str, Any]) -> dict[str, Any]:
+    from web.arm import deploy_and_register_batman as _dar
+    from core.desk_alerts import tag_result
+
+    out = _dar(payload)
+    err = str((out or {}).get("error") or "")
+    if (out or {}).get("ok"):
+        return tag_result(
+            out,
+            category="Desk",
+            ok_alert="Deploy sent and Register armed successfully.",
+        )
+    return tag_result(
+        out,
+        category="Deploy",
+        ok_alert="Deploy sent and Register armed successfully.",
+        fail_severity="red",
+        fail_alert=err or "Deploy completed, but Register was not started.",
+    )
 
 
 def ato_combined() -> dict[str, Any]:
@@ -326,7 +423,13 @@ def token_refresh() -> dict[str, Any]:
     from core.dhan_totp import renew_and_save
 
     token = renew_and_save(root=_root())
-    return {"ok": True, "text": "JWT refreshed via TOTP and saved for Kavach + Feeder."}
+    from core.desk_alerts import tag_result
+
+    return tag_result(
+        {"ok": True, "text": "JWT refreshed via TOTP and saved for Kavach + Feeder."},
+        category="Tokens",
+        ok_alert="Dhan login saved.",
+    )
 
 
 def token_paste(jwt: str) -> dict[str, Any]:
@@ -345,14 +448,26 @@ def token_paste(jwt: str) -> dict[str, Any]:
         TokenStore(path=access_token_path(_root())).save(tok)
     except Exception as exc:
         logger.warning("token store save: %s", exc)
-    return {"ok": True, "text": "Dhan JWT saved for Kavach and Feeder."}
+    from core.desk_alerts import tag_result
+
+    return tag_result(
+        {"ok": True, "text": "Dhan JWT saved for Kavach and Feeder."},
+        category="Tokens",
+        ok_alert="Dhan login saved.",
+    )
 
 
 def token_deactivate() -> dict[str, Any]:
     from core.token_fanout import clear_dhan_jwt
 
     clear_dhan_jwt(root=_root())
-    return {"ok": True, "text": "Dhan token deactivated on Kavach + Feeder files."}
+    from core.desk_alerts import tag_result
+
+    return tag_result(
+        {"ok": True, "text": "Dhan token deactivated on Kavach + Feeder files."},
+        category="Tokens",
+        ok_alert="Dhan token was turned off.",
+    )
 
 
 def token_zerodha(token: str) -> dict[str, Any]:
@@ -369,10 +484,39 @@ def token_zerodha(token: str) -> dict[str, Any]:
         source="kavach_web",
         user_id=str(detail) if detail not in ("ok", "") else "",
     )
-    return {
-        "ok": True,
-        "text": f"Zerodha token exchanged and saved (last4=····{access[-4:]}). Feeder + Kavach updated.",
-    }
+    from core.desk_alerts import tag_result
+
+    return tag_result(
+        {
+            "ok": True,
+            "text": f"Zerodha token exchanged and saved (last4=····{access[-4:]}). Feeder + Kavach updated.",
+        },
+        category="Tokens",
+        ok_alert="Kite token saved.",
+    )
+
+
+def token_zerodha_deactivate() -> dict[str, Any]:
+    from core.token_fanout import clear_zerodha_token
+    from core.zerodha_credentials import clear_live_order_broker
+
+    clear_zerodha_token(root=_root())
+    try:
+        clear_live_order_broker()
+    except Exception:
+        pass
+    from core.desk_alerts import emit_desk_alert
+
+    row = emit_desk_alert(
+        severity="red",
+        category="Tokens",
+        alert="Kite token is off — live orders are blocked until you save a new one.",
+        log="Zerodha token deactivated on Kavach + Feeder files.",
+    )
+    out = {"ok": True, "text": "Zerodha token deactivated on Kavach + Feeder files."}
+    if row:
+        out["desk_alert"] = row
+    return out
 
 
 def register_note() -> dict[str, Any]:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -78,7 +78,13 @@ def nifty_ltp() -> float | None:
     fresh = _cache_ltp_if_fresh(5.0)
     if fresh is not None:
         return fresh
-    # Feeder-only: web desk reads Feeder cache; no Kite REST seed.
+    try:
+        px = _kite_nifty_quote()
+        if px is not None and px > 0:
+            # Read-only fallback. Feeder keepalive writes the cache.
+            return float(px)
+    except Exception as exc:
+        logger.warning("NIFTY kite fallback failed: %s", exc)
     try:
         from core.nifty_ltp_feed import read_nifty_ltp_cache
 
@@ -168,6 +174,8 @@ def _persist_live_buffers_to_deployment(st: Any) -> None:
 
 def sell_strikes() -> tuple[int | None, int | None]:
     st = require_runtime().state
+    if not st or not st.get("deployment.confirmed"):
+        return None, None
     dep = _load_dep()
     positions = dep.get("positions") or {}
 
@@ -189,6 +197,21 @@ def buffer_form() -> dict[str, Any]:
     from core.buffer_config.schema import normalize_buffer_field
 
     st = require_runtime().state
+    if not st or not st.get("deployment.confirmed"):
+        return {
+            "ok": True,
+            "ce_entry": "",
+            "pe_entry": "",
+            "ce_retrace": "",
+            "pe_retrace": "",
+            "ce_entry_placeholder": "Nifty Level",
+            "pe_entry_placeholder": "Nifty Level",
+            "ce_retrace_placeholder": "Nifty Level",
+            "pe_retrace_placeholder": "Nifty Level",
+            "ce_sell_strike": None,
+            "pe_sell_strike": None,
+            "nifty_ltp": nifty_ltp(),
+        }
     ce_strike, pe_strike = sell_strikes()
     ce_entry_off = normalize_buffer_field(st.get("ato.ce_entry_buffer_points", 0) if st else 0)
     pe_entry_off = normalize_buffer_field(st.get("ato.pe_entry_buffer_points", 0) if st else 0)
@@ -249,6 +272,23 @@ def buffer_save(payload: dict[str, Any]) -> dict[str, Any]:
         pe_pts = _parse_level(payload.get("pe_retrace"), "PE", pe_strike, kind="exit", label="PE retrace")
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
+
+    # Thin safety: reject illegal same-side exit vs entry (desk UI also disables SAVE).
+    from core.buffer_config.levels import nifty_level_from_buffer
+
+    def _abs_level(offset, side: str, kind: str, strike: int | None):
+        if offset is None or strike is None:
+            return None
+        return nifty_level_from_buffer(offset, side=side, kind=kind, sell_strike=strike)
+
+    ce_entry_lvl = _abs_level(ce_off, "CE", "entry", ce_strike)
+    ce_exit_lvl = _abs_level(ce_pts, "CE", "exit", ce_strike)
+    pe_entry_lvl = _abs_level(pe_off, "PE", "entry", pe_strike)
+    pe_exit_lvl = _abs_level(pe_pts, "PE", "exit", pe_strike)
+    if ce_entry_lvl is not None and ce_exit_lvl is not None and not (ce_exit_lvl < ce_entry_lvl):
+        return {"ok": False, "error": f"CE exit must be below CE entry (entry {ce_entry_lvl})."}
+    if pe_entry_lvl is not None and pe_exit_lvl is not None and not (pe_exit_lvl > pe_entry_lvl):
+        return {"ok": False, "error": f"PE exit must be above PE entry (entry {pe_entry_lvl})."}
 
     if ce_off is not None:
         st.set("ato.ce_entry_buffer_points", ce_off)
@@ -541,13 +581,32 @@ def _default_order_mode() -> str:
     except Exception:
         return "paper"
 
-def register_defaults() -> dict[str, Any]:
+def register_defaults(expiry: str | None = None) -> dict[str, Any]:
     from core.position_scope import auto_protect_strike, filter_positions_by_direction, filter_positions_by_side
     from core.wizard_plan import max_wizard_question_count
+
+    from core.nifty_option_expiry import (
+        choose_default_register_expiry,
+        filter_positions_for_expiry,
+        list_register_week_expiries,
+    )
 
     px = nifty_ltp()
     lot_size = _lot_size()
     book, note = _load_register_book()
+    expiry_options = list_register_week_expiries()
+    expiry_pub = [{"id": o["id"], "iso": o["iso"], "label": o["label"]} for o in expiry_options]
+    chosen = str(expiry or "").strip()
+    valid = {o["iso"] for o in expiry_pub}
+    if chosen not in valid:
+        chosen = choose_default_register_expiry(book, expiry_options)
+    exp_d = date.fromisoformat(chosen) if chosen else None
+    expiry_label = next((o["label"] for o in expiry_pub if o["iso"] == chosen), chosen)
+    if exp_d is not None:
+        book = filter_positions_for_expiry(book, exp_d)
+        if not book:
+            extra = f"No open NIFTY option legs for {expiry_label or chosen}."
+            note = extra if not note else f"{note} {extra}"
     pe_long = [_public_leg(p, lot_size) for p in filter_positions_by_direction(filter_positions_by_side(book, "PE"), "LONG")]
     pe_short = [_public_leg(p, lot_size) for p in filter_positions_by_direction(filter_positions_by_side(book, "PE"), "SHORT")]
     ce_long = [_public_leg(p, lot_size) for p in filter_positions_by_direction(filter_positions_by_side(book, "CE"), "LONG")]
@@ -564,17 +623,18 @@ def register_defaults() -> dict[str, Any]:
         scope = "both"
     questions = [
         {"id": "order_mode", "n": 1, "section": "Shared", "label": "Paper or Live trade"},
-        {"id": "reg_scope", "n": 2, "section": "Shared", "label": "Register CE/PE"},
+        {"id": "reg_expiry", "n": 2, "section": "Shared", "label": "Expiry week"},
+        {"id": "reg_scope", "n": 3, "section": "Shared", "label": "Register CE/PE"},
         {"id": "pe_buy", "n": 3, "section": "PE", "label": "Select Core PE BUY leg"},
         {"id": "pe_margin_hedge", "n": 4, "section": "PE", "label": "Select Margin Hedge"},
-        {"id": "pe_dyn_hedge", "n": 5, "section": "PE", "label": "30% Dynamic Hedge"},
+        {"id": "pe_dyn_hedge", "n": 5, "section": "PE", "label": "35% Dynamic Hedge"},
         {"id": "pe_sell", "n": 6, "section": "PE", "label": "Select PE SELL leg"},
         {"id": "pe_ato_strike", "n": 7, "section": "PE", "label": "ATO strike"},
         {"id": "pe_entry", "n": 8, "section": "PE", "label": "Entry NIFTY level"},
         {"id": "pe_exit", "n": 9, "section": "PE", "label": "Exit NIFTY level (retrace)"},
         {"id": "ce_buy", "n": 10, "section": "CE", "label": "Select Core CE BUY leg"},
         {"id": "ce_margin_hedge", "n": 11, "section": "CE", "label": "Select Margin Hedge"},
-        {"id": "ce_dyn_hedge", "n": 12, "section": "CE", "label": "30% Dynamic Hedge"},
+        {"id": "ce_dyn_hedge", "n": 12, "section": "CE", "label": "35% Dynamic Hedge"},
         {"id": "ce_sell", "n": 13, "section": "CE", "label": "Select CE SELL leg"},
         {"id": "ce_ato_strike", "n": 14, "section": "CE", "label": "ATO strike"},
         {"id": "ce_entry", "n": 15, "section": "CE", "label": "Entry NIFTY level"},
@@ -587,6 +647,9 @@ def register_defaults() -> dict[str, Any]:
         "question_count": max_wizard_question_count(),
         "questions": questions,
         "order_mode": _default_order_mode(),
+        "expiry": chosen,
+        "expiry_label": expiry_label,
+        "expiry_options": expiry_pub,
         "reg_scope": scope,
         "nifty_ltp": px,
         "lot_size": lot_size,
@@ -635,10 +698,31 @@ def register_batman(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": "Confirm Register to arm Kavach."}
 
     rt = require_runtime()
+    from core.nifty_option_expiry import (
+        filter_positions_for_expiry,
+        list_register_week_expiries,
+        symbol_matches_register_expiry,
+    )
+
     lot_size = _lot_size()
     book, _note = _load_register_book()
     if not book:
         return {"ok": False, "error": "No NIFTY option legs in the book. Deploy Batman first, then Register."}
+
+    expiry_raw = str(payload.get("expiry") or "").strip()
+    if not expiry_raw:
+        return {"ok": False, "error": "Pick an expiry week before Register."}
+    try:
+        exp_d = date.fromisoformat(expiry_raw)
+    except ValueError:
+        return {"ok": False, "error": "Expiry week is not a valid date."}
+    expiry_options = list_register_week_expiries()
+    expiry_label = next((str(o["label"]) for o in expiry_options if o["iso"] == expiry_raw), expiry_raw)
+    if expiry_raw not in {o["iso"] for o in expiry_options}:
+        return {"ok": False, "error": f"Expiry {expiry_raw} is not in this week / next week / week after."}
+    book = filter_positions_for_expiry(book, exp_d)
+    if not book:
+        return {"ok": False, "error": f"No NIFTY option legs for {expiry_label}."}
 
     order_mode = str(payload.get("order_mode") or _default_order_mode()).strip().lower()
     if order_mode not in ("paper", "live"):
@@ -707,6 +791,15 @@ def register_batman(payload: dict[str, Any]) -> dict[str, Any]:
     used = [leg["symbol"] for leg in selected.values() if leg]
     if len(set(used)) != len(used):
         return {"ok": False, "error": "Each leg must be a different contract."}
+    for leg in selected.values():
+        if not leg:
+            continue
+        sym = str(leg.get("symbol") or "")
+        if not symbol_matches_register_expiry(sym, exp_d):
+            return {
+                "ok": False,
+                "error": f"{sym} is not the selected week ({expiry_label}).",
+            }
 
     pe_sell_strike = int(selected["pe_sell"]["strike"]) if selected["pe_sell"] else None
     ce_sell_strike = int(selected["ce_sell"]["strike"]) if selected["ce_sell"] else None
@@ -791,6 +884,8 @@ def register_batman(payload: dict[str, Any]) -> dict[str, Any]:
         ce_ato_lots=ce_ato_lots,
         lot_size=lot_size,
     )
+    scope["expiry"] = expiry_raw
+    scope["expiry_label"] = expiry_label
 
     ce_entry_dec = normalize_buffer_field(ce_entry)
     pe_entry_dec = normalize_buffer_field(pe_entry)
@@ -926,6 +1021,14 @@ def _sync_state(filepath: Path, state: Any) -> None:
     state.set("deployment.file", str(filepath), save=False)
     state.set("algo.paused", False, save=False)
     try:
+        from core.pnl_exit_guard import clear_last_fire
+
+        clear_last_fire(state, save=False)
+    except Exception:
+        state.set("pnl_exit.last_reason", None, save=False)
+        state.set("pnl_exit.last_pnl", None, save=False)
+        state.set("pnl_exit.last_at", None, save=False)
+    try:
         from core.ato_working_profile import apply_working_profile_to_state
 
         apply_working_profile_to_state(state, save=False, for_deploy=True)
@@ -933,8 +1036,34 @@ def _sync_state(filepath: Path, state: Any) -> None:
         pass
     state.save()
 
-def deploy_defaults() -> dict[str, Any]:
+def _week_expiry_from_payload(raw: Any) -> tuple[date | None, str, str | None]:
+    from core.nifty_option_expiry import list_register_week_expiries
+
+    text = str(raw or "").strip()
+    options = list_register_week_expiries()
+    if not text:
+        return None, "", "Pick an expiry week before Deploy."
+    try:
+        exp_d = date.fromisoformat(text)
+    except ValueError:
+        return None, "", "Expiry week is not a valid date."
+    label = next((str(o["label"]) for o in options if o["iso"] == text), "")
+    if not label:
+        return None, "", "Expiry is not in this week / next week / week after."
+    return exp_d, label, None
+
+
+def deploy_defaults(expiry: str | None = None) -> dict[str, Any]:
+    from core.nifty_option_expiry import choose_default_register_expiry, list_register_week_expiries
+
     px = nifty_ltp()
+    options = list_register_week_expiries()
+    expiry_pub = [{"id": o["id"], "iso": o["iso"], "label": o["label"]} for o in options]
+    chosen = str(expiry or "").strip()
+    valid = {o["iso"] for o in expiry_pub}
+    if chosen not in valid:
+        chosen = choose_default_register_expiry([], options)
+    expiry_label = next((o["label"] for o in expiry_pub if o["iso"] == chosen), chosen)
     return {
         "ok": True,
         "level": round_nifty_50(px) or "",
@@ -942,6 +1071,9 @@ def deploy_defaults() -> dict[str, Any]:
         "nifty_ltp": px,
         "placeholder_level": "NIFTY center level (e.g. 24200)",
         "placeholder_lots": "Lots",
+        "expiry": chosen,
+        "expiry_label": expiry_label,
+        "expiry_options": expiry_pub,
     }
 
 
@@ -956,12 +1088,91 @@ def deploy_preview(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": "Enter a NIFTY center level and lots."}
     if lots < 1:
         return {"ok": False, "error": "Lots must be at least 1."}
+    exp_d, expiry_label, err = _week_expiry_from_payload(payload.get("expiry"))
+    if err or exp_d is None:
+        return {"ok": False, "error": err or "Pick an expiry week before Deploy."}
     legs, preview = multileg_entry.build_preview(level, base_lots=lots, lot_size=LOT_SIZE, params={})
-    exp = multileg_entry.resolve_expiry()
+    exp = multileg_entry.resolve_expiry(exp_d)
+    ltp_by_key: dict[str, Any] = {}
+    try:
+        from web.runtime import require_runtime
+
+        rt = require_runtime()
+        broker = getattr(rt, "broker", None)
+        if broker is not None:
+            names: list[str] = []
+            meta: list[tuple[str, str]] = []
+            for leg in legs:
+                strike = int(leg.strike)
+                opt = str(leg.option_type).upper()
+                sym, _ = multileg_entry.resolve_symbol(strike, opt, exp)
+                names.append(sym)
+                meta.append((str(getattr(leg, "key", "")), sym))
+            batch = {}
+            getter = getattr(broker, "get_ltps_kite_batch", None)
+            if callable(getter) and names:
+                batch = getter(names) or {}
+            for key, sym in meta:
+                kite_px = batch.get(sym)
+                if kite_px is None:
+                    kite_px = broker.get_ltp([sym], kite_only=True).get(sym)
+                ltp_by_key[key] = kite_px
+        else:
+            logger.warning("preview kite quote skipped: broker not connected")
+    except Exception as exc:
+        logger.warning("preview kite quote failed: %s", exc)
+
+    def _table_row(sn: int, key: str, side: str, opt: str, strike: int, qty: int) -> dict[str, Any]:
+        ls = int(LOT_SIZE) or 65
+        return {
+            "sn": sn,
+            "type": key,
+            "side": side,
+            "opt": opt,
+            "strike": int(strike),
+            "lots": int(qty) // ls if ls else 0,
+            "qty": int(qty),
+            "ltp": ltp_by_key.get(key),
+        }
+
+    place_rows = [
+        _table_row(
+            i,
+            str(row["key"]),
+            str(row["side"]),
+            str(row["type"]),
+            int(row["strike"]),
+            int(row.get("qty") or 0),
+        )
+        for i, row in enumerate(preview, start=1)
+    ]
+    shown = {str(row["key"]) for row in preview}
+    skipped_legs = [leg for leg in legs if int(leg.qty or 0) <= 0 and leg.key not in shown]
+    skipped_rows = [
+        _table_row(i, leg.key, leg.side, leg.option_type, int(leg.strike), int(leg.qty or 0))
+        for i, leg in enumerate(skipped_legs, start=1)
+    ]
+    exp_label = expiry_label_from_date(exp)
     text = multileg_entry.format_preview_text(
-        level, preview, expiry_label=expiry_label_from_date(exp), base_lots=lots, all_legs=legs
+        level,
+        preview,
+        expiry_label=exp_label,
+        base_lots=lots,
+        all_legs=legs,
+        lot_size=LOT_SIZE,
+        ltp_by_key=ltp_by_key,
     )
-    return {"ok": True, "text": text, "level": level, "lots": lots, "expiry": exp.isoformat()}
+    return {
+        "ok": True,
+        "text": text,
+        "level": level,
+        "lots": lots,
+        "expiry": exp.isoformat(),
+        "expiry_label": exp_label,
+        "place_rows": place_rows,
+        "skipped_rows": skipped_rows,
+        "lot_size": LOT_SIZE,
+    }
 
 
 def deploy_batman(payload: dict[str, Any]) -> dict[str, Any]:
@@ -977,14 +1188,120 @@ def deploy_batman(payload: dict[str, Any]) -> dict[str, Any]:
         lots = int(payload.get("lots") or 1)
     except (TypeError, ValueError):
         return {"ok": False, "error": "Enter a NIFTY center level and lots."}
+    exp_d, _expiry_label, err = _week_expiry_from_payload(payload.get("expiry"))
+    if err or exp_d is None:
+        return {"ok": False, "error": err or "Pick an expiry week before Deploy."}
     try:
         result = multileg_entry.deploy_multileg(
             rt.broker,
             center_level=level,
             base_lots=lots,
             lot_size=LOT_SIZE,
+            expiry=exp_d,
         )
-        return {"ok": True, "text": multileg_entry.format_result_text(result), "result": result}
+        filled_n = sum(1 for x in (result.get("legs") or []) if x.get("status") == "filled")
+        ok = bool(filled_n > 0 and not result.get("error"))
+        text = multileg_entry.format_result_text(result)
+        if not ok:
+            return {
+                "ok": False,
+                "error": str(result.get("error") or "No legs filled — no broker orders sent."),
+                "text": text,
+                "result": result,
+            }
+        return {"ok": True, "text": text, "result": result}
     except Exception as exc:
         logger.exception("web deploy failed")
         return {"ok": False, "error": str(exc)}
+
+
+def _build_register_payload_from_deploy(
+    deploy_payload: dict[str, Any],
+    deploy_result: dict[str, Any],
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Build a Register payload only when every placeable leg fully filled."""
+    legs = list((deploy_result or {}).get("legs") or [])
+    required = [leg for leg in legs if int(leg.get("qty") or 0) > 0]
+    if not required:
+        return None, "No placeable legs found in deploy result."
+    bad = [
+        leg for leg in required
+        if str(leg.get("status") or "").lower() != "filled" or not str(leg.get("symbol") or "").strip()
+    ]
+    if bad:
+        bits = [f"{leg.get('key')}[{leg.get('status')}]" for leg in bad]
+        return None, "Register not started because one or more legs were not fully filled: " + ", ".join(bits)
+
+    by_key = {str(leg.get('key') or ''): leg for leg in required}
+    must = ['ce_buy', 'ce_sell', 'pe_buy', 'pe_sell']
+    missing = [k for k in must if k not in by_key]
+    if missing:
+        return None, 'Register payload missing required deployed legs: ' + ', '.join(missing)
+
+    try:
+        ce_sell_strike = int(by_key['ce_sell'].get('strike') or 0)
+        pe_sell_strike = int(by_key['pe_sell'].get('strike') or 0)
+    except (TypeError, ValueError):
+        return None, 'Could not read CE/PE sell strikes from deploy result.'
+    if ce_sell_strike <= 0 or pe_sell_strike <= 0:
+        return None, 'Could not read CE/PE sell strikes from deploy result.'
+
+    expiry_raw = str(deploy_payload.get('expiry') or '').strip()
+    if not expiry_raw:
+        return None, 'Pick an expiry week before Register.'
+
+    reg: dict[str, Any] = {
+        'confirm': True,
+        'order_mode': str(_default_order_mode()),
+        'expiry': expiry_raw,
+        'reg_scope': 'both',
+        'ce_buy': str(by_key['ce_buy'].get('symbol') or ''),
+        'ce_margin_hedge': str(by_key.get('ce_margin_hedge', {}).get('symbol') or ''),
+        'ce_dyn_hedge': str(by_key.get('ce_dyn_hedge', {}).get('symbol') or ''),
+        'ce_sell': str(by_key['ce_sell'].get('symbol') or ''),
+        'pe_buy': str(by_key['pe_buy'].get('symbol') or ''),
+        'pe_margin_hedge': str(by_key.get('pe_margin_hedge', {}).get('symbol') or ''),
+        'pe_dyn_hedge': str(by_key.get('pe_dyn_hedge', {}).get('symbol') or ''),
+        'pe_sell': str(by_key['pe_sell'].get('symbol') or ''),
+        'ce_ato_mode': 'auto',
+        'pe_ato_mode': 'auto',
+        'ato_mon': 'both',
+        'poll_interval': 2,
+        'ce_entry': ce_sell_strike,
+        'ce_exit': ce_sell_strike - 10,
+        'pe_entry': pe_sell_strike,
+        'pe_exit': pe_sell_strike + 10,
+    }
+    return reg, None
+
+
+def deploy_and_register_batman(payload: dict[str, Any]) -> dict[str, Any]:
+    deploy_out = deploy_batman({**payload, 'confirm': True})
+    if not bool(deploy_out.get('ok')):
+        return deploy_out
+    reg_payload, err = _build_register_payload_from_deploy(payload, deploy_out.get('result') or {})
+    if err:
+        return {
+            'ok': False,
+            'error': err,
+            'text': (deploy_out.get('text') or '') + '\n\n' + err,
+            'deploy': deploy_out,
+        }
+    reg_out = register_batman(reg_payload)
+    if not bool(reg_out.get('ok')):
+        return {
+            'ok': False,
+            'error': str(reg_out.get('error') or 'Register failed.'),
+            'text': (deploy_out.get('text') or '') + '\n\nDeploy completed, but Register failed: ' + str(reg_out.get('error') or 'Register failed.'),
+            'deploy': deploy_out,
+            'register': reg_out,
+            'register_payload': reg_payload,
+        }
+    return {
+        'ok': True,
+        'text': 'Deploy sent and Register armed successfully.',
+        'detail_text': (deploy_out.get('text') or '') + '\n\n' + (reg_out.get('text') or ''),
+        'deploy': deploy_out,
+        'register': reg_out,
+        'register_payload': reg_payload,
+    }

@@ -391,31 +391,10 @@ async def _cb_batman_complete_ans(update: Update, context: ContextTypes.DEFAULT_
             mod.stop()
             stopped.append(name)
 
-    # ── Full state cleanup — algo reset to "fresh, awaiting deploy" ───────────
-    # Clear the 4 Batman legs
-    for leg in ("ce_sell", "ce_buy", "pe_sell", "pe_buy"):
-        state.set(f"positions.{leg}", None, save=False)
+    # Full state cleanup — idle until next Register
+    from core.batman_cleanup import reset_state_after_complete
 
-    # Clear ATO symbols, strikes, order IDs, and triggered flags
-    state.set("ato.ce_protect_symbol", None, save=False)
-    state.set("ato.ce_protect_strike", None, save=False)
-    state.set("ato.pe_protect_symbol", None, save=False)
-    state.set("ato.pe_protect_strike", None, save=False)
-    state.set("ato.ce_triggered", False, save=False)
-    state.set("ato.pe_triggered", False, save=False)
-    state.set("ato.ce_ato_active", False, save=False)
-    state.set("ato.pe_ato_active", False, save=False)
-    state.set("ato.ce_order_id", None, save=False)
-    state.set("ato.pe_order_id", None, save=False)
-    state.set("ato.ce_ato_exit_order_id", None, save=False)
-    state.set("ato.pe_ato_exit_order_id", None, save=False)
-
-    # Clear deployment flags — False (not True) so ATO waits for next /confirm_deploy
-    state.set("deployment.confirmed", False, save=False)
-    state.set("deployment.batman_complete", False, save=False)
-    state.set("deployment.positions_confirmed_date", None, save=False)
-    state.set("deployment.next_entry_date", None, save=False)
-    state.save()
+    reset_state_after_complete(state)
 
     from core.event_bus import Event
 

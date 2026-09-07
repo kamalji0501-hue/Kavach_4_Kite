@@ -608,7 +608,12 @@ class BatmanBroker:
             raise OrderPlacementError(f"Invalid side for aggressive LIMIT: {side}")
 
         def _quote_limit() -> float:
-            quotes = self.get_ltp([symbol])
+            # Exact contract only. Feeder peek is strike+CE/PE with no expiry
+            # and can return this-week LTP (~30) for a next-week symbol (~80).
+            try:
+                quotes = self.get_ltp([symbol], kite_only=True)  # type: ignore[call-arg]
+            except TypeError:
+                quotes = self.get_ltp([symbol])
             ltp = float(quotes.get(symbol) or 0.0)
             if ltp <= 0:
                 # Some Tradehull feeds key by alternate name — take first positive.

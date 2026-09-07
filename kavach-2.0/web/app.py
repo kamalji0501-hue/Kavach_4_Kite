@@ -10,7 +10,7 @@ from pathlib import Path
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
@@ -73,17 +73,53 @@ def _cmd(fn, *args, **kwargs) -> JSONResponse:
         return JSONResponse({"ok": True, "data": data})
     except Exception as exc:
         logger.warning("web command failed: %s", exc)
+        try:
+            from core.desk_alerts import emit_desk_alert
+
+            msg = str(exc)
+            low = msg.lower()
+            if "2 minutes" in low or "jwt" in low:
+                emit_desk_alert(
+                    severity="orange",
+                    category="Tokens",
+                    alert="Dhan will not give a new login yet — wait 2 minutes and tap Refresh again.",
+                    log=msg,
+                )
+            else:
+                sev = "red" if any(k in low for k in ("halt", "reject", "blocked", "timeout", "mismatch")) else "orange"
+                emit_desk_alert(severity=sev, category="Desk", alert=msg, log=msg)
+        except Exception:
+            pass
         return _err(exc)
 
 
 async def index(request: Request) -> Response:
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     html = re.sub(
-        r'app\.(css|js)\?v=[^"]+',
-        lambda m: f'app.{m.group(1)}?v=20260829pay2',
+        r'app\.(css|js)\?(?:v|cb)=[^"]+',
+        lambda m: f'app.{m.group(1)}?cb=20260907postot',
         html,
     )
     return Response(html, media_type="text/html")
+
+
+async def pwa_manifest(request: Request) -> Response:
+    return FileResponse(
+        STATIC_DIR / "manifest.webmanifest",
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+async def pwa_sw(request: Request) -> Response:
+    return FileResponse(
+        STATIC_DIR / "sw.js",
+        media_type="text/javascript",
+        headers={
+            "Service-Worker-Allowed": "/",
+            "Cache-Control": "no-cache",
+        },
+    )
 
 
 async def login(request: Request) -> Response:
@@ -112,7 +148,14 @@ async def logout(request: Request) -> Response:
 async def api_me(request: Request) -> Response:
     if not _authed(request):
         return JSONResponse({"ok": False, "auth": False}, status_code=401)
-    return JSONResponse({"ok": True, "auth": True})
+    zerodha = {"user_id": "", "name": ""}
+    try:
+        from core.zerodha_account_label import get_zerodha_account_label
+
+        zerodha = get_zerodha_account_label()
+    except Exception as exc:
+        logger.warning("zerodha account label failed: %s", exc)
+    return JSONResponse({"ok": True, "auth": True, "zerodha": zerodha})
 
 
 
@@ -134,6 +177,23 @@ async def api_state(request: Request) -> Response:
     return JSONResponse(snapshot())
 
 
+async def api_alerts(request: Request) -> Response:
+    if not _authed(request):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        from core.desk_alerts import for_day
+
+        raw = request.query_params.get("limit") or "200"
+        try:
+            limit = int(raw)
+        except (TypeError, ValueError):
+            limit = 200
+        rows = for_day(limit=limit)
+        return JSONResponse({"ok": True, "alerts": rows})
+    except Exception as exc:
+        return _err(exc)
+
+
 async def ws_state(ws: WebSocket) -> None:
     secret, _ = _secret_pw()
     cookie = ws.cookies.get(web_auth.COOKIE)
@@ -143,20 +203,9 @@ async def ws_state(ws: WebSocket) -> None:
     await ws.accept()
     try:
         while True:
-            await ws.send_json(snapshot())
-            poll = 2
-            try:
-                rt = get_runtime()
-                st = rt.state if rt else None
-                raw = st.get("ato.poll_interval_seconds") if st else None
-                if isinstance(raw, int) and raw >= 0:
-                    poll = raw
-                elif raw is not None:
-                    poll = int(raw)
-            except Exception:
-                poll = 2
-            # Floor 1s when poll=0 — never busy-push the browser
-            await asyncio.sleep(1.0 if poll <= 0 else float(poll))
+            data = await asyncio.to_thread(snapshot)
+            await ws.send_json(data)
+            await asyncio.sleep(2.0)
     except WebSocketDisconnect:
         return
     except Exception:
@@ -285,12 +334,18 @@ async def api_zerodha(request: Request) -> Response:
     return _cmd(commands.token_zerodha, str(body.get("token") or ""))
 
 
+async def api_zerodha_off(request: Request) -> Response:
+    bad = _need_auth(request)
+    return bad or _cmd(commands.token_zerodha_deactivate)
+
+
 async def api_register(request: Request) -> Response:
     bad = _need_auth(request)
     if bad:
         return bad
     if request.method == "GET":
-        return _cmd(commands.register_defaults)
+        expiry = str(request.query_params.get("expiry") or "").strip()
+        return _cmd(commands.register_defaults, expiry or None)
     body = await _read_json(request)
     return _cmd(commands.register_batman, body)
 
@@ -300,11 +355,20 @@ async def api_deploy(request: Request) -> Response:
     if bad:
         return bad
     if request.method == "GET":
-        return _cmd(commands.deploy_defaults)
+        expiry = str(request.query_params.get("expiry") or "").strip()
+        return _cmd(commands.deploy_defaults, expiry or None)
     body = await _read_json(request)
     if body.get("preview") and not body.get("confirm"):
         return _cmd(commands.deploy_preview, body)
     return _cmd(commands.deploy_batman, body)
+
+
+async def api_deploy_register(request: Request) -> Response:
+    bad = _need_auth(request)
+    if bad:
+        return bad
+    body = await _read_json(request)
+    return _cmd(commands.deploy_and_register_batman, body)
 
 
 
@@ -373,10 +437,13 @@ async def api_payoff(request: Request) -> Response:
 def create_app() -> Starlette:
     routes = [
         Route("/", index),
+        Route("/manifest.webmanifest", pwa_manifest),
+        Route("/sw.js", pwa_sw),
         Route("/api/login", login, methods=["POST"]),
         Route("/api/logout", logout, methods=["POST"]),
         Route("/api/me", api_me),
         Route("/api/state", api_state),
+        Route("/api/alerts", api_alerts),
         Route("/api/ato-readiness", api_ato_readiness),
         Route("/api/status", api_status),
         Route("/api/ato-status", api_ato_status),
@@ -395,8 +462,10 @@ def create_app() -> Starlette:
         Route("/api/token/dhan-jwt", api_token_paste, methods=["POST"]),
         Route("/api/token/deactivate", api_token_off, methods=["POST"]),
         Route("/api/token/zerodha", api_zerodha, methods=["POST"]),
+        Route("/api/token/zerodha/deactivate", api_zerodha_off, methods=["POST"]),
         Route("/api/register", api_register, methods=["GET", "POST"]),
         Route("/api/deploy", api_deploy, methods=["GET", "POST"]),
+        Route("/api/deploy-register", api_deploy_register, methods=["POST"]),
         Route("/api/safe-exit", api_safe_exit, methods=["GET", "POST"]),
         Route("/api/take-profit", api_take_profit, methods=["GET", "POST"]),
         Route("/api/payoff", api_payoff),

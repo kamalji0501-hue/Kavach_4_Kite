@@ -91,6 +91,14 @@ def parse_position_expiry(row: pd.Series | dict[str, Any], symbol: str) -> str:
 
             return format_expiry_display(parts[1])
 
+    from core.zerodha_instruments import parse_kite_weekly_expiry
+
+    weekly = parse_kite_weekly_expiry(symbol)
+    if weekly is not None:
+        from core.nifty_option_expiry import expiry_label_from_date
+
+        return expiry_label_from_date(weekly)
+
     m = re.search(r"^NIFTY(\d{2}[A-Z]{3})", symbol)
     if m:
         return m.group(1)

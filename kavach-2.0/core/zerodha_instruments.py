@@ -7,6 +7,7 @@ Docs: https://kite.trade/docs/connect/v3/market-quotes/#retrieving-the-full-inst
 from __future__ import annotations
 
 import csv
+import re
 import io
 import logging
 from dataclasses import dataclass
@@ -137,23 +138,88 @@ def resolve_nifty_option_kite(
     return rows[0]
 
 
+def compact_nifty_symbol(symbol: str) -> str:
+    return (symbol or "").replace(" ", "").replace("-", "").upper()
+
+
+# Weekly Kite: NIFTY2690823950PE (YY + month digit 1-9 + DD + strike).
+# Oct/Nov/Dec weeklies use O/N/D: NIFTY26O0824000PE.
+# Monthly Kite: NIFTY26SEP24200CE.
+_KITE_WEEKLY_NIFTY = re.compile(r"^(NIFTY\d{2}[1-9OND]\d{2})(\d{4,5})(CE|PE)$")
+_KITE_MONTHLY_NIFTY = re.compile(r"^(NIFTY\d{2}[A-Z]{3})(\d+)(CE|PE)$")
+_KITE_WEEKLY_DATE = re.compile(r"^NIFTY(\d{2})([1-9OND])(\d{2})(\d{4,5})(CE|PE)$")
+_KITE_MONTH_LETTER = {"O": 10, "N": 11, "D": 12}
+_KITE_MONTH_TO_LETTER = {10: "O", 11: "N", 12: "D"}
+
+
+def is_complete_kite_nifty_option(symbol: str) -> bool:
+    compact = compact_nifty_symbol(symbol)
+    return bool(_KITE_WEEKLY_NIFTY.fullmatch(compact) or _KITE_MONTHLY_NIFTY.fullmatch(compact))
+
+
+def nifty_expiry_key(symbol: str) -> str | None:
+    """Expiry token shared by all legs of one Batman book, e.g. NIFTY26908."""
+    compact = compact_nifty_symbol(symbol)
+    m = _KITE_WEEKLY_NIFTY.fullmatch(compact)
+    if m:
+        return m.group(1)
+    m = _KITE_MONTHLY_NIFTY.fullmatch(compact)
+    if m:
+        return m.group(1)
+    return None
+
+
+
+
+def parse_kite_weekly_expiry(symbol: str) -> date | None:
+    """NIFTY2690824000PE -> date(2026, 9, 8)."""
+    compact = compact_nifty_symbol(symbol)
+    m = _KITE_WEEKLY_DATE.fullmatch(compact)
+    if not m:
+        return None
+    year = 2000 + int(m.group(1))
+    mon_tok = m.group(2)
+    day = int(m.group(3))
+    if mon_tok.isdigit():
+        month = int(mon_tok)
+        if month < 1 or month > 9:
+            return None
+    else:
+        month = _KITE_MONTH_LETTER.get(mon_tok)
+        if month is None:
+            return None
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def kite_weekly_prefix(expiry: date) -> str:
+    """date(2026, 9, 8) -> NIFTY26908."""
+    yy = expiry.year % 100
+    if 1 <= expiry.month <= 9:
+        mon = str(expiry.month)
+    else:
+        mon = _KITE_MONTH_TO_LETTER[expiry.month]
+    return f"NIFTY{yy:02d}{mon}{expiry.day:02d}"
+
 def kite_tradingsymbol_from_any(
     symbol: str,
     *,
     client=None,
     root: Path | None = None,
 ) -> str:
-    """Accept Kavach/Dhan-ish labels and return a Kite NFO tradingsymbol."""
+    """Accept Kavach/Dhan-ish labels and return a Kite NFO tradingsymbol.
+
+    Complete weekly/monthly symbols are returned unchanged. Never remap a
+    next-week contract (NIFTY26908...) onto nearest expiry.
+    """
     raw = (symbol or "").strip()
     if not raw:
         return raw
-    compact = raw.replace(" ", "").replace("-", "").upper()
-    if compact.startswith("NIFTY") and compact.endswith(("CE", "PE")) and compact[:5] == "NIFTY":
-        # Already looks like NIFTY25SEP24200CE
-        if compact[5:7].isdigit() and compact[7:10].isalpha():
-            return compact
-    import re
-
+    compact = compact_nifty_symbol(raw)
+    if is_complete_kite_nifty_option(compact):
+        return compact
     m = re.search(r"(\d{4,5})(CE|PE)$", compact, re.I)
     strike = int(m.group(1)) if m else 0
     opt = (m.group(2).upper() if m else "")

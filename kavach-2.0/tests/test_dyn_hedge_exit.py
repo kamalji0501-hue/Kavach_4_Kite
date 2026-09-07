@@ -1,4 +1,4 @@
-"""Unit tests for 30% dynamic hedge exit on any ATO trigger while live qty > 0."""
+"""Unit tests for 35% dynamic hedge exit on any ATO trigger while live qty > 0."""
 
 from __future__ import annotations
 

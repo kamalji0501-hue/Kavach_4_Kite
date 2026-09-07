@@ -54,6 +54,10 @@ def peek_index_ltp(*, wait_seconds: float = 2.0, socket: str | Path | None = Non
         logger.debug("Feeder index connect failed: %s", exc)
         return None
     try:
+        try:
+            client.send_control("want", filter="index")
+        except Exception:
+            pass
         deadline = time.monotonic() + max(0.2, float(wait_seconds))
         while time.monotonic() < deadline:
             msg = client.recv(timeout=0.4)

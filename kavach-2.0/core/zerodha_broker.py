@@ -150,6 +150,7 @@ class ZerodhaBroker:
     def hot_reload_token(self, client_code: str, access_token: str) -> None:
         token = (access_token or "").strip()
         if not token:
+            self.clear_access_token()
             return
         with self._lock:
             self._access_token = token
@@ -158,6 +159,27 @@ class ZerodhaBroker:
             self._http.set_access_token(token)
             self._auth_time = datetime.now()
         logger.info("Zerodha access_token reloaded last4=%s", token[-4:])
+
+    def clear_access_token(self) -> None:
+        """DEACTIVATE on TOKEN page — stop Zerodha orders until a new token is saved."""
+        with self._lock:
+            self._access_token = ""
+            try:
+                self._http.set_access_token("")
+            except Exception:
+                pass
+        logger.warning("Zerodha access_token cleared — orders blocked until TOKEN save")
+        try:
+            from core.desk_alerts import emit_desk_alert
+
+            emit_desk_alert(
+                severity="red",
+                category="Tokens",
+                alert="Kite token is off — live orders are blocked until you save a new one.",
+                log="Zerodha access_token cleared — orders blocked until TOKEN save",
+            )
+        except Exception:
+            pass
 
     def needs_reauth(self) -> bool:
         try:
@@ -183,6 +205,21 @@ class ZerodhaBroker:
     def _enforce_live_mode_for_orders(self) -> None:
         if self._runtime_mode() == "mock":
             raise OrderPlacementError("Live Zerodha orders are blocked (runtime mode=mock / not prod).")
+        if not (self._access_token or "").strip():
+            raise OrderPlacementError(
+                "Kite token deactivated — Zerodha orders blocked. Save a Kite token on TOKEN first."
+            )
+        try:
+            from core.zerodha_credentials import load_zerodha_order_creds
+
+            if not load_zerodha_order_creds().ok:
+                raise OrderPlacementError(
+                    "Kite token deactivated — Zerodha orders blocked. Save a Kite token on TOKEN first."
+                )
+        except OrderPlacementError:
+            raise
+        except Exception:
+            pass
 
     def _symbol(self, symbol: str) -> str:
         return kite_tradingsymbol_from_any(symbol, client=self._http)
@@ -219,21 +256,6 @@ class ZerodhaBroker:
             if str(name).upper() in {"NIFTY", "NIFTY 50", "NSE:NIFTY 50"}:
                 out[name] = self.get_nifty_ltp()
                 continue
-            if not kite_only:
-                try:
-                    from core.feeder_ipc import peek_option_quote
-
-                    sym = self._symbol(str(name))
-                    import re
-
-                    m = re.search(r"(\d{4,5})(CE|PE)$", sym, re.I)
-                    if m:
-                        q = peek_option_quote(strike=int(m.group(1)), option_type=m.group(2).upper())
-                        if q and float(q.get("ltp") or 0) > 0:
-                            out[name] = float(q["ltp"])
-                            continue
-                except Exception:
-                    pass
             try:
                 key = f"NFO:{self._symbol(str(name))}"
                 data = self._http.request("GET", "/quote/ltp", params={"i": key}, quote=True)
@@ -306,16 +328,6 @@ class ZerodhaBroker:
             exp = nearest_nifty_expiry(rows)
         for strike, opt in legs or []:
             key = (int(strike), str(opt).upper())
-            if not kite_only:
-                try:
-                    from core.feeder_ipc import peek_option_quote
-
-                    q = peek_option_quote(strike=key[0], option_type=key[1])
-                    if q and float(q.get("ltp") or 0) > 0:
-                        out[key] = float(q["ltp"])
-                        continue
-                except Exception:
-                    pass
             inst = resolve_nifty_option_kite(key[0], key[1], exp, client=self._http) if exp else None
             if not inst:
                 out[key] = 0.0
@@ -361,8 +373,18 @@ class ZerodhaBroker:
     ) -> str:
         self._enforce_live_mode_for_orders()
         kite_type = self._order_type(order_type)
+        from core.zerodha_instruments import nifty_expiry_key
+
+        kite_symbol = self._symbol(symbol)
+        req_exp = nifty_expiry_key(symbol)
+        sent_exp = nifty_expiry_key(kite_symbol)
+        if req_exp and sent_exp and req_exp != sent_exp:
+            raise OrderPlacementError(
+                f"Refusing to rewrite {symbol} -> {kite_symbol} (expiry {req_exp} vs {sent_exp})"
+            )
+        self._last_order_tradingsymbol = kite_symbol
         payload: dict[str, Any] = {
-            "tradingsymbol": self._symbol(symbol),
+            "tradingsymbol": kite_symbol,
             "exchange": (exchange or "NFO").upper() if str(exchange).upper() != "INDEX" else "NFO",
             "transaction_type": str(transaction_type).upper(),
             "order_type": kite_type,
@@ -511,7 +533,7 @@ class ZerodhaBroker:
         side_u = str(side).upper()
 
         def _quote_limit() -> float:
-            quotes = self.get_ltp([symbol])
+            quotes = self.get_ltp([symbol], kite_only=True)
             ltp = float(quotes.get(symbol) or 0.0)
             if ltp <= 0:
                 for val in quotes.values():

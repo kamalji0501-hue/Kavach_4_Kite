@@ -77,6 +77,9 @@ class TestEvaluateSideManualSync:
             broker_qty=0,
             side_halted=False,
             protect_seen_at_broker=True,
+            entry_pending=False,
+            consecutive_zero_polls=3,
+            min_zero_polls_for_halt=3,
         )
         assert result is not None
         assert result.action == "pause_full_exit"
@@ -106,3 +109,114 @@ class TestEvaluateSideManualSync:
             side_halted=True,
         )
         assert result is None
+
+
+    def test_26a_adopt_when_triggered_but_inactive(self):
+        """Re-Register can leave triggered=True with ato_active=False and leftover qty."""
+        result = evaluate_side_manual_sync(
+            side="PE",
+            protect_symbol="NIFTY2690823650PE",
+            expected_qty=65,
+            triggered=True,
+            ato_active=False,
+            broker_qty=65,
+            side_halted=False,
+        )
+        assert result is not None
+        assert result.action == "adopt_idle"
+
+    def test_26a_adopt_when_expected_qty_zero_but_broker_long(self):
+        result = evaluate_side_manual_sync(
+            side="PE",
+            protect_symbol="NIFTY2690823650PE",
+            expected_qty=0,
+            triggered=False,
+            ato_active=False,
+            broker_qty=65,
+            side_halted=False,
+        )
+        assert result is not None
+        assert result.action == "adopt_idle"
+        assert result.expected_qty == 65
+
+
+    def test_fill_pending_blocks_full_exit_even_if_seen(self):
+        """Today bug: prior-cycle seen + post-BUY qty=0 must not halt during grace."""
+        result = evaluate_side_manual_sync(
+            side="PE",
+            protect_symbol="NIFTY2691523800PE",
+            expected_qty=65,
+            triggered=True,
+            ato_active=True,
+            broker_qty=0,
+            side_halted=False,
+            protect_seen_at_broker=True,
+            entry_pending=True,
+            consecutive_zero_polls=5,
+        )
+        assert result is not None
+        assert result.action == "fill_pending"
+
+    def test_await_zero_confirm_before_full_exit(self):
+        result = evaluate_side_manual_sync(
+            side="PE",
+            protect_symbol="NIFTY2691523800PE",
+            expected_qty=65,
+            triggered=True,
+            ato_active=True,
+            broker_qty=0,
+            side_halted=False,
+            protect_seen_at_broker=True,
+            entry_pending=False,
+            consecutive_zero_polls=1,
+            min_zero_polls_for_halt=3,
+        )
+        assert result is not None
+        assert result.action == "await_zero_confirm"
+
+    def test_full_exit_after_confirmed_zeros(self):
+        result = evaluate_side_manual_sync(
+            side="PE",
+            protect_symbol="NIFTY2691523800PE",
+            expected_qty=65,
+            triggered=True,
+            ato_active=True,
+            broker_qty=0,
+            side_halted=False,
+            protect_seen_at_broker=True,
+            entry_pending=False,
+            consecutive_zero_polls=3,
+            min_zero_polls_for_halt=3,
+        )
+        assert result is not None
+        assert result.action == "pause_full_exit"
+
+    def test_no_halt_when_never_seen_this_cycle(self):
+        result = evaluate_side_manual_sync(
+            side="PE",
+            protect_symbol="NIFTY2691523800PE",
+            expected_qty=65,
+            triggered=True,
+            ato_active=True,
+            broker_qty=0,
+            side_halted=False,
+            protect_seen_at_broker=False,
+            entry_pending=False,
+            consecutive_zero_polls=10,
+        )
+        assert result is None
+
+    def test_partial_exit_blocked_during_entry_pending(self):
+        result = evaluate_side_manual_sync(
+            side="CE",
+            protect_symbol="NIFTY CALL",
+            expected_qty=130,
+            triggered=True,
+            ato_active=True,
+            broker_qty=65,
+            side_halted=False,
+            protect_seen_at_broker=True,
+            entry_pending=True,
+        )
+        assert result is not None
+        assert result.action == "fill_pending"

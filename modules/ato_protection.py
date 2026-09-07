@@ -772,7 +772,7 @@ class ATOProtection(ModuleBase):
             return oid
 
     def _maybe_exit_dyn_hedge(self, side: str) -> None:
-        """Exit remaining 30% dynamic hedge whenever ATO fires on this side.
+        """Exit remaining 35% dynamic hedge whenever ATO fires on this side.
 
         Conditions: toggle ON and live broker qty > 0. Does not re-buy the hedge.
         """
@@ -782,7 +782,7 @@ class ATOProtection(ModuleBase):
         prefix = "pe" if side_u == "PE" else "ce"
         if not bool(self.state.get("dyn_hedge.exit_enabled", False)):
             self.log.info(
-                "30%% dynamic hedge skip side=%s — exit_enabled=False "
+                "35%% dynamic hedge skip side=%s — exit_enabled=False "
                 "(enable via KAVACH 2.0 menu 🛡 or re-Register with dyn legs)",
                 side_u,
             )
@@ -791,7 +791,7 @@ class ATOProtection(ModuleBase):
         leg = self.state.get(f"positions.{prefix}_dyn_hedge")
         if not isinstance(leg, dict):
             self.log.info(
-                "30%% dynamic hedge skip side=%s — no positions.%s_dyn_hedge leg",
+                "35%% dynamic hedge skip side=%s — no positions.%s_dyn_hedge leg",
                 side_u,
                 prefix,
             )
@@ -802,7 +802,7 @@ class ATOProtection(ModuleBase):
         except (TypeError, ValueError):
             registered_qty = 0
         if not symbol:
-            self.log.info("30%% dynamic hedge skip side=%s — blank symbol", side_u)
+            self.log.info("35%% dynamic hedge skip side=%s — blank symbol", side_u)
             return
         try:
             live_qty = max(0, int(self._position_qty(symbol) or 0))
@@ -810,7 +810,7 @@ class ATOProtection(ModuleBase):
             live_qty = 0
         if live_qty <= 0:
             self.log.info(
-                "30%% dynamic hedge skip side=%s — live qty=0 for %s",
+                "35%% dynamic hedge skip side=%s — live qty=0 for %s",
                 side_u,
                 symbol,
             )
@@ -826,7 +826,7 @@ class ATOProtection(ModuleBase):
             )
         except Exception as exc:
             self.log.error(
-                "30%% dynamic hedge exit FAILED side=%s symbol=%s qty=%d: %s",
+                "35%% dynamic hedge exit FAILED side=%s symbol=%s qty=%d: %s",
                 side_u,
                 symbol,
                 qty,
@@ -835,7 +835,7 @@ class ATOProtection(ModuleBase):
             return
         self.state.set(exited_key, date.today().isoformat())
         self.log.info(
-            "30%% dynamic hedge exited: side=%s symbol=%s qty=%d order=%s",
+            "35%% dynamic hedge exited: side=%s symbol=%s qty=%d order=%s",
             side_u,
             symbol,
             qty,
@@ -1805,7 +1805,7 @@ class ATOProtection(ModuleBase):
         """Compare deployment core legs against live broker positions.
 
         Only the iron-condor core 4 (pe_buy/pe_sell/ce_buy/ce_sell) are required.
-        Margin / 30% dyn hedge legs are optional — they may be exited intentionally
+        Margin / 35% dyn hedge legs are optional — they may be exited intentionally
         and must not clear deployment.confirmed on restart.
         """
         _CORE_ROLES = ("pe_buy", "pe_sell", "ce_buy", "ce_sell")

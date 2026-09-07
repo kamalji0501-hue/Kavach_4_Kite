@@ -17,6 +17,8 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger("batman.zerodha.creds")
 
+_LIVE_ORDER_BROKER = None
+
 
 @dataclass
 class ZerodhaOrderCreds:
@@ -75,22 +77,30 @@ def load_zerodha_order_creds(root: Path | None = None) -> ZerodhaOrderCreds:
             load_dotenv(env_path, override=False)
 
     api_key = os.environ.get("ZERODHA_API_KEY", "").strip()
-    access = os.environ.get("ZERODHA_ACCESS_TOKEN", "").strip()
     user_id = os.environ.get("ZERODHA_USER_ID", "").strip()
-    source = "env" if api_key and access else ""
+    access = ""
+    source = ""
+
+    # Access token only from Kavach/Feeder JSON that persist/clear write.
+    # Never use process env leftover after DEACTIVATE.
+    from core.token_fanout import feeder_zerodha_json_path, kavach_zerodha_json_path
+
+    for path in (kavach_zerodha_json_path(root), feeder_zerodha_json_path()):
+        if not path.is_file():
+            continue
+        data = _read_json(path)
+        tok = str(data.get("access_token") or data.get("token") or "").strip()
+        if tok:
+            access = tok
+            source = str(path)
+            user_id = user_id or str(data.get("user_id") or "").strip()
+            break
 
     for path in candidate_session_paths(root):
         if not path.is_file():
             continue
         data = _read_json(path)
         api_key = api_key or str(data.get("api_key") or "").strip()
-        tok = str(data.get("access_token") or data.get("token") or "").strip()
-        if tok:
-            access = tok
-            source = str(path)
-        user_id = user_id or str(data.get("user_id") or "").strip()
-        if api_key and access:
-            break
 
     creds = ZerodhaOrderCreds(
         api_key=api_key, access_token=access, user_id=user_id, source=source
@@ -114,6 +124,19 @@ def watch_path(root: Path | None = None) -> Path:
     from core.token_fanout import feeder_zerodha_json_path
 
     return feeder_zerodha_json_path()
+
+
+def register_live_order_broker(broker) -> None:
+    global _LIVE_ORDER_BROKER
+    _LIVE_ORDER_BROKER = broker
+
+
+def clear_live_order_broker() -> None:
+    """TOKEN Kite deactivate — drop in-memory order token now."""
+    broker = _LIVE_ORDER_BROKER
+    clearer = getattr(broker, "clear_access_token", None) if broker is not None else None
+    if callable(clearer):
+        clearer()
 
 
 def start_zerodha_token_watch(
@@ -140,15 +163,33 @@ def start_zerodha_token_watch(
                 hit = path
         return best, hit
 
+    register_live_order_broker(broker)
+
     def _loop() -> None:
         last, _ = _newest()
         while not stop.wait(timeout=poll_seconds):
             mtime, hit = _newest()
-            if mtime <= last or hit is None:
+            if hit is None:
+                if last > 0:
+                    clearer = getattr(broker, "clear_access_token", None)
+                    if callable(clearer):
+                        try:
+                            clearer()
+                        except Exception as exc:
+                            logger.warning("Zerodha order token clear failed: %s", exc)
+                    last = 0.0
+                continue
+            if mtime <= last:
                 continue
             last = mtime
             creds = load_zerodha_order_creds(root)
             if not creds.ok:
+                clearer = getattr(broker, "clear_access_token", None)
+                if callable(clearer):
+                    try:
+                        clearer()
+                    except Exception as exc:
+                        logger.warning("Zerodha order token clear failed: %s", exc)
                 continue
             if broker is None and on_token_ready is not None:
                 try:

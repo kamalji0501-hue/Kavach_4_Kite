@@ -86,7 +86,7 @@ def build_preview(
         sell_offset=int(p.get("sell_offset", 300)),
         dyn_from_sell=int(p.get("dyn_from_sell", 200)),
         margin_offset=int(p.get("margin_offset", 1000)),
-        dyn_hedge_pct=float(p.get("dyn_hedge_pct", 0.30)),
+        dyn_hedge_pct=float(p.get("dyn_hedge_pct", 0.35)),
         strike_step=int(p.get("strike_step", 50)),
     )
     return legs, plan_to_preview_rows(legs)
@@ -284,6 +284,15 @@ def deploy_multileg(
     return result
 
 
+def _fmt_preview_ltp(value: Any) -> str:
+    if value is None or value == "":
+        return "—"
+    try:
+        return f"{float(value):.2f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def format_preview_text(
     center_level: float,
     legs_preview: list[dict[str, Any]],
@@ -291,7 +300,10 @@ def format_preview_text(
     expiry_label: str,
     base_lots: int,
     all_legs: list[LegPlan] | None = None,
+    lot_size: int = 65,
+    ltp_by_key: dict[str, Any] | None = None,
 ) -> str:
+    quotes = ltp_by_key or {}
     shown = {row["key"] for row in legs_preview}
     skipped = [
         leg for leg in (all_legs or [])
@@ -299,24 +311,47 @@ def format_preview_text(
     ]
     n_place = len(legs_preview)
     n_plan = len(all_legs) if all_legs else n_place
+    ls = int(lot_size) if lot_size else 65
+    header = (
+        f"{'#':>2}  {'Type':<16} {'BUY/SELL':<8} {'CE/PE':<5} "
+        f"{'Strike':>6} {'Lots':>4} {'Qty':>5} {'LTP':>8}"
+    )
+
+    def _line(sn: int, key: str, side: str, opt: str, strike: Any, qty: int) -> str:
+        lots = int(qty) // ls if ls else 0
+        ltp = _fmt_preview_ltp(quotes.get(key))
+        return (
+            f"{sn:>2}  {str(key):<16} {str(side):<8} {str(opt):<5} "
+            f"{int(strike):>6} {lots:>4} {int(qty):>5} {ltp:>8}"
+        )
+
     lines = [
-        f"Batman 2.0 preview — center {center_level:.0f}",
-        f"Expiry: {expiry_label} | lots: {base_lots} | {n_place} legs to place"
+        f"Batman 2.0 Preview — Center {center_level:.0f}",
+        f"Expiry: {expiry_label} | Lots: {base_lots} | {n_place} Legs to place"
         + (f" (of {n_plan} in plan)" if n_plan != n_place else ""),
-        "─" * 36,
+        "─" * 72,
+        header,
     ]
-    for row in legs_preview:
+    for i, row in enumerate(legs_preview, start=1):
         lines.append(
-            f"{row['key']:<16} {row['side']:<4} {row['type']} {row['strike']} × {row['qty']}"
+            _line(
+                i,
+                row["key"],
+                row["side"],
+                row["type"],
+                row["strike"],
+                int(row.get("qty") or 0),
+            )
         )
     if skipped:
-        lines.append("─" * 36)
-        lines.append("Skipped (30% dyn hedge < 1 lot at this size):")
-        for leg in skipped:
+        lines.append("─" * 72)
+        lines.append("Skipped (35% dyn hedge < 1 lot at this size):")
+        lines.append(header)
+        for i, leg in enumerate(skipped, start=1):
             lines.append(
-                f"{leg.key:<16} {leg.side:<4} {leg.option_type} {leg.strike} × 0"
+                _line(i, leg.key, leg.side, leg.option_type, leg.strike, int(leg.qty or 0))
             )
-    lines.append("─" * 36)
+    lines.append("─" * 72)
     lines.append("Confirm to place all legs above (entry only).")
     lines.append("Then Register Batman to arm Phase 1 / ATO.")
     return "\n".join(lines)

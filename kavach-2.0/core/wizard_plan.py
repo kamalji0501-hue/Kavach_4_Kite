@@ -8,11 +8,12 @@ Section = Literal["PE", "CE", "Shared"]
 
 _STEP_META: dict[str, tuple[Section, str]] = {
     "order_mode": ("Shared", "Paper or Live trade"),
+    "reg_expiry": ("Shared", "Expiry week"),
     "reg_scope": ("Shared", "Register CE/PE"),
     "pe_intent": ("PE", "PE side"),
     "pe_buy": ("PE", "Select Core PE BUY leg"),
     "pe_margin_hedge": ("PE", "Select Margin Hedge"),
-    "pe_dyn_hedge": ("PE", "30% Dynamic Hedge"),
+    "pe_dyn_hedge": ("PE", "35% Dynamic Hedge"),
     "pe_sell": ("PE", "Select PE SELL leg"),
     "pe_ato_strike": ("PE", "ATO strike"),
     "pe_entry": ("PE", "Entry NIFTY level"),
@@ -20,7 +21,7 @@ _STEP_META: dict[str, tuple[Section, str]] = {
     "ce_intent": ("CE", "CE side"),
     "ce_buy": ("CE", "Select Core CE BUY leg"),
     "ce_margin_hedge": ("CE", "Select Margin Hedge"),
-    "ce_dyn_hedge": ("CE", "30% Dynamic Hedge"),
+    "ce_dyn_hedge": ("CE", "35% Dynamic Hedge"),
     "ce_sell": ("CE", "Select CE SELL leg"),
     "ce_ato_strike": ("CE", "ATO strike"),
     "ce_entry": ("CE", "Entry NIFTY level"),
@@ -48,7 +49,7 @@ _CE_BLOCK = (
     "ce_entry",
     "ce_exit",
 )
-_SHARED_LEADING = ("order_mode", "reg_scope")
+_SHARED_LEADING = ("order_mode", "reg_expiry", "reg_scope")
 _SHARED = ("ato_mon", "confirm")
 
 
@@ -112,5 +113,5 @@ def register_intro_text() -> str:
     return (
         "🦇 *Register wizard*\n\n"
         f"Up to *{n} questions* —\n"
-        "First: Paper or Live — then register CE/PE — then legs"
+        "First: Paper or Live — then expiry week — then register CE/PE — then legs"
     )

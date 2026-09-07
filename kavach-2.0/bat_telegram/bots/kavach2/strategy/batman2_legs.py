@@ -42,8 +42,8 @@ def snap_strike(level: float, step: int = 50) -> int:
     return int(math.floor(float(level) / step + 0.5) * step)
 
 
-def dyn_hedge_qty(buy_qty: int, *, lot_size: int, pct: float = 0.30) -> int:
-    """30% of buy qty, rounded **down** to whole lots (0 if less than 1 lot)."""
+def dyn_hedge_qty(buy_qty: int, *, lot_size: int, pct: float = 0.35) -> int:
+    """35% of buy qty, rounded **down** to whole lots (0 if less than 1 lot)."""
     if buy_qty <= 0 or lot_size <= 0:
         return 0
     raw = int(buy_qty * float(pct))
@@ -60,13 +60,13 @@ def build_batman2_plan(
     sell_offset: int = 300,
     dyn_from_sell: int = 200,
     margin_offset: int = 1000,
-    dyn_hedge_pct: float = 0.30,
+    dyn_hedge_pct: float = 0.35,
     strike_step: int = 50,
 ) -> list[LegPlan]:
     """Build the 8-leg Batman 2.0 plan from operator center *center_level*.
 
-    CE: buy L+250, sell L+300 (2×), dyn L+500 (30%), margin L+1000.
-    PE: buy L−250, sell L−300 (2×), dyn L−500 (30%), margin L−1000.
+    CE: buy L+250, sell L+300 (2×), dyn L+500 (35%), margin L+1000.
+    PE: buy L−250, sell L−300 (2×), dyn L−500 (35%), margin L−1000.
     """
     if base_lots < 1:
         raise ValueError(f"base_lots must be >= 1, got {base_lots}")

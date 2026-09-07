@@ -128,3 +128,49 @@ def clear_dhan_jwt(*, root: Path | None = None) -> None:
             logger.info("Feeder Dhan JWT cleared → %s", dest)
     except Exception as exc:
         logger.warning("Feeder Dhan JWT clear failed: %s", exc)
+
+
+def _clear_zerodha_env(env_path: Path) -> None:
+    if not env_path.is_file():
+        return
+    _upsert_zerodha_env_local(env_path, "")
+
+
+def _clear_kite_session(path: Path) -> None:
+    if not path.is_file():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if not isinstance(data, dict):
+        return
+    if "access_token" in data:
+        data["access_token"] = ""
+    if "token" in data:
+        data["token"] = ""
+    _atomic_write_json(path, data)
+
+
+def clear_zerodha_token(*, root: Path | None = None) -> None:
+    """Remove Zerodha token from Kavach + Feeder files (same set persist writes)."""
+    for path in (kavach_zerodha_json_path(root), feeder_zerodha_json_path()):
+        try:
+            if path.is_file():
+                path.unlink()
+                logger.info("Zerodha JSON cleared → %s", path)
+        except Exception as exc:
+            logger.warning("Zerodha JSON clear failed (%s): %s", path, exc)
+    for env_path in (feeder_zerodha_env_path(), _kavach_zerodha_env_path()):
+        try:
+            _clear_zerodha_env(env_path)
+        except Exception as exc:
+            logger.warning("zerodha.env clear failed (%s): %s", env_path, exc)
+    for sess in (
+        feeder_runtime() / "Credentials" / "zerodha" / "kite_session.json",
+        Path("/home/ubuntu/Trading_Runtime_Rahul/Credentials/zerodha/kite_session.json"),
+    ):
+        try:
+            _clear_kite_session(sess)
+        except Exception as exc:
+            logger.warning("kite_session clear failed (%s): %s", sess, exc)

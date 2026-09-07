@@ -172,22 +172,68 @@ def _trade_type_for_product(product: str) -> str:
     return "MARGIN"
 
 
+def _cancel_open_orders(broker: Any, symbol: str) -> None:
+    """Drop working orders for one symbol so a retry cannot double-sell."""
+    try:
+        df = broker.get_orderbook()
+    except Exception as exc:
+        logger.warning("pnl_exit orderbook for cancel: %s", exc)
+        return
+    if df is None or getattr(df, "empty", True):
+        return
+    want = str(symbol)
+    for _, row in df.iterrows():
+        sym = str(row.get("tradingsymbol") or row.get("tradingSymbol") or "")
+        if sym != want:
+            continue
+        st = str(row.get("status") or "").upper()
+        if st in {"COMPLETE", "REJECTED", "CANCELLED", "CANCELED"}:
+            continue
+        oid = str(row.get("order_id") or "")
+        if not oid or not hasattr(broker, "cancel_order"):
+            continue
+        try:
+            broker.cancel_order(oid)
+            logger.info("pnl_exit cancelled leftover order %s for %s (%s)", oid, want, st)
+        except Exception as exc:
+            logger.warning("pnl_exit cancel %s: %s", oid, exc)
+
+
 def _close_one(broker: Any, leg: dict[str, Any]) -> str | None:
     net = int(leg["net_qty"])
     side = "BUY" if net < 0 else "SELL"
     trade_type = _trade_type_for_product(str(leg.get("product") or ""))
+    symbol = str(leg["symbol"])
+    qty = int(leg["qty"])
+    exchange = str(leg.get("exchange") or "NFO")
     try:
+        # Options MARKET is converted by Kite to LIMIT-at-LTP and can sit unfilled
+        # on cheap/expiry contracts (seen 1 Sep 2026 on NIFTY2690125050CE).
+        if hasattr(broker, "place_aggressive_limit"):
+            return str(
+                broker.place_aggressive_limit(
+                    symbol,
+                    qty,
+                    side,
+                    buffer_pct=20.0,
+                    tick_size=0.05,
+                    chase_timeout_sec=25.0,
+                    chase_interval_sec=3.0,
+                    trade_type=trade_type,
+                    exchange=exchange,
+                )
+            )
         return str(
             broker.close_position(
-                symbol=str(leg["symbol"]),
-                qty=int(leg["qty"]),
+                symbol=symbol,
+                qty=qty,
                 side=side,
                 trade_type=trade_type,
-                exchange=str(leg.get("exchange") or "NFO"),
+                exchange=exchange,
             )
         )
     except Exception as exc:
-        logger.error("pnl_exit close failed %s: %s", leg.get("symbol"), exc)
+        logger.error("pnl_exit close failed %s: %s", symbol, exc)
         return None
 
 
@@ -230,32 +276,57 @@ def sequenced_flatten(broker: Any) -> dict[str, Any]:
         oid = _close_one(broker, leg)
         if oid:
             order_ids.append(oid)
-        time.sleep(0.2)
+        time.sleep(0.35)
 
-    # Retry leftovers once
-    time.sleep(0.5)
+    # Retry only still-open qty; cancel working orders first so we never double-sell.
+    time.sleep(1.0)
+    left = _leg_rows(broker)
+    for leg in left:
+        _cancel_open_orders(broker, str(leg["symbol"]))
+        time.sleep(0.25)
     left = _leg_rows(broker)
     for leg in left:
         oid = _close_one(broker, leg)
         if oid:
             order_ids.append(oid)
-        time.sleep(0.2)
+        time.sleep(0.35)
 
     _clear_paper_book()
-    return {"orders_placed": len(order_ids), "order_ids": order_ids, "legs_seen": len(legs)}
+    still = _leg_rows(broker)
+    if still:
+        logger.error(
+            "pnl_exit leftover after flatten: %s",
+            [(r.get("symbol"), r.get("net_qty")) for r in still],
+        )
+    return {
+        "orders_placed": len(order_ids),
+        "order_ids": order_ids,
+        "legs_seen": len(legs),
+        "legs_left": len(still),
+        "left_symbols": [r.get("symbol") for r in still],
+    }
 
 
 def _pause_ato(state: Any) -> None:
     try:
         from core.ato_side_state import pause_all_ato
 
-        pause_all_ato(state, reason="pnl_exit_fired", save=True)
+        pause_all_ato(state, reason="pnl_exit_fired", save=False)
     except Exception:
         try:
             state.set("algo.paused", True, save=False)
-            state.set("algo.pause_reason", "pnl_exit_fired", save=True)
+            state.set("algo.pause_reason", "pnl_exit_fired", save=False)
         except Exception:
             pass
+    if state is None:
+        return
+    try:
+        for prefix in ("ce", "pe"):
+            state.set(f"ato.{prefix}_triggered", False, save=False)
+            state.set(f"ato.{prefix}_ato_active", False, save=False)
+        state.save()
+    except Exception as exc:
+        logger.warning("pnl_exit clear ato flags: %s", exc)
 
 
 def _notify(events: Any, reason: str, pnl: float, level: float, result: dict[str, Any]) -> None:

@@ -15,6 +15,7 @@ _IST = zoneinfo.ZoneInfo("Asia/Kolkata")
 
 _stop: threading.Event | None = None
 _thread: threading.Thread | None = None
+_last_seed = 0.0
 
 
 def _seed(ltp: float, source: str) -> None:
@@ -62,6 +63,11 @@ def _collector_loop(stop: threading.Event) -> None:
                 if ltp <= 0:
                     continue
                 src = str(tick.get("source") or "DATAFEEDBOT_WS")
+                now_m = time.monotonic()
+                global _last_seed
+                if now_m - _last_seed < 0.4:
+                    continue
+                _last_seed = now_m
                 _seed(ltp, src)
         except Exception as exc:
             logger.warning("Feeder NIFTY collector error: %s — retry in %.1fs", exc, backoff)
@@ -76,19 +82,12 @@ def _collector_loop(stop: threading.Event) -> None:
 
 
 def start_feeder_nifty_collector() -> threading.Event:
-    """Start background Feeder → NIFTY cache writer (idempotent)."""
+    """No-op: Feeder writes the NIFTY cache. Kavach uses short IPC peeks."""
     global _stop, _thread
-    if _thread is not None and _thread.is_alive():
-        return _stop  # type: ignore[return-value]
-    _stop = threading.Event()
-    _thread = threading.Thread(
-        target=_collector_loop,
-        args=(_stop,),
-        name="feeder-nifty-collector",
-        daemon=True,
-    )
-    _thread.start()
-    logger.info("Feeder NIFTY collector thread started")
+    if _stop is None:
+        _stop = threading.Event()
+        _stop.set()
+    logger.info("Feeder NIFTY collector disabled — Feeder owns cache; IPC peek only")
     return _stop
 
 

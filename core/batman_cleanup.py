@@ -2,12 +2,109 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger("batman.batman_cleanup")
+
 POSITION_LEGS = ("pe_buy", "pe_sell", "ce_buy", "ce_sell")
+HEDGE_LEGS = ("ce_margin_hedge", "ce_dyn_hedge", "pe_margin_hedge", "pe_dyn_hedge")
+
+_ATO_NONE = (
+    "ce_protect_symbol",
+    "ce_protect_strike",
+    "pe_protect_symbol",
+    "pe_protect_strike",
+    "ce_order_id",
+    "pe_order_id",
+    "ce_ato_exit_order_id",
+    "pe_ato_exit_order_id",
+    "ce_buy_oid",
+    "pe_buy_oid",
+    "ce_buy_qty",
+    "pe_buy_qty",
+    "ce_exit_qty",
+    "pe_exit_qty",
+    "ce_entry_option_premium",
+    "pe_entry_option_premium",
+    "ce_buy_trigger",
+    "pe_buy_trigger",
+    "ce_buy_limit",
+    "pe_buy_limit",
+    "ce_halt_reason",
+    "pe_halt_reason",
+    "web_buy_fill_token",
+    "web_sell_fill_token",
+    "ce_entry_replay_market_time",
+    "pe_entry_replay_market_time",
+)
+
+
+def reset_state_after_complete(state: Any, *, save: bool = True) -> None:
+    """Idle Kavach after Complete: no legs, no ATO levels, no leftover triggers."""
+    if state is None:
+        return
+    for leg in POSITION_LEGS + HEDGE_LEGS:
+        state.set(f"positions.{leg}", None, save=False)
+    for key in _ATO_NONE:
+        state.set(f"ato.{key}", None, save=False)
+    state.set("ato.ce_triggered", False, save=False)
+    state.set("ato.pe_triggered", False, save=False)
+    state.set("ato.ce_ato_active", False, save=False)
+    state.set("ato.pe_ato_active", False, save=False)
+    state.set("ato.ce_awaiting_clearance", False, save=False)
+    state.set("ato.pe_awaiting_clearance", False, save=False)
+    state.set("ato.ce_side_halted", False, save=False)
+    state.set("ato.pe_side_halted", False, save=False)
+    state.set("ato.retrace_points", 5, save=False)
+    state.set("ato.manage_sides", "both", save=False)
+    state.set("ato.ce_entry_buffer_points", 0, save=False)
+    state.set("ato.pe_entry_buffer_points", 0, save=False)
+    state.set("ato.ce_retrace_points", 5, save=False)
+    state.set("ato.pe_retrace_points", 5, save=False)
+    state.set("dyn_hedge.pe_exited_date", None, save=False)
+    state.set("dyn_hedge.ce_exited_date", None, save=False)
+    state.set("dyn_hedge.exit_enabled", False, save=False)
+    state.set("risk.break_even.pe", None, save=False)
+    state.set("risk.break_even.ce", None, save=False)
+    state.set("risk.break_even.confirmed", False, save=False)
+    state.set("risk.break_even.source.pe", None, save=False)
+    state.set("risk.break_even.source.ce", None, save=False)
+    state.set("risk.break_even.skipped", False, save=False)
+    state.set("deployment.confirmed", False, save=False)
+    state.set("deployment.file", None, save=False)
+    state.set("deployment.registration_scope", None, save=False)
+    state.set("deployment.batman_complete", True, save=False)
+    state.set("deployment.positions_confirmed_date", None, save=False)
+    state.set("deployment.next_entry_date", None, save=False)
+    state.set("deployment.cleanup_failed", False, save=False)
+    state.set("algo.paused", False, save=False)
+    state.set("algo.pause_reason", None, save=False)
+    state.set("algo.paused_at", None, save=False)
+    state.set("algo.paused_by", None, save=False)
+    state.set("session.emergency_exited", False, save=False)
+    state.set("pnl_exit.last_reason", None, save=False)
+    state.set("pnl_exit.last_pnl", None, save=False)
+    state.set("pnl_exit.last_at", None, save=False)
+    state.set("pnl_exit.firing", False, save=False)
+    if save:
+        state.save()
+    try:
+        from core.ato_cycle_feed import reset_open_holdings
+
+        reset_open_holdings()
+    except Exception as exc:
+        logger.warning("reset open ATO holdings failed: %s", exc)
+    try:
+        from core.day_pnl_cache import reset_day_pnl_after_complete
+
+        reset_day_pnl_after_complete()
+        logger.info("DAY PNL reset after Batman complete")
+    except Exception as exc:
+        logger.warning("DAY PNL reset after complete failed: %s", exc)
 
 
 def verify_batman_cleanup(

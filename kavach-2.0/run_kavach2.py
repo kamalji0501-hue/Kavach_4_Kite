@@ -44,7 +44,7 @@ from core.state import StateManager
 from core.token_store import TokenStore
 from core.token_watch import start_token_watch
 from core.daily_ato_prompt import daily_ato_prompt_status_line
-from core.feeder_nifty_collector import start_feeder_nifty_collector, stop_feeder_nifty_collector
+from core.feeder_nifty_collector import stop_feeder_nifty_collector
 from modules.ato_protection import ATOProtection, apply_ato_analytics_paths
 
 ROOT = Path(__file__).parent
@@ -97,6 +97,17 @@ def _connect_broker(client_code: str):
         return create_broker(client_code or "", "", ROOT)
     except Exception as exc:
         logger.error("Zerodha broker connect failed: %s", exc)
+        try:
+            from core.desk_alerts import emit_desk_alert
+
+            emit_desk_alert(
+                severity="red",
+                category="Tokens",
+                alert="Kavach started with no Kite token — live orders cannot go out.",
+                log=f"Zerodha broker connect failed: {exc}",
+            )
+        except Exception:
+            pass
         return None
 
 
@@ -305,7 +316,7 @@ def main() -> None:
             "No broker at startup — will bootstrap when Zerodha access_token is available"
         )
 
-    start_feeder_nifty_collector()
+    # Feeder writes NIFTY cache. IPC peeks only — no always-on collector.
     start_health_heartbeat(ROOT, "kavach2", extra_provider=_kavach_health)
     if _telegram_disabled():
         logger.info("ATO readiness Telegram notifier skipped (telegram disabled)")

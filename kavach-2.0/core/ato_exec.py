@@ -246,14 +246,45 @@ def rescue_flatten_sell(
             except Exception as exc:
                 logger.warning("ATO SELL exit-Rescue modify failed: %s", exc)
                 err = str(exc).lower()
+                try:
+                    from core.desk_alerts import emit_desk_alert, option_side
+
+                    side = option_side(symbol)
+                    who = f"{side} " if side else ""
+                    if "429" in err or "too many" in err:
+                        line = f"{who}sell cannot be changed — Kite is blocking more updates (too many requests)."
+                    else:
+                        line = f"{who}sell cannot be changed — Kite is still working on that order."
+                    emit_desk_alert(
+                        severity="red",
+                        category="ATO exit",
+                        alert=line.strip(),
+                        log=f"ATO SELL exit-Rescue modify failed: {exc}",
+                        side=side,
+                    )
+                except Exception:
+                    pass
                 if "being processed" in err or "cannot be modified" in err:
                     return {"order_id": oid, "via": "modify_pending", "side": "SELL"}
         cancel = getattr(broker, "cancel_order", None)
         if callable(cancel):
             try:
                 cancel(oid)
-            except Exception:
-                pass
+            except Exception as cancel_exc:
+                try:
+                    from core.desk_alerts import emit_desk_alert, option_side
+
+                    side = option_side(symbol)
+                    who = f"{side} " if side else ""
+                    emit_desk_alert(
+                        severity="red",
+                        category="ATO exit",
+                        alert=f"{who}sell cannot be cancelled either.".strip(),
+                        log=f"ATO SELL exit-Rescue cancel failed: {cancel_exc}",
+                        side=side,
+                    )
+                except Exception:
+                    pass
     place = getattr(broker, "place_aggressive_limit", None)
     if callable(place):
         new_id = place(symbol, int(remaining), "SELL", trade_type=product)

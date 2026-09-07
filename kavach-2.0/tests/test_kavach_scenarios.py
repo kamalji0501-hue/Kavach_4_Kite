@@ -367,7 +367,7 @@ async def test_wizard_pe_intent_enable_shows_long_pe() -> None:
 
 @pytest.mark.asyncio
 async def test_wizard_pe_buy_then_margin_then_dyn_hedge() -> None:
-    """Core PE BUY → Margin Hedge (2 left) → 30% Dyn Hedge (1 left) → PE SELL."""
+    """Core PE BUY → Margin Hedge (2 left) → 35% Dyn Hedge (1 left) → PE SELL."""
     positions = _sample_positions()
     long_pe = [p for p in positions if p["opt_type"] == "PE" and p["direction"] == "LONG"]
     assert len(long_pe) == 3
@@ -422,7 +422,7 @@ async def test_wizard_pe_buy_then_margin_then_dyn_hedge() -> None:
     assert state2 == WIZARD_PE_DYN_HEDGE
     assert ctx.user_data["pe_margin_hedge"]["symbol"] == long_pe[1]["symbol"]
     assert len(ctx.user_data["_pe_hedge_pool"]) == 1
-    assert "30% Dynamic Hedge" in edit2.await_args.args[2] or "Dynamic Hedge" in edit2.await_args.args[2]
+    assert "35% Dynamic Hedge" in edit2.await_args.args[2] or "Dynamic Hedge" in edit2.await_args.args[2]
 
     # Confirm last as Dyn Hedge → PE SELL
     query3 = _query_mock("wiz_leg:0")

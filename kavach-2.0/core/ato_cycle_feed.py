@@ -67,6 +67,15 @@ def read_cycle_state(*, root: Path | None = None) -> dict[str, Any]:
     return _default_state()
 
 
+def reset_open_holdings(*, root: Path | None = None) -> None:
+    """Clear CE/PE holding flags; keep today's completed-cycle totals."""
+    st = read_cycle_state(root=root)
+    blank = _default_state()
+    st["ce"] = blank["ce"]
+    st["pe"] = blank["pe"]
+    write_cycle_state(st, root=root)
+
+
 def write_cycle_state(state: dict[str, Any], *, root: Path | None = None) -> None:
     path = ato_cycle_state_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)

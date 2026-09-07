@@ -48,6 +48,7 @@ WIZARD_CONVERSATION_NAME = "kavach2_register"
 (
     WIZARD_ORDER_MODE,
     WIZARD_PRE_CONFIRM,
+    WIZARD_REG_EXPIRY,
     WIZARD_REG_SCOPE,
     WIZARD_PE_INTENT,
     WIZARD_PE_BUY,
@@ -78,13 +79,14 @@ WIZARD_CONVERSATION_NAME = "kavach2_register"
     WIZARD_POLL_INTERVAL,
     WIZARD_ATO_MON,
     WIZARD_CONFIRM,
-) = range(32)
+) = range(33)
 
 _CB_PRE = "wiz_pre"
 _CB_ORDER_MODE = "wiz_omode"
 _CB_LEG = "wiz_leg"
 _CB_SIDE = "wiz_side"
 _CB_REG_SCOPE = "wiz_reg_scope"
+_CB_REG_EXPIRY = "wiz_exp"
 _CB_LOTS = "wiz_lots"
 _CB_ATO_STR = "wiz_astr"
 _CB_BUF_MODE = "wiz_bmode"
@@ -529,6 +531,96 @@ async def _ask_ce_buy_legs(query_or_msg, context, *, prefer_edit: bool = True) -
     return WIZARD_CE_BUY
 
 
+def _reg_expiry_keyboard(options: list[dict[str, Any]], selected_iso: str) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for opt in options:
+        mark = "✅ " if str(opt.get("iso") or "") == selected_iso else ""
+        rows.append(
+            [_btn(f"{mark}{opt.get('label')}", f"{_CB_REG_EXPIRY}:{opt.get('iso')}", style="primary")]
+        )
+    rows.append([_btn("❌ Cancel", f"{_CB_REG_EXPIRY}:cancel", style="danger")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def show_register_expiry_picker(
+    context: ContextTypes.DEFAULT_TYPE,
+    reply_target,
+    *,
+    prefer_edit: bool = False,
+) -> int:
+    """Ask which NIFTY week to register, then filter the book."""
+    from datetime import date as _date
+
+    from core.nifty_option_expiry import (
+        choose_default_register_expiry,
+        filter_positions_for_expiry,
+        list_register_week_expiries,
+    )
+
+    b = _bot()
+    wiz = _wiz(context)
+    all_pos = list(cast(list[dict], wiz.get("wiz_positions_all") or wiz.get("wiz_positions") or []))
+    wiz["wiz_positions_all"] = all_pos
+    options = list_register_week_expiries()
+    if not options:
+        await b._wizard_show(
+            context,
+            reply_target,
+            "⚠️ No upcoming NIFTY weekly expiries found on the instrument list\\.\n\nRetry /register after the NFO dump refreshes\\.",
+            prefer_edit=prefer_edit,
+        )
+        b._clear_wizard_data(context)
+        return ConversationHandler.END
+    chosen = str(wiz.get("wiz_register_expiry") or "").strip()
+    valid = {str(o["iso"]) for o in options}
+    if chosen not in valid:
+        chosen = choose_default_register_expiry(all_pos, options)
+    wiz["wiz_register_expiry"] = chosen
+    wiz["wiz_register_expiry_label"] = next(
+        (str(o["label"]) for o in options if o["iso"] == chosen), chosen
+    )
+    body = "Choose the *expiry week* to register\\.\n\nLegs, ATO protect and buffers use only this week\\."
+    header = _qheader(context, "reg_expiry", body)
+    await b._wizard_show(
+        context,
+        reply_target,
+        header,
+        reply_markup=_reg_expiry_keyboard(options, chosen),
+        prefer_edit=prefer_edit,
+    )
+    return WIZARD_REG_EXPIRY
+
+
+async def wizard_reg_expiry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    from datetime import date as _date
+
+    from core.nifty_option_expiry import filter_positions_for_expiry, list_register_week_expiries
+
+    b = _bot()
+    query = b._require_query(update)
+    await b._safe_answer_callback(query)
+    wiz = _wiz(context)
+    data = query.data or ""
+    if data.endswith(":cancel"):
+        return await _cancel_wizard(query, context)
+    iso = data.split(":", 1)[-1]
+    options = list_register_week_expiries()
+    hit = next((o for o in options if o["iso"] == iso), None)
+    if hit is None:
+        await query.answer("Pick a listed expiry week.", show_alert=True)
+        return WIZARD_REG_EXPIRY
+    all_pos = list(cast(list[dict], wiz.get("wiz_positions_all") or wiz.get("wiz_positions") or []))
+    wiz["wiz_positions_all"] = all_pos
+    filtered = filter_positions_for_expiry(all_pos, _date.fromisoformat(iso))
+    if not filtered:
+        await query.answer("No open NIFTY legs for that week.", show_alert=True)
+        return WIZARD_REG_EXPIRY
+    wiz["wiz_register_expiry"] = iso
+    wiz["wiz_register_expiry_label"] = str(hit["label"])
+    wiz["wiz_positions"] = filtered
+    return await show_register_scope_picker(context, query.message, prefer_edit=True)
+
+
 async def show_register_scope_picker(
     context: ContextTypes.DEFAULT_TYPE,
     reply_target,
@@ -785,7 +877,7 @@ async def wizard_pe_margin_hedge(update: Update, context: ContextTypes.DEFAULT_T
         lot_size = _lot_size(context)
         body = (
             f"{header}\n\n"
-            "*30% Dynamic Hedge* \\(PE\\) — confirm this leg:"
+            "*35% Dynamic Hedge* \\(PE\\) — confirm this leg:"
         )
         await b._wizard_edit_step(
             context,
@@ -976,7 +1068,7 @@ async def wizard_ce_margin_hedge(update: Update, context: ContextTypes.DEFAULT_T
         lot_size = _lot_size(context)
         body = (
             f"{header}\n\n"
-            "*30% Dynamic Hedge* \\(CE\\) — confirm this leg:"
+            "*35% Dynamic Hedge* \\(CE\\) — confirm this leg:"
         )
         await b._wizard_edit_step(
             context,
@@ -1400,6 +1492,9 @@ def build_wizard_handler(timeout: int) -> ConversationHandler:
             ],
             WIZARD_PRE_CONFIRM: [
                 CallbackQueryHandler(b.wizard_pre_confirm, pattern=f"^{_CB_PRE}:")
+            ],
+            WIZARD_REG_EXPIRY: [
+                CallbackQueryHandler(wizard_reg_expiry, pattern=f"^{_CB_REG_EXPIRY}:")
             ],
             WIZARD_REG_SCOPE: [
                 CallbackQueryHandler(wizard_reg_scope, pattern=f"^{_CB_REG_SCOPE}:")

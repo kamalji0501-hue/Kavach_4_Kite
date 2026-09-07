@@ -41,12 +41,11 @@ def snapshot() -> dict[str, Any]:
     nifty_ltp = None
     nifty_ok = False
     try:
-        from web.arm import nifty_ltp as live_nifty
-        from core.nifty_ltp_feed import cache_consumer_status, default_cache_path
+        from core.nifty_ltp_feed import cache_consumer_status, default_cache_path, read_nifty_ltp_cache
 
-        px = live_nifty()
-        if px is not None and float(px) > 0:
-            nifty_ltp = float(px)
+        snap = read_nifty_ltp_cache()
+        if snap is not None and float(snap.ltp) > 0:
+            nifty_ltp = float(snap.ltp)
             nifty = f"{nifty_ltp:,.2f}"
         nifty_ok, _ = cache_consumer_status(path=default_cache_path())
     except Exception:
@@ -57,17 +56,26 @@ def snapshot() -> dict[str, Any]:
     day_pnl = None
     positions = []
     try:
-        from core.day_pnl_cache import cached_day_pnl, cached_positions, refresh_hybrid_day_pnl
+        from core.day_pnl_cache import cached_day_pnl, cached_positions
 
-        if rt and rt.broker:
-            try:
-                refresh_hybrid_day_pnl(broker=rt.broker)
-            except Exception:
-                pass
         day_pnl = cached_day_pnl()
         positions = cached_positions() or []
+        try:
+            from core.position_leg_labels import annotate_positions_with_types
+
+            positions = annotate_positions_with_types(positions, state)
+        except Exception:
+            pass
+        if not dep:
+            try:
+                from core.day_pnl_cache import latch_idle_day_pnl
+
+                latch_idle_day_pnl()
+            except Exception:
+                pass
+            day_pnl = 0.0
     except Exception:
-        day_pnl = None
+        day_pnl = 0.0 if not dep else None
         positions = []
 
     ato_readiness: dict[str, Any] = {}
@@ -84,16 +92,16 @@ def snapshot() -> dict[str, Any]:
             "feed": {"ready": nifty_ok, "ltp": nifty_ltp, "age_s": None},
         }
 
-    return {
+    out = {
         "ok": True,
         "broker": bool(rt and rt.broker),
         "paused": paused,
         "pause_reason": _state_get(state, "algo.pause_reason"),
         "deployment": dep,
-        "ce_ato": bool(_state_get(state, "ato.ce_ato_active") or _state_get(state, "ato.ce_triggered")),
-        "pe_ato": bool(_state_get(state, "ato.pe_ato_active") or _state_get(state, "ato.pe_triggered")),
-        "ce_symbol": _state_get(state, "ato.ce_protect_symbol") or "",
-        "pe_symbol": _state_get(state, "ato.pe_protect_symbol") or "",
+        "ce_ato": bool(dep and (_state_get(state, "ato.ce_ato_active") or _state_get(state, "ato.ce_triggered"))),
+        "pe_ato": bool(dep and (_state_get(state, "ato.pe_ato_active") or _state_get(state, "ato.pe_triggered"))),
+        "ce_symbol": (_state_get(state, "ato.ce_protect_symbol") or "") if dep else "",
+        "pe_symbol": (_state_get(state, "ato.pe_protect_symbol") or "") if dep else "",
         "dyn_hedge": bool(_state_get(state, "dyn_hedge.exit_enabled", False)),
         "nifty": nifty,
         "nifty_ltp": nifty_ltp,
@@ -105,4 +113,13 @@ def snapshot() -> dict[str, Any]:
         "ato_buy_fill_token": _state_get(state, "ato.web_buy_fill_token") or "",
         "ato_sell_fill_token": _state_get(state, "ato.web_sell_fill_token") or "",
         "pnl_exit": _pnl_exit_snap(state),
+        "desk_alerts": [],
     }
+    try:
+        from core.desk_alerts import emit_readiness_edges, recent as desk_recent
+
+        emit_readiness_edges(ato_readiness, paused=paused, broker_ok=bool(rt and rt.broker))
+        out["desk_alerts"] = desk_recent(30)
+    except Exception:
+        pass
+    return out

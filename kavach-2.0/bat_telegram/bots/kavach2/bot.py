@@ -124,7 +124,7 @@ _CB_ATO_MON = "wiz_ato_mon"  # ATO monitor side picker (Step 6/6)
 _CB_HOL = "wiz_hol"  # holiday selection review (Step 7/7)
 _CB_CONF = "wiz_conf"  # final confirm/cancel
 _CB_DONE = "kav2_done"  # batman_complete confirm
-_CB_DYN_HEDGE = "kav2_dynhedge"  # 30% dynamic hedge Yes/No
+_CB_DYN_HEDGE = "kav2_dynhedge"  # 35% dynamic hedge Yes/No
 _CB_BE = "wiz_be"  # break-even confirm/edit/skip
 _CB_BUF = "wiz_buf"  # side-wise ATO trigger buffers
 _CB_POLL = "wiz_poll"  # per-deployment poll interval
@@ -191,7 +191,7 @@ def _main_menu_keyboard() -> InlineKeyboardMarkup:
       ATO           | Buffer Manager
       Core Legs     | Environment
       Pause         | Resume
-      30% Dynamic Hedge
+      35% Dynamic Hedge
       Register Batman
       Complete Batman
 
@@ -224,7 +224,7 @@ def _main_menu_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 _btn(
-                    "🛡 30% Dynamic Hedge",
+                    "🛡 35% Dynamic Hedge",
                     f"{_CB_MENU}:dyn_hedge",
                     style="primary",
                 ),
@@ -1168,11 +1168,11 @@ def _selected_header(selected: dict[str, dict]) -> str:
     labels = {
         "pe_buy": "Core PE BUY",
         "pe_margin_hedge": "Margin Hedge PE",
-        "pe_dyn_hedge": "30% Dyn Hedge PE",
+        "pe_dyn_hedge": "35% Dyn Hedge PE",
         "pe_sell": "PE SELL",
         "ce_buy": "Core CE BUY",
         "ce_margin_hedge": "Margin Hedge CE",
-        "ce_dyn_hedge": "30% Dyn Hedge CE",
+        "ce_dyn_hedge": "35% Dyn Hedge CE",
         "ce_sell": "CE SELL",
     }
     return "\n".join(
@@ -1324,66 +1324,9 @@ def _write_deployment_file(
 
 def _state_reset(state) -> None:
     """Clear all deployment-related keys in StateManager."""
-    if state is None:
-        return
-    nones = [
-        "positions.ce_sell",
-        "positions.ce_buy",
-        "positions.ce_margin_hedge",
-        "positions.ce_dyn_hedge",
-        "positions.pe_sell",
-        "positions.pe_buy",
-        "positions.pe_margin_hedge",
-        "positions.pe_dyn_hedge",
-        "ato.ce_protect_symbol",
-        "ato.ce_protect_strike",
-        "ato.pe_protect_symbol",
-        "ato.pe_protect_strike",
-        "ato.ce_order_id",
-        "ato.pe_order_id",
-        "dyn_hedge.pe_exited_date",
-        "dyn_hedge.ce_exited_date",
-    ]
-    for key in nones:
-        state.set(key, None, save=False)
-    state.set("ato.ce_triggered", False, save=False)
-    state.set("ato.pe_triggered", False, save=False)
-    state.set("ato.ce_ato_active", False, save=False)
-    state.set("ato.pe_ato_active", False, save=False)
-    state.set("ato.ce_awaiting_clearance", False, save=False)
-    state.set("ato.pe_awaiting_clearance", False, save=False)
-    state.set("ato.retrace_points", 5, save=False)
-    state.set("ato.manage_sides", "both", save=False)
-    state.set("ato.ce_entry_buffer_points", 0, save=False)
-    state.set("ato.pe_entry_buffer_points", 0, save=False)
-    state.set("ato.ce_retrace_points", 5, save=False)
-    state.set("ato.pe_retrace_points", 5, save=False)
-    state.set("ato.poll_interval_seconds", None, save=False)
-    state.set("risk.break_even.pe", None, save=False)
-    state.set("risk.break_even.ce", None, save=False)
-    state.set("risk.break_even.confirmed", False, save=False)
-    state.set("risk.break_even.source.pe", None, save=False)
-    state.set("risk.break_even.source.ce", None, save=False)
-    state.set("risk.break_even.skipped", False, save=False)
-    state.set("modules.ratripal.enabled", False, save=False)
-    state.set("modules.aditya.enabled", False, save=False)
-    state.set("ratripal.last_run_date", None, save=False)
-    state.set("ratripal.last_decision", None, save=False)
-    state.set("ratripal.pending.request_id", None, save=False)
-    state.set("ratripal.pending.response", None, save=False)
-    state.set("ratripal.pending.sent_at", None, save=False)
-    state.set("aditya.handoff_file", None, save=False)
-    state.set("deployment.confirmed", False, save=False)
-    state.set("deployment.file", None, save=False)
-    state.set("deployment.registration_scope", None, save=False)
-    state.set("deployment.batman_complete", True, save=False)
-    state.set("session.emergency_exited", False, save=False)
-    state.set("ato.ce_side_halted", False, save=False)
-    state.set("ato.pe_side_halted", False, save=False)
-    state.set("ato.ce_halt_reason", None, save=False)
-    state.set("ato.pe_halt_reason", None, save=False)
-    state.set("deployment.cleanup_failed", False, save=False)
-    state.set("dyn_hedge.exit_enabled", False, save=False)
+    from core.batman_cleanup import reset_state_after_complete
+
+    reset_state_after_complete(state, save=False)
 
 
 def _clear_wizard_data(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1705,7 +1648,7 @@ def _sync_state_from_deployment_file(filepath: Path, state) -> None:
     state.set("modules.ratripal.enabled", has_sell, save=False)
     state.set("modules.aditya.enabled", False, save=False)
 
-    # 30% Dynamic Hedge: auto-arm exit when Register persisted dyn legs.
+    # 35% Dynamic Hedge: auto-arm exit when Register persisted dyn legs.
     # Operator can still turn OFF via menu; do not leave legs stranded at default No.
     has_dyn = bool(positions.get("pe_dyn_hedge") or positions.get("ce_dyn_hedge"))
     state.set("dyn_hedge.pe_exited_date", None, save=False)
@@ -1730,6 +1673,14 @@ def _sync_state_from_deployment_file(filepath: Path, state) -> None:
     state.set("deployment.batman_complete", False, save=False)
     state.set("deployment.file", str(filepath), save=False)
     state.set("algo.paused", False, save=False)
+    try:
+        from core.pnl_exit_guard import clear_last_fire
+
+        clear_last_fire(state, save=False)
+    except Exception:
+        state.set("pnl_exit.last_reason", None, save=False)
+        state.set("pnl_exit.last_pnl", None, save=False)
+        state.set("pnl_exit.last_at", None, save=False)
     state.set("session.emergency_exited", False)
     state.save()
 
@@ -2360,10 +2311,10 @@ async def _wizard_fetch_step1(
     wizard_data["ce_enabled"] = None
     rebuild_wizard_plan(wizard_data)
 
-    # Ask Register both / CE only / PE only before leg pick.
-    from bat_telegram.bots.kavach2.register_wizard import show_register_scope_picker
+    # Ask expiry week first, then Register both / CE only / PE only.
+    from bat_telegram.bots.kavach2.register_wizard import show_register_expiry_picker
 
-    return await show_register_scope_picker(
+    return await show_register_expiry_picker(
         context, reply_target, prefer_edit=prefer_edit
     )
 
@@ -3097,6 +3048,12 @@ async def _wizard_show_summary(query: CallbackQuery, context: ContextTypes.DEFAU
         ce_ato_lots=wizard_data.get("ce_ato_lots"),
         lot_size=lot_size,
     )
+
+    iso = str(wizard_data.get("wiz_register_expiry") or "").strip()
+    if iso:
+        scope["expiry"] = iso
+        scope["expiry_label"] = str(wizard_data.get("wiz_register_expiry_label") or iso)
+
     wizard_data["wiz_registration_scope"] = scope
     sides_label = {
         "pe": "PE side only \U0001f53b",
@@ -3135,7 +3092,7 @@ async def _wizard_show_summary(query: CallbackQuery, context: ContextTypes.DEFAU
         if selected.get("pe_margin_hedge"):
             summary += f"`PE MARGIN: {_fmt_leg(selected['pe_margin_hedge'])}`\n"
         if selected.get("pe_dyn_hedge"):
-            summary += f"`PE 30%DYN: {_fmt_leg(selected['pe_dyn_hedge'])}`\n"
+            summary += f"`PE 35%DYN: {_fmt_leg(selected['pe_dyn_hedge'])}`\n"
         summary += f"ATO PE: `{_md2_code(pe_ato_sym)}`\n\n"
     else:
         summary += f"`{_md2_code('PE side: not registered')}`\n\n"
@@ -3157,7 +3114,7 @@ async def _wizard_show_summary(query: CallbackQuery, context: ContextTypes.DEFAU
         if selected.get("ce_margin_hedge"):
             summary += f"`CE MARGIN: {_fmt_leg(selected['ce_margin_hedge'])}`\n"
         if selected.get("ce_dyn_hedge"):
-            summary += f"`CE 30%DYN: {_fmt_leg(selected['ce_dyn_hedge'])}`\n"
+            summary += f"`CE 35%DYN: {_fmt_leg(selected['ce_dyn_hedge'])}`\n"
         summary += f"ATO CE: `{_md2_code(ce_ato_sym)}`\n\n"
     else:
         summary += f"`{_md2_code('CE side: not registered')}`\n\n"
@@ -3262,6 +3219,28 @@ async def wizard_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 (context.bot_data.get("params", {}).get("strategy") or {}).get("lot_size", 65)
             ),
         )
+    iso = str(wizard_data.get("wiz_register_expiry") or "").strip()
+    if not iso:
+        await _edit_md2(
+            query,
+            "❌ *Cannot confirm*\n\nPick an expiry week first, then Register again\\.",
+        )
+        return WIZARD_CONFIRM
+    scope["expiry"] = iso
+    scope["expiry_label"] = str(wizard_data.get("wiz_register_expiry_label") or iso)
+    from datetime import date as _date
+    from core.nifty_option_expiry import symbol_matches_register_expiry
+    exp_d = _date.fromisoformat(iso)
+    for leg in (selected or {}).values():
+        if not leg:
+            continue
+        sym = str(leg.get("symbol") or "")
+        if not symbol_matches_register_expiry(sym, exp_d):
+            await _edit_md2(
+                query,
+                f"❌ *Cannot confirm*\n\n`{_md2_code(sym)}` is not the selected week\\.",
+            )
+            return WIZARD_CONFIRM
 
     strike_errors = _validate_protect_strikes_at_confirm(wizard_data, selected)
     if strike_errors:
@@ -3794,11 +3773,11 @@ async def cmd_legs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     order = [
         ("pe_buy", "PE BUY "),
         ("pe_margin_hedge", "PE MARGIN"),
-        ("pe_dyn_hedge", "PE 30%DYN"),
+        ("pe_dyn_hedge", "PE 35%DYN"),
         ("pe_sell", "PE SELL"),
         ("ce_buy", "CE BUY "),
         ("ce_margin_hedge", "CE MARGIN"),
-        ("ce_dyn_hedge", "CE 30%DYN"),
+        ("ce_dyn_hedge", "CE 35%DYN"),
         ("ce_sell", "CE SELL"),
     ]
     lines = ["🦇 *Core Batman Legs*\n"]
@@ -3961,7 +3940,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def cmd_dyn_hedge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show Yes/No toggle for exiting 30% dynamic hedge on any ATO trigger."""
+    """Show Yes/No toggle for exiting 35% dynamic hedge on any ATO trigger."""
     message = _require_message(update)
     state = context.bot_data.get("state")
     enabled = bool(state.get("dyn_hedge.exit_enabled", False)) if state else False
@@ -3970,12 +3949,12 @@ async def cmd_dyn_hedge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if enabled:
         help_line = (
             "_When No : When ATO fires on a side, "
-            "that side’s 30% dynamic hedge leg will not be exited\\._"
+            "that side’s 35% dynamic hedge leg will not be exited\\._"
         )
     else:
         help_line = (
-            "_When YES: When ATO fires on a side, if that 30% hedge qty is still > 0, "
-            "that side’s 30% dynamic hedge leg is exited in full — no re\\-entry\\._"
+            "_When YES: When ATO fires on a side, if that 35% hedge qty is still > 0, "
+            "that side’s 35% dynamic hedge leg is exited in full — no re\\-entry\\._"
         )
     keyboard = InlineKeyboardMarkup(
         [
@@ -3992,8 +3971,8 @@ async def cmd_dyn_hedge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
     await _reply_md2(
         message,
-        "🛡 *30% Dynamic Hedge*\n\n"
-        "Do you want to exit 30% Qty when ATO triggered\\?\n\n"
+        "🛡 *35% Dynamic Hedge*\n\n"
+        "Do you want to exit 35% Qty when ATO triggered\\?\n\n"
         f"Current Setting: *{_md2(current)}*\n\n"
         f"{help_line}",
         reply_markup=keyboard,
@@ -4026,7 +4005,7 @@ async def on_dyn_hedge_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
     await _reply_md2(
         message,
-        f"✅ 30% Dynamic Hedge exit set to *{_md2(label)}*\\.",
+        f"✅ 35% Dynamic Hedge exit set to *{_md2(label)}*\\.",
         reply_markup=_main_menu_keyboard(),
     )
 
@@ -4650,7 +4629,7 @@ def register_event_subscriptions(app: Application) -> None:
             _push(
                 app,
                 chat_id,
-                f"🛡 *{_md2(side)} \\- 30% Dynamic Hedge EXITED*\n"
+                f"🛡 *{_md2(side)} \\- 35% Dynamic Hedge EXITED*\n"
                 f"`{_md2_code(f'{symbol}  qty={qty}')}`\n"
                 "Exited on ATO trigger — hedge is not bought back\\.",
             )

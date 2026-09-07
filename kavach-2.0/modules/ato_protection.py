@@ -802,7 +802,7 @@ class ATOProtection(ModuleBase):
             return oid
 
     def _maybe_exit_dyn_hedge(self, side: str) -> None:
-        """Exit remaining 30% dynamic hedge whenever ATO fires on this side.
+        """Exit remaining 35% dynamic hedge whenever ATO fires on this side.
 
         Conditions: toggle ON and live broker qty > 0. Does not re-buy the hedge.
         """
@@ -812,7 +812,7 @@ class ATOProtection(ModuleBase):
         prefix = "pe" if side_u == "PE" else "ce"
         if not bool(self.state.get("dyn_hedge.exit_enabled", False)):
             self.log.info(
-                "30%% dynamic hedge skip side=%s — exit_enabled=False "
+                "35%% dynamic hedge skip side=%s — exit_enabled=False "
                 "(enable via KAVACH 2.0 menu 🛡 or re-Register with dyn legs)",
                 side_u,
             )
@@ -821,7 +821,7 @@ class ATOProtection(ModuleBase):
         leg = self.state.get(f"positions.{prefix}_dyn_hedge")
         if not isinstance(leg, dict):
             self.log.info(
-                "30%% dynamic hedge skip side=%s — no positions.%s_dyn_hedge leg",
+                "35%% dynamic hedge skip side=%s — no positions.%s_dyn_hedge leg",
                 side_u,
                 prefix,
             )
@@ -832,7 +832,7 @@ class ATOProtection(ModuleBase):
         except (TypeError, ValueError):
             registered_qty = 0
         if not symbol:
-            self.log.info("30%% dynamic hedge skip side=%s — blank symbol", side_u)
+            self.log.info("35%% dynamic hedge skip side=%s — blank symbol", side_u)
             return
         try:
             live_qty = max(0, int(self._position_qty(symbol) or 0))
@@ -840,7 +840,7 @@ class ATOProtection(ModuleBase):
             live_qty = 0
         if live_qty <= 0:
             self.log.info(
-                "30%% dynamic hedge skip side=%s — live qty=0 for %s",
+                "35%% dynamic hedge skip side=%s — live qty=0 for %s",
                 side_u,
                 symbol,
             )
@@ -856,7 +856,7 @@ class ATOProtection(ModuleBase):
             )
         except Exception as exc:
             self.log.error(
-                "30%% dynamic hedge exit FAILED side=%s symbol=%s qty=%d: %s",
+                "35%% dynamic hedge exit FAILED side=%s symbol=%s qty=%d: %s",
                 side_u,
                 symbol,
                 qty,
@@ -865,7 +865,7 @@ class ATOProtection(ModuleBase):
             return
         self.state.set(exited_key, date.today().isoformat())
         self.log.info(
-            "30%% dynamic hedge exited: side=%s symbol=%s qty=%d order=%s",
+            "35%% dynamic hedge exited: side=%s symbol=%s qty=%d order=%s",
             side_u,
             symbol,
             qty,
@@ -928,6 +928,21 @@ class ATOProtection(ModuleBase):
             breach_only,
             spot,
         )
+        try:
+            from core.desk_alerts import emit_desk_alert
+
+            emit_desk_alert(
+                severity="orange",
+                category="ATO size cap",
+                alert=f"{str(side).upper()} ATO hit its size cap — order still went through.",
+                log=(
+                    f"{side} ATO soft cap — exposure {exposure} "
+                    f"(cycles={cycles} breach_only={breach_only}) spot={spot:.1f}"
+                ),
+                side=str(side).upper(),
+            )
+        except Exception:
+            pass
         self.events.publish(
             Event.ATO_MAX_CYCLES_REACHED,
             {
@@ -956,6 +971,27 @@ class ATOProtection(ModuleBase):
         lot_size = int(op.get("lot_size", 65))
         tag = side.upper()
 
+        from core.zerodha_instruments import nifty_expiry_key
+
+        sell_leg_key = "positions.pe_sell" if tag == "PE" else "positions.ce_sell"
+        sell_leg = self.state.get(sell_leg_key) if self.state else None
+        sell_symbol = ""
+        if isinstance(sell_leg, dict):
+            sell_symbol = str(sell_leg.get("symbol") or "")
+        want_exp = nifty_expiry_key(sell_symbol)
+        got_exp = nifty_expiry_key(symbol)
+        if want_exp and got_exp and want_exp != got_exp:
+            self.log.error(
+                "%s ATO buy blocked — protect %s expiry %s != Batman sell %s (%s)",
+                tag,
+                symbol,
+                got_exp,
+                sell_symbol,
+                want_exp,
+            )
+            halt_side(self.state, tag, reason="protect_expiry_mismatch")
+            return None
+
         existing = get_existing_ato_order(self.state, idem_key)
         if existing:
             return str(existing)
@@ -975,15 +1011,50 @@ class ATOProtection(ModuleBase):
                     product=product,
                 )
                 record_ato_order(self.state, idem_key, str(order_id))
+                sent = str(getattr(self.broker, "_last_order_tradingsymbol", "") or symbol)
+                sent_exp = nifty_expiry_key(sent)
+                req_exp = nifty_expiry_key(symbol)
+                if req_exp and sent_exp and req_exp != sent_exp:
+                    self.log.error(
+                        "%s ATO punched %s but requested %s — halt, no retry",
+                        tag,
+                        sent,
+                        symbol,
+                    )
+                    halt_side(self.state, tag, reason="punched_wrong_expiry")
+                    return None
                 net_after = net_qty_for_symbol(self.broker, symbol)
+                net_sent = (
+                    net_qty_for_symbol(self.broker, sent)
+                    if sent and sent != symbol
+                    else net_after
+                )
+                if (
+                    sent
+                    and sent != symbol
+                    and net_after is not None
+                    and int(net_after or 0) == 0
+                    and net_sent is not None
+                    and int(net_sent or 0) != 0
+                ):
+                    self.log.error(
+                        "%s ATO fill landed on %s qty=%s, not %s — halt, no retry",
+                        tag,
+                        sent,
+                        net_sent,
+                        symbol,
+                    )
+                    halt_side(self.state, tag, reason="fill_wrong_contract")
+                    return None
                 if net_after is None or lots_fulfilled(net_after, ato_qty, lot_size):
                     return str(order_id)
                 self.log.warning(
-                    "%s ATO buy attempt %d — book qty %s != expected %d",
+                    "%s ATO buy attempt %d — book qty %s != expected %d on %s",
                     tag,
                     attempt,
                     net_after,
                     ato_qty,
+                    symbol,
                 )
             except Exception as exc:
                 last_exc = exc
@@ -1526,6 +1597,19 @@ class ATOProtection(ModuleBase):
                 )
             except Exception as exc:
                 self.log.warning("ATO %s SELL exit-Rescue failed: %s", tag, exc)
+                try:
+                    from core.desk_alerts import emit_desk_alert
+
+                    side = tag.upper()
+                    emit_desk_alert(
+                        severity="red",
+                        category="ATO exit",
+                        alert=f"{side} extra sell was rejected — not enough margin (looks like a second short).",
+                        log=f"ATO {side} SELL exit-Rescue failed: {exc}",
+                        side=side,
+                    )
+                except Exception:
+                    pass
 
 
     def _signal_web_order_fill(self, *, side: str, kind: str, order_id: str) -> None:
@@ -1870,7 +1954,7 @@ class ATOProtection(ModuleBase):
         """Compare deployment core legs against live broker positions.
 
         Only the iron-condor core 4 (pe_buy/pe_sell/ce_buy/ce_sell) are required.
-        Margin / 30% dyn hedge legs are optional — they may be exited intentionally
+        Margin / 35% dyn hedge legs are optional — they may be exited intentionally
         and must not clear deployment.confirmed on restart.
         """
         _CORE_ROLES = ("pe_buy", "pe_sell", "ce_buy", "ce_sell")
@@ -1945,6 +2029,18 @@ class ATOProtection(ModuleBase):
                 continue
 
             self.log.error("%s managed qty mismatch — halting side: %s", side, mismatches)
+            try:
+                from core.desk_alerts import emit_desk_alert
+
+                emit_desk_alert(
+                    severity="red",
+                    category="Qty mismatch",
+                    alert=f"{side} size on Kite does not match Kavach — that side is halted.",
+                    log=f"{side} managed qty mismatch — halting side: {mismatches}",
+                    side=str(side).upper(),
+                )
+            except Exception:
+                pass
             halt_side(self.state, side, reason="batman_qty_drift")
             setattr(self, f"_{prefix}_qty_mismatch_halted", True)
             self.events.publish(
@@ -2130,6 +2226,46 @@ class ATOProtection(ModuleBase):
                     )
                     self._place_pe_protection(pe_strike, spot, pe_settings)
 
+        # ── Step 2b: Adopt leftover protect on registered symbols (no second BUY)
+        # Covers re-Register / restart when Nifty is not currently at breach but
+        # the prior ATO long is still in the broker book.
+        if (
+            ce_sell
+            and manage_sides in ("ce", "both")
+            and ce_protect_symbol
+            and not self.state.get("ato.ce_ato_active", False)
+            and not is_side_halted(self.state, "CE")
+        ):
+            broker_ce_qty = self._position_qty(ce_protect_symbol)
+            if broker_ce_qty > 0:
+                self.log.warning(
+                    "ATO startup scan: CE protect already long qty=%s (%s) — adopting (exit-only)",
+                    broker_ce_qty,
+                    ce_protect_symbol,
+                )
+                self._adopt_manual_ato(
+                    "CE", ce_protect_symbol, broker_ce_qty, expected_ce_qty or broker_ce_qty, spot
+                )
+
+        if (
+            pe_sell
+            and manage_sides in ("pe", "both")
+            and pe_protect_symbol
+            and not self.state.get("ato.pe_ato_active", False)
+            and not self.state.get("ato.pe_awaiting_clearance", False)
+            and not is_side_halted(self.state, "PE")
+        ):
+            broker_pe_qty = self._position_qty(pe_protect_symbol)
+            if broker_pe_qty > 0:
+                self.log.warning(
+                    "ATO startup scan: PE protect already long qty=%s (%s) — adopting (exit-only)",
+                    broker_pe_qty,
+                    pe_protect_symbol,
+                )
+                self._adopt_manual_ato(
+                    "PE", pe_protect_symbol, broker_pe_qty, expected_pe_qty or broker_pe_qty, spot
+                )
+
         # ── Step 3: Publish summary event ─────────────────────────────────────
         self.events.publish(
             Event.ATO_STARTUP_SCAN_DONE,
@@ -2181,10 +2317,15 @@ class ATOProtection(ModuleBase):
             "(qty ✅)" if qty_match else "(⚠ qty mismatch)",
         )
 
+        adopt_oid = "MANUAL_PRE_ALGO"
+        exit_qty = int(expected_qty) if int(expected_qty or 0) > 0 else int(broker_qty)
         if side == "CE":
             self.state.set("ato.ce_triggered", True)
             self.state.set("ato.ce_ato_active", True)
-            self._set_registered_exit_qty("CE", expected_qty)
+            self._begin_protect_entry_cycle("CE")
+            if not self.state.get("ato.ce_order_id"):
+                self.state.set("ato.ce_order_id", adopt_oid, save=False)
+            self._set_registered_exit_qty("CE", exit_qty)
             self._ce_cycles = getattr(self, "_ce_cycles", 0) + 1
             protect_strike = self.state.get("ato.ce_protect_strike")
             self.events.publish(
@@ -2193,7 +2334,7 @@ class ATOProtection(ModuleBase):
                     "symbol": symbol,
                     "qty": broker_qty,
                     "spot": spot,
-                    "order_id": "MANUAL_PRE_ALGO",
+                    "order_id": adopt_oid,
                     "ato_strike": protect_strike,
                     "adopted": True,
                 },
@@ -2201,7 +2342,10 @@ class ATOProtection(ModuleBase):
         else:  # PE
             self.state.set("ato.pe_triggered", True)
             self.state.set("ato.pe_ato_active", True)
-            self._set_registered_exit_qty("PE", expected_qty)
+            self._begin_protect_entry_cycle("PE")
+            if not self.state.get("ato.pe_order_id"):
+                self.state.set("ato.pe_order_id", adopt_oid, save=False)
+            self._set_registered_exit_qty("PE", exit_qty)
             self._pe_cycles = getattr(self, "_pe_cycles", 0) + 1
             protect_strike = self.state.get("ato.pe_protect_strike")
             self.events.publish(
@@ -2210,7 +2354,7 @@ class ATOProtection(ModuleBase):
                     "symbol": symbol,
                     "qty": broker_qty,
                     "spot": spot,
-                    "order_id": "MANUAL_PRE_ALGO",
+                    "order_id": adopt_oid,
                     "ato_strike": protect_strike,
                     "adopted": True,
                 },
@@ -2343,6 +2487,33 @@ class ATOProtection(ModuleBase):
         prefix = self._side_prefix(side)
         self.state.set(f"ato.{prefix}_exit_qty", int(qty), save=False)
 
+
+    # Seconds to ignore empty-book "manual exit" after algo ATO BUY (fill lag).
+    _PROTECT_ENTRY_GRACE_S = 30.0
+    _PROTECT_ZERO_POLLS_FOR_HALT = 3
+
+    def _begin_protect_entry_cycle(self, side: str) -> None:
+        """Reset per-cycle seen/grace so prior-cycle flags cannot false-halt."""
+        prefix = self._side_prefix(side)
+        setattr(self, f"_{prefix}_protect_seen_at_broker", False)
+        setattr(self, f"_{prefix}_protect_zero_streak", 0)
+        setattr(
+            self,
+            f"_{prefix}_protect_entry_pending_until",
+            time.monotonic() + float(self._PROTECT_ENTRY_GRACE_S),
+        )
+        # Allow sync again if a prior false halt latched this in-memory guard.
+        setattr(self, f"_{prefix}_manual_exit_halted", False)
+
+    def _protect_entry_pending(self, side: str) -> bool:
+        prefix = self._side_prefix(side)
+        until = float(getattr(self, f"_{prefix}_protect_entry_pending_until", 0.0) or 0.0)
+        return time.monotonic() < until
+
+    def _clear_protect_entry_pending(self, side: str) -> None:
+        prefix = self._side_prefix(side)
+        setattr(self, f"_{prefix}_protect_entry_pending_until", 0.0)
+
     def _sync_manual_legs_on_poll(self, spot: float, sym_qty: dict[str, int]) -> None:
         """§7 mid-session manual protect sync (26A, 26D, 31). Q50: ignore stray legs."""
         manage_sides = self.state.get("ato.manage_sides", "both")
@@ -2375,11 +2546,28 @@ class ATOProtection(ModuleBase):
             expected_qty = self._ato_qty(buy_key)
             triggered = bool(self.state.get(f"ato.{prefix}_triggered", False))
             ato_active = bool(self.state.get(f"ato.{prefix}_ato_active", False))
-            broker_qty = sym_qty.get(symbol, 0)
+            broker_qty = int(sym_qty.get(symbol, 0) or 0)
+            if broker_qty == 0 and sym_qty:
+                upper = symbol.upper()
+                for k, v in sym_qty.items():
+                    if str(k).upper() == upper:
+                        broker_qty = int(v or 0)
+                        break
+            if expected_qty <= 0 and broker_qty > 0:
+                expected_qty = broker_qty
             seen_attr = f"_{prefix}_protect_seen_at_broker"
+            streak_attr = f"_{prefix}_protect_zero_streak"
             if broker_qty > 0:
                 setattr(self, seen_attr, True)
+                setattr(self, streak_attr, 0)
+                self._clear_protect_entry_pending(side)
+            elif ato_active and bool(getattr(self, seen_attr, False)):
+                setattr(self, streak_attr, int(getattr(self, streak_attr, 0) or 0) + 1)
+            else:
+                setattr(self, streak_attr, 0)
             protect_seen = bool(getattr(self, seen_attr, False))
+            zero_streak = int(getattr(self, streak_attr, 0) or 0)
+            entry_pending = self._protect_entry_pending(side)
             lot_size = int(self._operator_settings().get("lot_size", 65))
 
             result = evaluate_side_manual_sync(
@@ -2393,8 +2581,23 @@ class ATOProtection(ModuleBase):
                 protect_seen_at_broker=protect_seen,
                 lot_size=lot_size,
                 manual_protect_adopt_enabled=self._manual_protect_adopt_enabled(),
+                entry_pending=entry_pending,
+                consecutive_zero_polls=zero_streak,
+                min_zero_polls_for_halt=int(self._PROTECT_ZERO_POLLS_FOR_HALT),
             )
             if result is None:
+                continue
+            if result.action in ("fill_pending", "await_zero_confirm"):
+                self.log.info(
+                    "%s protect sync %s — broker=%d expected=%d seen=%s streak=%d pending=%s",
+                    side,
+                    result.action,
+                    broker_qty,
+                    expected_qty,
+                    protect_seen,
+                    zero_streak,
+                    entry_pending,
+                )
                 continue
             self._apply_manual_leg_sync(result, spot)
 
@@ -2484,6 +2687,24 @@ class ATOProtection(ModuleBase):
             default_strike = sell_strike - strike_offset
         protect_strike = int(self.state.get(strike_key, default_strike) or default_strike)
         symbol = self.state.get(symbol_key)
+        sell_leg = self.state.get(sell_leg_key)
+        sell_symbol = ""
+        if isinstance(sell_leg, dict):
+            sell_symbol = str(sell_leg.get("symbol") or "")
+        if symbol and sell_symbol:
+            from core.zerodha_instruments import nifty_expiry_key
+
+            want = nifty_expiry_key(sell_symbol)
+            got = nifty_expiry_key(str(symbol))
+            if want and got and want != got:
+                self.log.error(
+                    "ATO protect %s expiry %s != Batman sell %s (%s) — rebuild from sell",
+                    symbol,
+                    got,
+                    sell_symbol,
+                    want,
+                )
+                symbol = None
         if symbol:
             return str(symbol), protect_strike
 
@@ -2705,13 +2926,34 @@ class ATOProtection(ModuleBase):
                     spot,
                     ce_settings["trigger_level"],
                 )
+                try:
+                    from core.desk_alerts import emit_desk_alert
+
+                    emit_desk_alert(
+                        severity="orange",
+                        category="ATO trigger",
+                        alert="Nifty hit the CE trigger — Kavach is buying CE protect.",
+                        log=f"CE {label} — Spot {spot} >= CE trigger {ce_settings['trigger_level']} -> entering ATO",
+                        side="CE",
+                    )
+                except Exception:
+                    pass
                 self._place_ce_protection(ce_strike, float(spot), ce_settings, trigger_reason)
             elif ce_breach and ce_has_long_protect and not ce_ato_active:
-                self.log.info(
-                    "CE breach skipped — long protect already in book qty=%s (%s)",
+                self.log.warning(
+                    "CE breach — long protect already in book qty=%s (%s) — adopting (no second BUY)",
                     ce_book_qty,
                     ce_protect_sym,
                 )
+                self._adopt_manual_ato(
+                    "CE",
+                    str(ce_protect_sym),
+                    int(ce_book_qty),
+                    self._ato_qty("ce_buy") or int(ce_book_qty),
+                    float(spot),
+                )
+                ce_ato_active = True
+                ce_triggered = True
 
         # ── PE entry (never same poll as CE exit — mid-box flip) ─
         if (
@@ -2741,6 +2983,18 @@ class ATOProtection(ModuleBase):
                     spot,
                     pe_settings["trigger_level"],
                 )
+                try:
+                    from core.desk_alerts import emit_desk_alert
+
+                    emit_desk_alert(
+                        severity="orange",
+                        category="ATO trigger",
+                        alert="Nifty hit the PE trigger — Kavach is buying PE protect.",
+                        log=f"PE {label} — Spot {spot} <= PE trigger {pe_settings['trigger_level']} -> entering ATO",
+                        side="PE",
+                    )
+                except Exception:
+                    pass
                 self._place_pe_protection(pe_strike, float(spot), pe_settings, trigger_reason)
             elif (
                 pe_breach
@@ -2754,17 +3008,27 @@ class ATOProtection(ModuleBase):
                     pe_settings["trigger_level"],
                 )
             elif pe_breach and pe_has_long_protect and not pe_ato_active:
-                self.log.info(
-                    "PE breach skipped — long protect already in book qty=%s (%s)",
+                self.log.warning(
+                    "PE breach — long protect already in book qty=%s (%s) — adopting (no second BUY)",
                     pe_book_qty,
                     pe_protect_sym,
                 )
+                self._adopt_manual_ato(
+                    "PE",
+                    str(pe_protect_sym),
+                    int(pe_book_qty),
+                    self._ato_qty("pe_buy") or int(pe_book_qty),
+                    float(spot),
+                )
+                pe_ato_active = True
+                pe_triggered = True
 
-        # Re-read book after any entry/exit this tick — stale pre-trade qty must not
-        # trip manual_protect_full_exit (ato_active + protect_seen + qty 0).
-        fresh_qty, _fresh_fail = self._read_symbol_qty_with_retry()
-        if fresh_qty is not None:
-            sym_qty = fresh_qty
+        # Re-read book only after entry/exit this tick — a blind second REST call can
+        # briefly return empty and wipe qty before mid-session adopt (26A).
+        if exited_ce_this_poll or exited_pe_this_poll:
+            fresh_qty, _fresh_fail = self._read_symbol_qty_with_retry()
+            if fresh_qty is not None:
+                sym_qty = fresh_qty
 
         self._sync_manual_legs_on_poll(float(spot), sym_qty)
 
@@ -2919,6 +3183,7 @@ class ATOProtection(ModuleBase):
             )
             self.state.set("ato.ce_triggered", True)
             self.state.set("ato.ce_ato_active", True)
+            self._begin_protect_entry_cycle("CE")
             self._set_registered_exit_qty("CE", ato_qty)
             self._record_side_entry_replay_time("CE")
             return
@@ -2935,6 +3200,7 @@ class ATOProtection(ModuleBase):
                 self.state.set("ato.ce_triggered", True)
                 self.state.set("ato.ce_order_id", existing_id)
                 self.state.set("ato.ce_ato_active", True)
+                self._begin_protect_entry_cycle("CE")
                 self._set_registered_exit_qty("CE", ato_qty)
                 self._record_side_entry_replay_time("CE")
                 return
@@ -2962,6 +3228,7 @@ class ATOProtection(ModuleBase):
         if order_id != "BOOK_FILLED":
             self.state.set("ato.ce_order_id", order_id)
         self.state.set("ato.ce_ato_active", True)
+        self._begin_protect_entry_cycle("CE")
         self._set_registered_exit_qty("CE", ato_qty)
         self.state.set("ato.ce_ato_exit_order_id", None, save=False)
         self._ce_cycles = getattr(self, "_ce_cycles", 0) + 1
@@ -3083,6 +3350,7 @@ class ATOProtection(ModuleBase):
             )
             self.state.set("ato.pe_triggered", True)
             self.state.set("ato.pe_ato_active", True)
+            self._begin_protect_entry_cycle("PE")
             self._set_registered_exit_qty("PE", ato_qty)
             self._record_side_entry_replay_time("PE")
             return
@@ -3099,6 +3367,7 @@ class ATOProtection(ModuleBase):
                 self.state.set("ato.pe_triggered", True)
                 self.state.set("ato.pe_order_id", existing_id)
                 self.state.set("ato.pe_ato_active", True)
+                self._begin_protect_entry_cycle("PE")
                 self._set_registered_exit_qty("PE", ato_qty)
                 self._record_side_entry_replay_time("PE")
                 return
@@ -3126,6 +3395,7 @@ class ATOProtection(ModuleBase):
         if order_id != "BOOK_FILLED":
             self.state.set("ato.pe_order_id", order_id)
         self.state.set("ato.pe_ato_active", True)
+        self._begin_protect_entry_cycle("PE")
         self._set_registered_exit_qty("PE", ato_qty)
         self.state.set("ato.pe_ato_exit_order_id", None, save=False)
         self._pe_cycles = getattr(self, "_pe_cycles", 0) + 1

@@ -150,6 +150,7 @@ class ZerodhaBroker:
     def hot_reload_token(self, client_code: str, access_token: str) -> None:
         token = (access_token or "").strip()
         if not token:
+            self.clear_access_token()
             return
         with self._lock:
             self._access_token = token
@@ -158,6 +159,16 @@ class ZerodhaBroker:
             self._http.set_access_token(token)
             self._auth_time = datetime.now()
         logger.info("Zerodha access_token reloaded last4=%s", token[-4:])
+
+    def clear_access_token(self) -> None:
+        """DEACTIVATE on TOKEN page — stop Zerodha orders until a new token is saved."""
+        with self._lock:
+            self._access_token = ""
+            try:
+                self._http.set_access_token("")
+            except Exception:
+                pass
+        logger.warning("Zerodha access_token cleared — orders blocked until TOKEN save")
 
     def needs_reauth(self) -> bool:
         try:
@@ -183,6 +194,21 @@ class ZerodhaBroker:
     def _enforce_live_mode_for_orders(self) -> None:
         if self._runtime_mode() == "mock":
             raise OrderPlacementError("Live Zerodha orders are blocked (runtime mode=mock / not prod).")
+        if not (self._access_token or "").strip():
+            raise OrderPlacementError(
+                "Kite token deactivated — Zerodha orders blocked. Save a Kite token on TOKEN first."
+            )
+        try:
+            from core.zerodha_credentials import load_zerodha_order_creds
+
+            if not load_zerodha_order_creds().ok:
+                raise OrderPlacementError(
+                    "Kite token deactivated — Zerodha orders blocked. Save a Kite token on TOKEN first."
+                )
+        except OrderPlacementError:
+            raise
+        except Exception:
+            pass
 
     def _symbol(self, symbol: str) -> str:
         return kite_tradingsymbol_from_any(symbol, client=self._http)
@@ -320,8 +346,18 @@ class ZerodhaBroker:
     ) -> str:
         self._enforce_live_mode_for_orders()
         kite_type = self._order_type(order_type)
+        from core.zerodha_instruments import nifty_expiry_key
+
+        kite_symbol = self._symbol(symbol)
+        req_exp = nifty_expiry_key(symbol)
+        sent_exp = nifty_expiry_key(kite_symbol)
+        if req_exp and sent_exp and req_exp != sent_exp:
+            raise OrderPlacementError(
+                f"Refusing to rewrite {symbol} -> {kite_symbol} (expiry {req_exp} vs {sent_exp})"
+            )
+        self._last_order_tradingsymbol = kite_symbol
         payload: dict[str, Any] = {
-            "tradingsymbol": self._symbol(symbol),
+            "tradingsymbol": kite_symbol,
             "exchange": (exchange or "NFO").upper() if str(exchange).upper() != "INDEX" else "NFO",
             "transaction_type": str(transaction_type).upper(),
             "order_type": kite_type,

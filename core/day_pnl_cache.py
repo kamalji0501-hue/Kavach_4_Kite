@@ -8,6 +8,7 @@ even if both zerodha_broker copies are imported.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 import time
 from types import SimpleNamespace
 from typing import Any
@@ -70,23 +71,31 @@ def _compact_row(r: Any) -> dict[str, Any] | None:
 
 
 def _select_rows(net: Any) -> list[dict[str, Any]]:
+    """Open legs first, then closed-for-day (qty==0, non-zero pnl) last."""
     raw = list(net or []) if isinstance(net, list) else []
     compact: list[dict[str, Any]] = []
     for r in raw:
         c = _compact_row(r)
         if c is not None:
             compact.append(c)
-    open_rows = [c for c in compact if (c.get("qty") or 0) != 0]
-    if open_rows:
-        return open_rows
-    # Prefer useful day-closed / flat rows: non-zero pnl or qty.
-    useful = [
-        c
-        for c in compact
-        if (c.get("qty") or 0) != 0
-        or (c.get("pnl") is not None and float(c.get("pnl") or 0) != 0)
-    ]
-    return useful if useful else compact
+    open_rows: list[dict[str, Any]] = []
+    closed_rows: list[dict[str, Any]] = []
+    for c in compact:
+        qty = float(c.get("qty") or 0)
+        pnl = c.get("pnl")
+        try:
+            pnl_f = float(pnl) if pnl is not None else 0.0
+        except (TypeError, ValueError):
+            pnl_f = 0.0
+        if qty != 0:
+            row = dict(c)
+            row["closed"] = False
+            open_rows.append(row)
+        elif abs(pnl_f) >= 0.005:
+            row = dict(c)
+            row["closed"] = True
+            closed_rows.append(row)
+    return open_rows + closed_rows
 
 
 def update_day_pnl_from_positions(data: Any) -> None:
@@ -103,24 +112,208 @@ def update_day_pnl_from_positions(data: Any) -> None:
             rows = data
             net = data
         pnl = _sum_pnl(rows) if rows else 0.0
-        _DAY_PNL_CACHE["pnl"] = round(float(pnl), 2)
+        broker_pnl = round(float(pnl), 2)
+        _DAY_PNL_CACHE["broker_pnl"] = broker_pnl
+        _DAY_PNL_CACHE["pnl"] = broker_pnl
         _DAY_PNL_CACHE["ts"] = time.time()
         # Positions list from net (preferred); fall back to day if net missing.
         src = net if net else rows
+        compact = []
+        for r in list(src or []):
+            c = _compact_row(r)
+            if c is not None:
+                compact.append(c)
         _DAY_PNL_CACHE["positions"] = _select_rows(src)
+        # All legs with open qty or non-zero day pnl (incl. closed) for hybrid MTM.
+        _DAY_PNL_CACHE["pnl_rows"] = [
+            c
+            for c in compact
+            if (c.get("qty") or 0) != 0
+            or (c.get("pnl") is not None and float(c.get("pnl") or 0) != 0)
+        ] or compact
     except Exception:
         pass
 
 
-def cached_day_pnl() -> float | None:
-    """Last day P&L from a positions REST response, or None if never fetched."""
-    v = _DAY_PNL_CACHE.get("pnl")
+
+_HYBRID_LTP_MIN_INTERVAL_S = 1.0
+
+
+def _leg_hybrid_pnl(row: dict[str, Any], *, ltp_override: float | None) -> float:
+    qty = float(row.get("qty") or 0)
+    broker_pnl = _f(row, "pnl")
+    if broker_pnl is None:
+        broker_pnl = 0.0
+    if qty == 0:
+        return float(broker_pnl)
+    avg = _f(row, "avg")
+    if avg is None:
+        return float(broker_pnl)
+    unreal_broker = _f(row, "unrealised", "unrealized") or 0.0
+    ltp = ltp_override if ltp_override is not None else (_f(row, "ltp") or avg)
+    unreal_hybrid = (float(ltp) - float(avg)) * qty
+    return float(broker_pnl) - float(unreal_broker) + float(unreal_hybrid)
+
+
+def refresh_hybrid_day_pnl(*, broker: Any = None, force: bool = False) -> float | None:
+    """Recompute day PnL from broker book + fresh Kite LTPs (1 batched quote / ~1s max).
+
+    Keeps realised from the last get_positions(); replaces stale unrealised using live LTPs.
+    """
+    positions = _DAY_PNL_CACHE.get("pnl_rows") or _DAY_PNL_CACHE.get("positions") or []
+    if not positions:
+        return cached_day_pnl()
+
+    now = time.time()
+    last_quote = float(_DAY_PNL_CACHE.get("hybrid_ltp_ts") or 0)
+    hybrid_ltps: dict[str, float] = dict(_DAY_PNL_CACHE.get("hybrid_ltps") or {})
+
+    open_syms = [
+        str(p.get("symbol") or "")
+        for p in positions
+        if (p.get("qty") or 0) != 0 and str(p.get("symbol") or "")
+    ]
+    need_quote = bool(open_syms) and (force or (now - last_quote) >= _HYBRID_LTP_MIN_INTERVAL_S)
+    if need_quote and broker is not None:
+        getter = getattr(broker, "get_ltps_kite_batch", None)
+        if callable(getter):
+            try:
+                fresh = getter(open_syms)
+                if isinstance(fresh, dict) and fresh:
+                    hybrid_ltps.update({str(k): float(v) for k, v in fresh.items() if v})
+                    _DAY_PNL_CACHE["hybrid_ltps"] = hybrid_ltps
+                    _DAY_PNL_CACHE["hybrid_ltp_ts"] = now
+            except Exception:
+                pass
+
+    total = 0.0
+    for row in positions:
+        sym = str(row.get("symbol") or "")
+        ltp_ov = hybrid_ltps.get(sym)
+        total += _leg_hybrid_pnl(row, ltp_override=ltp_ov)
+
+    hybrid = round(float(total), 2)
+    _DAY_PNL_CACHE["hybrid_pnl"] = hybrid
+    _DAY_PNL_CACHE["hybrid_ts"] = now
+    _DAY_PNL_CACHE["pnl"] = hybrid
+    return hybrid
+
+
+def cached_broker_day_pnl() -> float | None:
+    """Broker-reported day PnL from last get_positions (may be stale)."""
+    v = _DAY_PNL_CACHE.get("broker_pnl")
     if v is None:
         return None
     try:
         return float(v)
     except (TypeError, ValueError):
         return None
+
+def _today_ist() -> str:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    return datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+
+
+def _session_path() -> Path:
+    try:
+        from core.batman_mode import shared_data_dir
+
+        return shared_data_dir() / "day_pnl_session.json"
+    except Exception:
+        return Path("/home/ubuntu/Trading_Runtime_Rahul/Data/data/shared/day_pnl_session.json")
+
+
+def _raw_day_pnl() -> float | None:
+    v = _DAY_PNL_CACHE.get("hybrid_pnl")
+    if v is None:
+        v = _DAY_PNL_CACHE.get("broker_pnl")
+    if v is None:
+        v = _DAY_PNL_CACHE.get("pnl")
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _active_baseline() -> float:
+    if str(_DAY_PNL_CACHE.get("baseline_date") or "") != _today_ist():
+        return 0.0
+    try:
+        return float(_DAY_PNL_CACHE.get("session_baseline") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _persist_session() -> None:
+    import json
+
+    path = _session_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "session_baseline": _active_baseline() if str(_DAY_PNL_CACHE.get("baseline_date") or "") == _today_ist() else 0.0,
+        "baseline_date": str(_DAY_PNL_CACHE.get("baseline_date") or _today_ist()),
+    }
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload) + chr(10), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _load_session() -> None:
+    import json
+
+    path = _session_path()
+    if not path.is_file():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if not isinstance(data, dict):
+        return
+    day = str(data.get("baseline_date") or "")
+    if day != _today_ist():
+        _DAY_PNL_CACHE["session_baseline"] = 0.0
+        _DAY_PNL_CACHE["baseline_date"] = _today_ist()
+        return
+    try:
+        _DAY_PNL_CACHE["session_baseline"] = float(data.get("session_baseline") or 0)
+    except (TypeError, ValueError):
+        _DAY_PNL_CACHE["session_baseline"] = 0.0
+    _DAY_PNL_CACHE["baseline_date"] = day
+
+
+def reset_day_pnl_after_complete() -> float:
+    """Confirm Complete: clear Home position rows; do not bookmark a Day PnL baseline."""
+    _DAY_PNL_CACHE["session_baseline"] = 0.0
+    _DAY_PNL_CACHE["baseline_date"] = _today_ist()
+    _DAY_PNL_CACHE["positions"] = []
+    _DAY_PNL_CACHE["pnl_rows"] = []
+    # Keep live day number; only clear the table until next get_positions.
+    try:
+        _persist_session()
+    except Exception:
+        pass
+    return 0.0
+
+
+def cached_day_pnl() -> float | None:
+    """Day P&L for Home: current book/hybrid value (no session baseline shift)."""
+    v = _raw_day_pnl()
+    if v is None:
+        return None
+    return round(float(v), 2)
 
 
 def cached_positions() -> list[dict[str, Any]]:
@@ -129,3 +322,8 @@ def cached_positions() -> list[dict[str, Any]]:
     if not isinstance(v, list):
         return []
     return list(v)
+
+def latch_idle_day_pnl() -> None:
+    """Idle Home: no longer freezes Day PnL via a session baseline bookmark."""
+    return
+

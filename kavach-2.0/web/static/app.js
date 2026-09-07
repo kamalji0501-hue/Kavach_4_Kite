@@ -4,7 +4,6 @@
   let live = {};
   const pageHtmlCache = Object.create(null);
   const pageCacheMeta = Object.create(null);
-  let navPerfTimer = 0;
 
   const PAGE_LABELS = {
     home: "Home",
@@ -15,6 +14,7 @@
     deploy: "Deploy",
     payoff: "Payoff",
     token: "Token",
+    alerts: "Alert logs",
   };
 
   function invalidatePageCache(keys) {
@@ -44,19 +44,7 @@
   }
 
   function showNavPerf(key, mode, ms) {
-    const text = pageLabel(key) + " · " + mode + " · " + ms + "ms";
-    const el = $("navPerf");
-    if (el) {
-      el.textContent = text;
-      el.className = "nav-perf " + (mode === "cache" ? "ok" : "fetch");
-      el.classList.remove("hidden");
-    }
-    toast(text, true);
-    if (navPerfTimer) clearTimeout(navPerfTimer);
-    navPerfTimer = setTimeout(() => {
-      if (el) el.classList.add("hidden");
-      navPerfTimer = 0;
-    }, 3500);
+    return;
   }
 
   function finishPageRender(key, view, meta, navT0) {
@@ -142,22 +130,165 @@
     g.setAttribute("aria-hidden", on ? "false" : "true");
   }
 
-  function toast(msg, ok) {
+
+  const NOTICE_MS = { red: 4000, orange: 4000, green: 3000 };
+  let _noticeShowing = null;
+  let _pendingNonRed = null;
+  let _redSoundStreak = false;
+  let _redAudio = null;
+  let _seenAlertIds = new Set();
+  let _alertsPrimed = false;
+
+  function _noticeSev(v) {
+    const s = String(v || "").toLowerCase();
+    if (s === "red" || s === "green") return s;
+    return "orange";
+  }
+
+  function stopRedAlertSound() {
+    _redSoundStreak = false;
+    if (_redAudio) {
+      try {
+        _redAudio.pause();
+        _redAudio.currentTime = 0;
+      } catch (_) {}
+    }
+  }
+
+  function playRedAlertSound() {
+    if (_redSoundStreak) return;
+    _redSoundStreak = true;
+    try { unlockAudio(); } catch (_) {}
+    try {
+      if (!_redAudio) _redAudio = new Audio("/static/redAlert.wav");
+      _redAudio.pause();
+      _redAudio.currentTime = 0;
+      _redAudio.volume = 1;
+      _redAudio.play().catch(() => {});
+    } catch (_) {}
+  }
+
+  function hideNoticeCard() {
+    _noticeShowing = null;
+    stopRedAlertSound();
     const el = $("toast");
     if (!el) return;
+    const cat = $("noticeCat");
+    const line = $("noticeLine");
+    if (cat) cat.textContent = "";
+    if (line) line.textContent = "";
+    el.className = "toast";
+  }
+
+  function paintNoticeCard(item) {
+    const el = $("toast");
+    if (!el) return;
+    const sev = _noticeSev(item.severity);
+    const cat = $("noticeCat");
+    const line = $("noticeLine");
+    if (cat) cat.textContent = String(item.category || "Desk");
+    if (line) line.textContent = String(item.alert || "");
+    const cls = sev === "red" ? "bad" : sev === "green" ? "ok" : "warn";
+    el.className = "toast " + cls;
+    if (sev === "red") playRedAlertSound();
+    else stopRedAlertSound();
+  }
+
+  function _scheduleNoticeClear() {
     if (toastTimer) {
       clearTimeout(toastTimer);
       toastTimer = 0;
     }
-    const text = String(msg || "").trim();
-    el.textContent = text;
-    el.className = "toast" + (ok ? " ok" : text ? " bad" : "");
-    if (!text) return;
+    const item = _noticeShowing;
+    if (!item) return;
+    const ms = NOTICE_MS[_noticeSev(item.severity)] || 4000;
     toastTimer = setTimeout(() => {
-      el.textContent = "";
-      el.className = "toast";
       toastTimer = 0;
-    }, 6000);
+      if (_pendingNonRed && _noticeShowing && _noticeSev(_noticeShowing.severity) === "red") {
+        const nxt = _pendingNonRed;
+        _pendingNonRed = null;
+        _showNoticeNow(nxt);
+        return;
+      }
+      hideNoticeCard();
+    }, ms);
+  }
+
+  function _showNoticeNow(item) {
+    _noticeShowing = item;
+    paintNoticeCard(item);
+    _scheduleNoticeClear();
+  }
+
+  function enqueueNotice(raw) {
+    if (!raw) return;
+    const alert = String(raw.alert || raw.text || "").trim();
+    if (!alert) {
+      hideNoticeCard();
+      return;
+    }
+    const item = {
+      id: raw.id || "",
+      severity: _noticeSev(raw.severity),
+      category: String(raw.category || "Desk"),
+      alert: alert,
+      log: String(raw.log || alert),
+      side: raw.side || null,
+    };
+    if (item.severity === "red") {
+      _showNoticeNow(item);
+      return;
+    }
+    if (_noticeShowing && _noticeSev(_noticeShowing.severity) === "red") {
+      _pendingNonRed = item;
+      return;
+    }
+    _showNoticeNow(item);
+  }
+
+  function toastResult(r, fallbackOk) {
+    if (r && r.desk_alert) {
+      const id = String(r.desk_alert.id || "");
+      if (id) _seenAlertIds.add(id);
+      enqueueNotice(r.desk_alert);
+      return;
+    }
+    const ok = fallbackOk != null ? !!fallbackOk : !!(r && r.ok);
+    const text = r && (r.text || r.error) ? String(r.text || r.error) : (ok ? "Saved" : "Failed");
+    toast(text, ok);
+  }
+
+  function drainDeskAlerts(s) {
+    const rows = (s && s.desk_alerts) || [];
+    if (!_alertsPrimed) {
+      _alertsPrimed = true;
+      for (const a of rows) {
+        const id = String((a && a.id) || "");
+        if (id) _seenAlertIds.add(id);
+      }
+      return;
+    }
+    for (const a of rows) {
+      const id = String((a && a.id) || "");
+      if (!id || _seenAlertIds.has(id)) continue;
+      _seenAlertIds.add(id);
+      enqueueNotice(a);
+    }
+    if (_seenAlertIds.size > 400) {
+      _seenAlertIds = new Set(Array.from(_seenAlertIds).slice(-200));
+    }
+  }
+
+  function toast(msg, ok) {
+    const text = String(msg || "").trim();
+    if (!text) {
+      hideNoticeCard();
+      return;
+    }
+    const low = text.toLowerCase();
+    let sev = ok ? "green" : "orange";
+    if (!ok && /halt|reject|timeout|mismatch|blocked|flatten|stop loss/.test(low)) sev = "red";
+    enqueueNotice({ severity: sev, category: "Desk", alert: text, log: text });
   }
 
   function setGoNotice(msg, kind) {
@@ -247,17 +378,21 @@
   function posRowsHtml(positions) {
     const rows = Array.isArray(positions) ? positions : [];
     if (!rows.length) {
-      return '<tr><td colspan="5">No open broker positions.</td></tr>';
+      return '<tr><td colspan="6">No broker positions today.</td></tr>';
     }
     return rows.map((p) => {
       const qty = p.qty != null ? Number(p.qty) : 0;
+      const closed = !!(p.closed || qty === 0);
       const avg = p.avg != null && p.avg !== "" ? fmt(p.avg) : "—";
       const ltp = p.ltp != null && p.ltp !== "" ? fmt(p.ltp) : "—";
+      const typ = p.type || p.leg_type || "Extra";
       const pnl = p.pnl;
       const pnlTxt = pnl == null || pnl === "" ? "—" : fmtPnl(pnl);
       const pnlCls = clsPnl(pnl);
-      return `<tr class="${qty < 0 ? "hist-sell" : "hist-buy"}">
+      const rowCls = closed ? "pos-closed" : (qty < 0 ? "hist-sell" : "hist-buy");
+      return `<tr class="${rowCls}">
             <td>${esc(p.symbol || "")}</td>
+            <td>${esc(String(typ))}</td>
             <td>${esc(String(qty))}</td>
             <td>${esc(avg)}</td>
             <td>${esc(ltp)}</td>
@@ -266,10 +401,28 @@
     }).join("");
   }
 
+  function posFootHtml(positions) {
+    const rows = Array.isArray(positions) ? positions : [];
+    if (!rows.length) return "";
+    let total = 0;
+    let any = false;
+    for (const p of rows) {
+      if (p.pnl == null || p.pnl === "") continue;
+      const n = Number(p.pnl);
+      if (!Number.isFinite(n)) continue;
+      total += n;
+      any = true;
+    }
+    if (!any) return "";
+    const pnlCls = clsPnl(total);
+    return `<tr><td colspan="5">TOTAL</td><td class="${pnlCls}">${esc(fmtPnl(total))}</td></tr>`;
+  }
+
   function paintPositions(positions) {
     const body = $("posBody");
-    if (!body) return;
-    body.innerHTML = posRowsHtml(positions);
+    if (body) body.innerHTML = posRowsHtml(positions);
+    const foot = $("posFoot");
+    if (foot) foot.innerHTML = posFootHtml(positions);
   }
 
 
@@ -446,23 +599,26 @@
     if (tpLvl && document.activeElement !== tpLvl) {
       tpLvl.value = fmtExitLevel(pe.tp_level_rs);
     }
-    // Reuse ATO banner strip for fire notice
-    const ban = $("atoBanner");
-    if (ban && pe.firing) {
-      ban.classList.remove("hidden");
-      ban.className = "ato-banner bad";
-      ban.textContent = "FLATTENING POSITIONS…";
-    } else if (ban && pe.last_reason && !((s && s.ato_readiness && !s.ato_readiness.armed))) {
-      // only show exit banner if readiness banner not already taking priority — paintAtoBanner may overwrite
+  }
+
+  let _lastPnlFireAt = null;
+  let _pnlFireSeen = false;
+  let _pnlFiringToast = false;
+
+  function maybeToastPnlFire(s) {
+    const pe = (s && s.pnl_exit) || {};
+    const at = pe.last_at ? String(pe.last_at) : "";
+    if (pe.firing) {
+      _pnlFiringToast = true;
+      return;
     }
-    if (pe.last_reason) {
-      const label = pe.last_reason === "take_profit" ? "TARGET FIRED" : "STOP LOSS FIRED";
-      const pnl = pe.last_pnl != null ? fmtPnl(pe.last_pnl) : "—";
-      // stash for paintAtoBanner companion
-      live._pnlExitBanner = label + " · PnL " + pnl;
-    } else {
-      live._pnlExitBanner = "";
+    _pnlFiringToast = false;
+    if (!_pnlFireSeen) {
+      _pnlFireSeen = true;
+      _lastPnlFireAt = at;
+      return;
     }
+    _lastPnlFireAt = at;
   }
 
   async function postPnlExit(path, on, levelEl) {
@@ -471,7 +627,7 @@
     try {
       setBusy(true);
       const r = await api(path, { method: "POST", body: JSON.stringify(body) });
-      toast(r.text || (r.ok ? "Saved" : (r.error || "Failed")), !!r.ok);
+      toastResult(r, !!r.ok);
       if (!r.ok) throw new Error(r.error || "failed");
       if (r.pnl_exit) live.pnl_exit = r.pnl_exit;
       applyChrome(live);
@@ -514,6 +670,7 @@
     armSave(tpLvl, "/api/take-profit", tpIn);
   }
 
+
   function applyChrome(s) {
     live = s || live;
     const paused = !!live.paused;
@@ -538,18 +695,13 @@
       if (stack) stack.className = "chip chip-spot chip-spot-stack " + feedAgeClass(age);
     }
     paintAtoBanner(live);
-    const banEl = $("atoBanner");
-    if (banEl && live._pnlExitBanner && banEl.classList.contains("hidden")) {
-      banEl.classList.remove("hidden");
-      banEl.className = "ato-banner bad";
-      banEl.textContent = live._pnlExitBanner;
-    }
     onAtoDeskAudioEdges(live);
+    drainDeskAlerts(live);
     const clock = $("clock");
     if (clock) clock.className = "";
     const pnlEl = $("statPnl");
     if (pnlEl) {
-      const v = live.day_pnl;
+      const v = live.deployment ? live.day_pnl : 0;
       pnlEl.textContent = fmtPnl(v);
       const base = pnlEl.classList.contains("home-pnl-strip-val")
         ? "home-pnl-strip-val"
@@ -566,6 +718,7 @@
     );
     paintToggle($("hedgeToggle"), $("hedgeLbl"), hedgeOn, "HEDGE ON", "HEDGE OFF");
     paintPnlExitChrome(live);
+    maybeToastPnlFire(live);
     paintPositions(live.positions);
   }
 
@@ -584,10 +737,25 @@
     return v.toFixed(1) + " Days";
   }
 
+
+  function kiteValidToday(saved) {
+    const s = String(saved || "");
+    if (s.length < 10) return false;
+    const day = s.slice(0, 10);
+    try {
+      const todayIst = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+      const todayUtc = new Date().toISOString().slice(0, 10);
+      return day === todayIst || day === todayUtc;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function paintTokenPage(view, t) {
     const d = t.dhan || {};
     const totp = t.totp || {};
     const z = t.zerodha || {};
+    const n = t.nifty || {};
     const health = d.health_class || (d.present ? "healthy" : "missing");
     const healthLabel = d.present ? cap(d.status || health) : "Missing";
     view.innerHTML = `
@@ -621,12 +789,17 @@
           <h3 class="tok-title"><img class="tok-logo" src="/static/kite.svg" alt="" />KITE TOKEN</h3>
           <div class="tok-meta">
             <div class="kv"><span>Set</span><b class="${z.present ? "buy" : "sell"}">${z.present ? "Yes" : "No"}</b></div>
+            <div class="kv"><span>Valid today</span><b class="${kiteValidToday(z.saved_at) ? "buy" : "sell"}">${z.present ? (kiteValidToday(z.saved_at) ? "Yes" : "No — paste a fresh token") : "—"}</b></div>
             <div class="kv"><span>Last4</span><b>${z.last4 ? "····" + esc(z.last4) : "—"}</b></div>
             <div class="kv"><span>Saved</span><b>${esc(z.saved_at || "—")}</b></div>
+            <div class="kv"><span>Nifty feed</span><b>${n.ltp ? (esc(n.source || "?") + "  " + n.ltp) : "—"}</b></div>
           </div>
           <label class="muted" for="zBox">Paste Zerodha Token</label>
           <textarea id="zBox" class="tokbox" rows="3" autocomplete="off" spellcheck="false" placeholder="Paste ZERODHA Token Here"></textarea>
-          <button type="button" class="btn btn-red" id="tokZ">SAVE ZERODHA TOKEN</button>
+          <div class="row2">
+            <button type="button" class="btn btn-red" id="tokZ">SAVE ZERODHA TOKEN</button>
+            <button type="button" class="btn btn-red" id="tokZOff">DEACTIVATE TOKEN</button>
+          </div>
         </div>
       </div>
       <p class="sub" id="tokMsg"></p>`;
@@ -839,9 +1012,61 @@
   }
 
 
+  function numLevel(el) {
+    if (!el) return null;
+    const raw = String(el.value || "").trim().replace(/,/g, "");
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function bufferPairIssues() {
+    const issues = [];
+    const ceEntry = numLevel($("ce_entry"));
+    const ceExit = numLevel($("ce_retrace"));
+    const peEntry = numLevel($("pe_entry"));
+    const peExit = numLevel($("pe_retrace"));
+    if (ceEntry != null && ceExit != null && !(ceExit < ceEntry)) {
+      issues.push("CE exit must be below CE entry");
+    }
+    if (peEntry != null && peExit != null && !(peExit > peEntry)) {
+      issues.push("PE exit must be above PE entry");
+    }
+    return issues;
+  }
+
+  function syncBufSaveEnabled() {
+    const btn = $("bufSave");
+    const msg = $("bufMsg");
+    if (!btn) return;
+    const issues = bufferPairIssues();
+    const ok = issues.length === 0;
+    btn.disabled = !ok;
+    btn.setAttribute("aria-disabled", ok ? "false" : "true");
+    if (msg) {
+      if (!ok) {
+        msg.textContent = issues.join(" · ");
+        msg.classList.add("buf-hint-bad");
+      } else if (msg.classList.contains("buf-hint-bad") || /must be (above|below)/i.test(msg.textContent || "")) {
+        msg.textContent = "";
+        msg.classList.remove("buf-hint-bad");
+      }
+    }
+  }
+
   function wireAtoMgrHandlers() {
+    ["ce_entry", "ce_retrace", "pe_entry", "pe_retrace"].forEach((id) => {
+      const el = $(id);
+      if (!el || el.dataset.bufGateWired === "1") return;
+      el.dataset.bufGateWired = "1";
+      el.addEventListener("input", syncBufSaveEnabled);
+      el.addEventListener("change", syncBufSaveEnabled);
+    });
+    syncBufSaveEnabled();
     if ($("bufSave")) {
       $("bufSave").onclick = async () => {
+        syncBufSaveEnabled();
+        if ($("bufSave").disabled) return;
         const body = {
           ce_entry: $("ce_entry").value,
           pe_entry: $("pe_entry").value,
@@ -850,7 +1075,8 @@
         };
         const r = await api("/api/buffer", { method: "POST", body: JSON.stringify(body) });
         $("bufMsg").textContent = r.ok ? "Saved" : r.error || "failed";
-        toast(r.ok ? "Buffer saved" : r.error || "failed", !!r.ok);
+        if ($("bufMsg")) $("bufMsg").classList.toggle("buf-hint-bad", !r.ok);
+        toastResult(r, !!r.ok);
         if (r.ok) invalidatePageCache(["home", "ato"]);
       };
     }
@@ -859,7 +1085,7 @@
         try {
           const r = await api("/api/poll", { method: "POST", body: JSON.stringify({ poll_interval: $("pollSel").value }) });
           $("pollMsg").textContent = r.ok ? (r.text || "Saved") : (r.error || "failed");
-          toast(r.ok ? ("Poll " + $("pollSel").value + "s") : (r.error || "failed"), !!r.ok);
+          toastResult(r, !!r.ok);
         } catch (err) {
           $("pollMsg").textContent = err.message;
           toast(err.message, false);
@@ -868,12 +1094,61 @@
     }
   }
 
+
+  function fmtPreviewLtp(v) {
+    if (v == null || v === "") return "—";
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toFixed(2) : String(v);
+  }
+
+  function previewTableHtml(rows) {
+    const body = (rows || []).length
+      ? rows.map((r) => {
+          const rowCls = String(r.side || '').toUpperCase() === 'BUY' ? 'dep-buy-row' : 'dep-sell-row';
+          return `<tr class="${rowCls}">
+          <td>${esc(r.sn)}</td>
+          <td>${esc(r.type)}</td>
+          <td>${esc(r.side)}</td>
+          <td>${esc(r.opt)}</td>
+          <td>${esc(r.strike)}</td>
+          <td>${esc(r.lots)}</td>
+          <td>${esc(r.qty)}</td>
+          <td>${esc(fmtPreviewLtp(r.ltp))}</td>
+        </tr>`;
+        }).join("")
+      : `<tr><td colspan="8">None</td></tr>`;
+    return `<div class="card hist-wrap dep-preview-wrap"><table class="hist-table dep-preview-table"><thead><tr>
+      <th>#</th><th>Type</th><th>BUY/SELL</th><th>CE/PE</th><th>Strike</th><th>Lots</th><th>Qty</th><th>LTP</th>
+    </tr></thead><tbody>${body}</tbody></table></div>`;
+  }
+
+  function renderDeployPreview(el, r) {
+    if (!el) return;
+    if (r && r.ok && Array.isArray(r.place_rows)) {
+      const nPlace = r.place_rows.length;
+      const nSkip = (r.skipped_rows || []).length;
+      const nPlan = nPlace + nSkip;
+      let html = `<div class="dep-preview">
+        <div class="dep-preview-title">Batman 2.0 Preview — Center ${esc(r.level)}</div>
+        <div class="dep-preview-sub">Expiry: ${esc(r.expiry_label || r.expiry || "")} | Lots: ${esc(r.lots)} | ${nPlace} Legs to place (of ${nPlan} in plan)</div>
+        ${previewTableHtml(r.place_rows)}`;
+      if (nSkip) {
+        html += `<div class="dep-preview-skip">Skipped (35% dyn hedge &lt; 1 lot at this size):</div>
+          ${previewTableHtml(r.skipped_rows)}`;
+      }
+      html += `<p class="dep-preview-foot">Confirm to place all legs above (entry only).<br>Then Register Batman to arm Phase 1 / ATO.</p></div>`;
+      el.innerHTML = html;
+      return;
+    }
+    el.textContent = (r && (r.text || r.error)) || "";
+  }
+
   function wireDeployHandlers() {
     if ($("depPrev")) {
       $("depPrev").onclick = async () => {
         try {
-          const r = await api("/api/deploy", { method: "POST", body: JSON.stringify({ preview: true, level: $("depLevel").value, lots: $("depLots").value }) });
-          $("depOut").textContent = r.text || r.error;
+          const r = await api("/api/deploy", { method: "POST", body: JSON.stringify({ preview: true, level: $("depLevel").value, lots: $("depLots").value, expiry: $("depExpiry") ? $("depExpiry").value : "" }) });
+          renderDeployPreview($("depOut"), r);
           $("depMsg").textContent = r.ok ? "Preview ready. Confirm only if the legs look right." : (r.error || "");
           savePageCache("deploy", $("view").innerHTML, pageCacheMeta.deploy);
         } catch (err) {
@@ -885,13 +1160,35 @@
       $("depGo").onclick = async () => {
         if (!window.confirm("Place Batman 2.0 legs now?")) return;
         try {
-          const r = await api("/api/deploy", { method: "POST", body: JSON.stringify({ confirm: true, level: $("depLevel").value, lots: $("depLots").value }) });
-          $("depOut").textContent = r.text || r.error;
-          $("depMsg").textContent = r.ok ? "Deploy finished." : (r.error || "failed");
-          toast(r.ok ? "Deploy finished" : r.error || "failed", !!r.ok);
+          const r = await api("/api/deploy", { method: "POST", body: JSON.stringify({ confirm: true, level: $("depLevel").value, lots: $("depLots").value, expiry: $("depExpiry") ? $("depExpiry").value : "" }) });
+          $("depOut").textContent = r.text || r.error || "";
+          const filled = Number((r.result && r.result.legs || []).filter(function (x) { return x && x.status === "filled"; }).length);
+          const success = !!r.ok && filled > 0;
+          $("depMsg").textContent = success
+            ? ("Deploy sent " + filled + " leg(s) to Kite.")
+            : (r.error || r.text || "No legs filled — check Kite. No orders punched.");
+          toastResult(r, success);
+          if (success) invalidatePageCache();
+        } catch (err) {
+          $("depOut").textContent = err.message;
+          toast(err.message, false);
+        }
+      };
+    }
+    if ($("depGoReg")) {
+      $("depGoReg").onclick = async () => {
+        if (!window.confirm("Place Batman 2.0 legs now, then auto-Register if all placeable legs fill?")) return;
+        try {
+          const r = await api("/api/deploy-register", { method: "POST", body: JSON.stringify({ level: $("depLevel").value, lots: $("depLots").value, expiry: $("depExpiry") ? $("depExpiry").value : "" }) });
+          $("depOut").textContent = r.detail_text || r.text || r.error || "";
+          $("depMsg").textContent = r.ok
+            ? "Deploy sent and Register armed successfully."
+            : (r.error || r.text || "Deploy completed, but Register was not started.");
+          toastResult(r, !!r.ok);
           if (r.ok) invalidatePageCache();
         } catch (err) {
           $("depOut").textContent = err.message;
+          $("depMsg").textContent = err.message;
           toast(err.message, false);
         }
       };
@@ -905,10 +1202,18 @@
             body: JSON.stringify({ confirm: true }),
           });
           $("doneMsg").textContent = dres.text || dres.error || "";
-          toast(dres.ok ? "Batman complete" : (dres.error || "failed"), !!dres.ok);
+          toastResult(dres, !!dres.ok);
           if (dres.ok) {
             playAtoClip("complete");
             invalidatePageCache();
+            const pnlEl = $("statPnl");
+            if (pnlEl) {
+              pnlEl.textContent = fmtPnl(0);
+              const base = pnlEl.classList.contains("home-pnl-strip-val")
+                ? "home-pnl-strip-val"
+                : (pnlEl.classList.contains("home-pnl-big") ? "home-pnl-big" : "");
+              pnlEl.className = base;
+            }
           }
         } catch (err) {
           $("doneMsg").textContent = err.message;
@@ -933,7 +1238,7 @@
         setBusy(true);
         const r = await fn();
         const text = r.text || r.error || (r.ok ? "Done" : "failed");
-        toast(text, !!r.ok);
+        toastResult(r, !!r.ok);
         if (r.ok) {
           invalidatePageCache("token");
           await renderTokenPage(view, text);
@@ -963,6 +1268,7 @@
         body: JSON.stringify({ token: $("zBox").value }),
       }));
     }
+    if ($("tokZOff")) $("tokZOff").onclick = () => tokenCall(() => api("/api/token/zerodha/deactivate", { method: "POST", body: "{}" }));
   }
 
   function wireRegisterHandlers(d) {
@@ -1043,6 +1349,21 @@
       const el = $(id);
       if (el) el.onchange = sync;
     });
+    if ($("regExpiry")) {
+      $("regExpiry").onchange = async () => {
+        const iso = $("regExpiry").value;
+        const view = $("view");
+        try {
+          setBusy(true);
+          const nd = await api("/api/register?expiry=" + encodeURIComponent(iso));
+          renderRegister(view, nd);
+        } catch (err) {
+          toast(err.message || "Could not reload expiry", false);
+        } finally {
+          setBusy(false);
+        }
+      };
+    }
     sync();
 
     if ($("regGo")) {
@@ -1050,6 +1371,7 @@
         const body = {
           confirm: true,
           order_mode: $("regMode").value,
+          expiry: $("regExpiry") ? $("regExpiry").value : "",
           reg_scope: $("regScope").value,
           pe_buy: $("regPeBuy").value,
           pe_margin_hedge: $("regPeHedge").value,
@@ -1073,7 +1395,7 @@
         try {
           const r = await api("/api/register", { method: "POST", body: JSON.stringify(body) });
           $("regMsg").textContent = r.text || r.error || "done";
-          toast(r.ok ? "Batman armed" : r.error || "failed", !!r.ok);
+          toastResult(r, !!r.ok);
           if (r.ok) {
             playAtoClip("register");
             invalidatePageCache();
@@ -1101,25 +1423,32 @@
       <header class="page-head"><h3>REGISTER BATMAN</h3></header>
       ${note}${armed}
       <div class="card add-form reg-form">
-        <div class="reg-top-grid">
+        <section class="reg-setup reg-side dep-card-blue">
+          <h4 class="sec-title">SETUP</h4>
+          <div class="reg-top-grid reg-top-row">
           ${qBlock(1, "Select Mode", `
             <select id="regMode">
               <option value="paper" ${d.order_mode !== "live" ? "selected" : ""}>Paper</option>
               <option value="live" ${d.order_mode === "live" ? "selected" : ""}>Live</option>
             </select>`)}
-          ${qBlock(2, "Register CE/PE", `
+          ${qBlock(2, "Expiry week", `
+            <select id="regExpiry">
+              ${(d.expiry_options || []).map((o) => `<option value="${esc(o.iso)}" ${d.expiry === o.iso ? "selected" : ""}>${esc(o.label)}</option>`).join("")}
+            </select>`)}
+          ${qBlock(3, "Register CE/PE", `
             <select id="regScope">
               <option value="both" ${d.reg_scope === "both" ? "selected" : ""}>Register both CE and PE</option>
               <option value="ce" ${d.reg_scope === "ce" ? "selected" : ""}>Register CE only</option>
               <option value="pe" ${d.reg_scope === "pe" ? "selected" : ""}>Register PE only</option>
             </select>`)}
-        </div>
+          </div>
+        </section>
         <div class="reg-grid">
           <section class="reg-side reg-side-ce dep-card-green" id="regCeBlock">
             <h4 class="sec-title">CE SIDE</h4>
             ${qBlock(10, "Core BUY leg", `<select id="regCeBuy">${optionHtml(d.ce_long, "", "Core BUY")}</select>`)}
             ${qBlock(11, "Margin Hedge", `<select id="regCeHedge">${optionHtml(d.ce_long, "", "None — not required")}</select>`)}
-            ${qBlock(12, "30% Dynamic Hedge", `<select id="regCeDyn">${optionHtml(d.ce_long, "", "None — not required")}</select>`)}
+            ${qBlock(12, "35% Dynamic Hedge", `<select id="regCeDyn">${optionHtml(d.ce_long, "", "None — not required")}</select>`)}
             ${qBlock(13, "SELL leg", `<select id="regCeSell">${optionHtml(d.ce_short, "", "SELL")}</select>`)}
             ${qBlock(14, "ATO strike", `
               <div class="ato-row">
@@ -1136,7 +1465,7 @@
             <h4 class="sec-title">PE SIDE</h4>
             ${qBlock(3, "Core BUY leg", `<select id="regPeBuy">${optionHtml(d.pe_long, "", "Core BUY")}</select>`)}
             ${qBlock(4, "Margin Hedge", `<select id="regPeHedge">${optionHtml(d.pe_long, "", "None — not required")}</select>`)}
-            ${qBlock(5, "30% Dynamic Hedge", `<select id="regPeDyn">${optionHtml(d.pe_long, "", "None — not required")}</select>`)}
+            ${qBlock(5, "35% Dynamic Hedge", `<select id="regPeDyn">${optionHtml(d.pe_long, "", "None — not required")}</select>`)}
             ${qBlock(6, "SELL leg", `<select id="regPeSell">${optionHtml(d.pe_short, "", "SELL")}</select>`)}
             ${qBlock(7, "ATO strike", `
               <div class="ato-row">
@@ -1182,7 +1511,8 @@
           api("/api/token/status"),
         ]);
         applyChrome(s);
-        const pnlCls = s.day_pnl == null || s.day_pnl === "" ? "" : clsPnl(s.day_pnl);
+        const homePnl = s.deployment ? s.day_pnl : 0;
+        const pnlCls = homePnl == null || homePnl === "" ? "" : clsPnl(homePnl);
         const mode = String(s.order_mode || "paper").toUpperCase();
         const armed = !!s.deployment;
         const dhan = (tok && tok.dhan) || {};
@@ -1203,7 +1533,7 @@
             <div class="home-strip">
               <div class="home-pnl-strip" title="Day PnL">
                 <span class="home-pnl-strip-lab">DAY PNL</span>
-                <span id="statPnl" class="home-pnl-strip-val ${pnlCls}">${esc(fmtPnl(s.day_pnl))}</span>
+                <span id="statPnl" class="home-pnl-strip-val ${pnlCls}">${esc(fmtPnl(homePnl))}</span>
               </div>
               <div class="home-strip-group home-strip-ops">
                 <span class="home-chip ${s.paused ? "bad" : "ok"}">${s.paused ? "KAVACH PAUSED" : "KAVACH RESUMED"}</span>
@@ -1252,8 +1582,8 @@
                   <div class="home-pos-side" aria-label="Positions">POSITIONS</div>
                   <div class="home-pos-table-wrap">
                     <table class="hist-table pos-table"><thead><tr>
-                      <th>Symbol</th><th>Qty</th><th>Avg</th><th>LTP</th><th>PnL</th>
-                    </tr></thead><tbody id="posBody">${posRowsHtml(s.positions)}</tbody></table>
+                      <th>Symbol</th><th>Type</th><th>Qty</th><th>Avg</th><th>LTP</th><th>PnL</th>
+                    </tr></thead><tbody id="posBody">${posRowsHtml(s.positions)}</tbody><tfoot id="posFoot">${posFootHtml(s.positions)}</tfoot></table>
                   </div>
                 </div>
               </div>
@@ -1413,15 +1743,25 @@
             <div class="card add-form dep-card-green">
               <h4 class="sec-title">DEPLOY BATMAN 2.0</h4>
               <p class="sub dep-card-sub">Preview the legs below, then confirm to place them.</p>
-              <div class="field"><label class="ato-lab">NIFTY CENTER LEVEL</label><input id="depLevel" type="number" placeholder="${esc(d.placeholder_level || "NIFTY level")}" value="${esc(d.level || "")}" /></div>
-              <div class="field"><label class="ato-lab">LOTS</label><input id="depLots" type="number" placeholder="Lots" value="${esc(d.lots || 1)}" /></div>
-              <p class="sub dep-hint">Enter a NIFTY center level, then Preview.</p>
-              <div class="row2">
-                <button type="button" class="btn btn-green-outline" id="depPrev">PREVIEW LEGS</button>
-                <button type="button" class="btn btn-green" id="depGo">CONFIRM DEPLOY</button>
+              <div class="dep-top-row">
+                <div class="field dep-top-field"><label class="ato-lab">EXPIRY WEEK</label>
+                  <select id="depExpiry">
+                    ${(d.expiry_options || []).map((o) => `<option value="${esc(o.iso)}" ${d.expiry === o.iso ? "selected" : ""}>${esc(o.label)}</option>`).join("")}
+                  </select>
+                </div>
+                <div class="field dep-top-field"><label class="ato-lab">NIFTY CENTER</label><input id="depLevel" type="number" placeholder="${esc(d.placeholder_level || "NIFTY level")}" value="${esc(d.level || "")}" /></div>
+                <div class="field dep-top-field"><label class="ato-lab">LOTS</label><input id="depLots" type="number" placeholder="Lots" value="${esc(d.lots || 1)}" /></div>
+                <div class="dep-top-action">
+                  <label class="ato-lab dep-top-action-label">&nbsp;</label>
+                  <button type="button" class="btn btn-green-outline" id="depPrev">PREVIEW LEGS</button>
+                </div>
+              </div>
+                          <div class="dep-out" id="depOut"></div>
+              <div class="row2 dep-confirm-row">
+                <button type="button" class="btn btn-green" id="depGo">CONFIRM DEPLOY ONLY</button>
+                <button type="button" class="btn btn-green" id="depGoReg">CONFIRM DEPLOY AND REGISTER</button>
               </div>
               <p class="sub" id="depMsg"></p>
-              <div class="dep-out" id="depOut"></div>
             </div>
             <div class="card add-form dep-card-red">
               <h4 class="sec-title">COMPLETE BATMAN</h4>
@@ -1463,11 +1803,32 @@
         pageMeta = { points: pts, spot: spot, atm: atm, step: d.step || 50 };
         wirePayoffChart(pageMeta);
 
+      } else if (page === "alerts") {
+        const d = await api("/api/alerts?limit=200");
+        const rows = (d.alerts || []).slice().reverse();
+        const body = rows.length
+          ? rows.map((a) => {
+              const sev = String(a.severity || "orange");
+              return `<tr>
+                <td>${esc(a.ts || "")}</td>
+                <td class="sev-${esc(sev)}">${esc(a.category || "")}</td>
+                <td>${esc(a.alert || "")}</td>
+                <td class="alert-log">${esc(a.log || "")}</td>
+              </tr>`;
+            }).join("")
+          : `<tr><td colspan="4">No alerts yet today.</td></tr>`;
+        view.innerHTML = `
+          <header class="page-head"><h3>ALERT LOGS</h3></header>
+          <div class="card hist-wrap">
+            <table class="hist-table"><thead><tr>
+              <th>Time</th><th>Category</th><th>Alert</th><th>Full log</th>
+            </tr></thead><tbody>${body}</tbody></table>
+          </div>`;
       } else if (page === "token") {
         await renderTokenPage(view);
       }
       if (page === "ato" || page === "buffer") page = "ato";
-      if (page === "status" || page === "summary" || page === "ato" || page === "deploy" || page === "payoff" || page === "token") {
+      if (page === "status" || page === "summary" || page === "ato" || page === "deploy" || page === "payoff" || page === "token" || page === "alerts") {
         finishPageRender(page, view, pageMeta, navT0);
       } else {
         playViewIn(view);
@@ -1511,6 +1872,48 @@
     });
   }
 
+  let brokerAcctPainted = false;
+
+  function paintBrokerAcct(me) {
+    if (brokerAcctPainted) return;
+    const z = (me && me.zerodha) || {};
+    const name = String(z.name || "").trim();
+    const uid = String(z.user_id || "").trim();
+    if (!name && !uid) return;
+    const wrap = $("brokerAcct");
+    const nameEl = $("brokerAcctName");
+    const idEl = $("brokerAcctId");
+    const sep1 = $("brokerAcctSep1");
+    const sep2 = $("brokerAcctSep2");
+    const statusEl = $("brokerAcctStatus");
+    if (!wrap || !nameEl || !idEl) return;
+    nameEl.textContent = name;
+    nameEl.style.display = name ? "" : "none";
+    idEl.textContent = uid;
+    idEl.style.display = uid ? "" : "none";
+    if (sep1) sep1.style.display = name && uid ? "" : "none";
+    // Subscription hardcoded active for now
+    const active = true;
+    if (sep2) sep2.style.display = (name || uid) ? "" : "none";
+    if (statusEl) {
+      statusEl.style.display = (name || uid) ? "" : "none";
+      statusEl.classList.toggle("is-active", active);
+      statusEl.classList.toggle("is-inactive", !active);
+      statusEl.title = active ? "Subscription active" : "Subscription inactive";
+      statusEl.setAttribute("aria-label", active ? "Subscription active" : "Subscription inactive");
+    }
+    wrap.hidden = false;
+    brokerAcctPainted = true;
+  }
+
+  async function loadBrokerAcct() {
+    if (brokerAcctPainted) return;
+    try {
+      const me = await api("/api/me");
+      paintBrokerAcct(me);
+    } catch (_) {}
+  }
+
   function showDesk() {
     $("login").classList.add("hidden");
     $("desk").classList.remove("hidden");
@@ -1518,6 +1921,7 @@
     void $("desk").offsetWidth;
     $("desk").classList.add("desk-in");
     $("view").innerHTML = skeleton();
+    loadBrokerAcct();
     go("home");
     startWs();
     if (!clockTimer) {
@@ -1525,6 +1929,39 @@
       clockTimer = setInterval(tickClock, 1000);
     }
   }
+
+
+  function applyTheme(mode) {
+    const t = mode === "dark" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", t);
+    try { localStorage.setItem("kavach-theme", t); } catch (_) {}
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", t === "dark" ? "#0F172A" : "#7C6AE8");
+    document.querySelectorAll(".theme-switch input").forEach((inp) => {
+      inp.checked = t === "dark";
+      const lab = inp.closest(".theme-switch");
+      if (!lab) return;
+      lab.setAttribute("aria-checked", t === "dark" ? "true" : "false");
+      lab.setAttribute("aria-label", t === "dark" ? "Switch to light theme" : "Switch to dark theme");
+      lab.title = t === "dark" ? "Dark theme" : "Light theme";
+    });
+  }
+  function bindThemeToggles() {
+    document.querySelectorAll(".theme-switch input").forEach((inp) => {
+      if (inp.dataset.bound) return;
+      inp.dataset.bound = "1";
+      inp.addEventListener("change", () => {
+        applyTheme(inp.checked ? "dark" : "light");
+      });
+    });
+    let start = document.documentElement.getAttribute("data-theme") || "light";
+    try {
+      const saved = localStorage.getItem("kavach-theme");
+      if (saved === "dark" || saved === "light") start = saved;
+    } catch (_) {}
+    applyTheme(start);
+  }
+  bindThemeToggles();
 
   function playLockThenLogin() {
     $("desk").classList.add("hidden");
@@ -1535,7 +1972,7 @@
     void scene.offsetWidth;
     scene.classList.add("is-on");
     scene.setAttribute("aria-hidden", "false");
-    const wait = reduceMotion() ? 700 : 6200;
+    const wait = reduceMotion() ? 700 : 3400;
     setTimeout(() => {
       scene.classList.remove("is-on");
       scene.setAttribute("aria-hidden", "true");
@@ -1550,15 +1987,18 @@
   }
 
   function startWs() {
-    try {
-      const proto = location.protocol === "https:" ? "wss" : "ws";
-      const ws = new WebSocket(proto + "://" + location.host + "/ws/state");
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    let ws;
+    const connect = () => {
+      try { ws = new WebSocket(proto + "://" + location.host + "/ws/state"); }
+      catch (_) { setTimeout(connect, 2000); return; }
       ws.onmessage = (ev) => {
-        try {
-          applyChrome(JSON.parse(ev.data));
-        } catch (_) {}
+        try { applyChrome(JSON.parse(ev.data)); } catch (_) {}
       };
-    } catch (_) {}
+      ws.onclose = () => setTimeout(connect, 2000);
+      ws.onerror = () => { try { ws.close(); } catch (_) {} };
+    };
+    connect();
   }
 
   document.querySelectorAll(".nav, .tabbar span").forEach((el) => {
@@ -1607,7 +2047,7 @@
       if (r.ok === false) throw new Error(r.error || "failed");
       live.dyn_hedge = on;
       applyChrome(live);
-      toast(on ? "Hedge ON" : "Hedge OFF", true);
+      toastResult(r, true);
     } catch (err) {
       const h = $("hedgeToggle");
       if (h) h.checked = !on;
@@ -1671,7 +2111,79 @@
     );
   }
 
+  function isStandalone() {
+    return window.matchMedia("(display-mode: standalone)").matches
+      || window.navigator.standalone === true;
+  }
+
+  function isIos() {
+    const ua = navigator.userAgent || "";
+    return /iPhone|iPad|iPod/i.test(ua)
+      || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  }
+
+  function setInstallHint(text) {
+    const el = $("installHint");
+    if (el) el.textContent = text || "";
+  }
+
+  if (isStandalone()) {
+    document.body.classList.add("standalone");
+    const hint = $("installHint");
+    const btn = $("installBtn");
+    if (hint) hint.textContent = "Running as app";
+    if (btn) btn.classList.add("hidden");
+  } else if (isIos()) {
+    setInstallHint("iPhone / iPad: tap Share, then Add to Home Screen. Open that icon to hide the address bar.");
+  } else if (location.protocol !== "https:") {
+    setInstallHint("Open the HTTPS link once, then tap Install as app. That opens Kavach with no address bar.");
+  } else {
+    setInstallHint("Install as app to hide the address bar. Chrome menu → Install Kavach, or tap the button below.");
+    const btn = $("installBtn");
+    if (btn) btn.classList.remove("hidden");
+  }
+
+  if (location.protocol === "https:" && "serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+  }
+
+  let deferredPrompt = null;
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    const btn = $("installBtn");
+    if (btn && !isStandalone()) btn.classList.remove("hidden");
+    setInstallHint("Tap Install as app. Kavach will open in its own window with no address bar.");
+  });
+
+  const installBtn = $("installBtn");
+  if (installBtn) {
+    installBtn.addEventListener("click", async () => {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        try { await deferredPrompt.userChoice; } catch (e) {}
+        deferredPrompt = null;
+        installBtn.classList.add("hidden");
+        return;
+      }
+      if (isIos()) {
+        setInstallHint("Safari only: tap the Share button, then Add to Home Screen.");
+        return;
+      }
+      setInstallHint("Use the Chrome menu (three dots) → Install Kavach / Add to Home Screen.");
+    });
+  }
+
+  window.addEventListener("appinstalled", () => {
+    const btn = $("installBtn");
+    if (btn) btn.classList.add("hidden");
+    setInstallHint("Installed. Open Kavach from the app icon — no address bar.");
+  });
+
   api("/api/me")
-    .then(() => showDesk())
+    .then((me) => {
+      paintBrokerAcct(me);
+      showDesk();
+    })
     .catch(() => {});
 })();
