@@ -291,20 +291,61 @@ def compute_ato_readiness(
     hard_hits = [r for r in reasons if r in hard]
     armed = len(hard_hits) == 0
 
-    if armed:
-        pe_e = levels.get("pe_entry") or "?"
-        summary = f"ATO ARMED — PE entry <= {pe_e}" if manage != "ce" else (
-            f"ATO ARMED — CE entry >= {levels.get('ce_entry') or '?'}"
-        )
-        if manage == "both":
-            summary = (
-                f"ATO ARMED — PE entry <= {pe_e} · "
-                f"CE entry >= {levels.get('ce_entry') or '?'}"
-            )
-    else:
+    # Single-side halt is attention even when the other side can still fire.
+    attention: list[str] = []
+    if "pe_side_halted" in reasons:
+        attention.append("pe_side_halted")
+    if "ce_side_halted" in reasons:
+        attention.append("ce_side_halted")
+    if "all_sides_halted" in reasons and "all_sides_halted" not in attention:
+        attention.append("all_sides_halted")
+
+    pe_label = (
+        f"HALTED — {pe_halt_reason or 'halted'}"
+        if pe_halted and manage in ("pe", "both")
+        else ("OK" if manage in ("pe", "both") else "n/a")
+    )
+    ce_label = (
+        f"HALTED — {ce_halt_reason or 'halted'}"
+        if ce_halted and manage in ("ce", "both")
+        else ("OK" if manage in ("ce", "both") else "n/a")
+    )
+    sides = {
+        "pe": {
+            "halted": bool(pe_halted and manage in ("pe", "both")),
+            "reason": pe_halt_reason if pe_halted else None,
+            "label": pe_label,
+        },
+        "ce": {
+            "halted": bool(ce_halted and manage in ("ce", "both")),
+            "reason": ce_halt_reason if ce_halted else None,
+            "label": ce_label,
+        },
+    }
+
+    pe_e = levels.get("pe_entry") or "?"
+    ce_e = levels.get("ce_entry") or "?"
+    if not armed:
         top = hard_hits[:2]
         labels = [reason_labels.get(r, r) for r in top]
         summary = "ATO BLOCKED — " + "; ".join(labels)
+    elif attention:
+        bits: list[str] = []
+        if sides["pe"]["halted"]:
+            bits.append(f"PE HALTED ({pe_halt_reason or 'halted'})")
+        elif manage in ("pe", "both"):
+            bits.append(f"PE armed (entry <= {pe_e})")
+        if sides["ce"]["halted"]:
+            bits.append(f"CE HALTED ({ce_halt_reason or 'halted'})")
+        elif manage in ("ce", "both"):
+            bits.append(f"CE armed (entry >= {ce_e})")
+        summary = "ATO PARTIAL — " + "; ".join(bits)
+    else:
+        summary = f"ATO ARMED — PE entry <= {pe_e}" if manage != "ce" else (
+            f"ATO ARMED — CE entry >= {ce_e}"
+        )
+        if manage == "both":
+            summary = f"ATO ARMED — PE entry <= {pe_e} · CE entry >= {ce_e}"
 
     checked_at = datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -312,7 +353,10 @@ def compute_ato_readiness(
         "armed": armed,
         "blocked_reasons": list(reasons),
         "hard_blocked_reasons": hard_hits,
+        "attention_reasons": attention,
         "reason_labels": reason_labels,
+        "sides": sides,
+        "partial": bool(armed and attention),
         "feed": {
             "ready": bool(ready),
             "ltp": ltp,

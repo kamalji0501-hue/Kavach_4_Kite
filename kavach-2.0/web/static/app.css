@@ -2061,6 +2061,10 @@ input[type=number] { -moz-appearance: textfield; }
 .dep-complete {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  grid-template-rows: minmax(min-content, 1fr) minmax(min-content, 1fr);
+  grid-template-areas:
+    "deploy exit"
+    "deploy done";
   gap: 18px;
   align-items: stretch;
   width: min(1100px, 100%);
@@ -2068,12 +2072,49 @@ input[type=number] { -moz-appearance: textfield; }
   margin-left: auto;
   margin-right: auto;
 }
+.dep-complete > .dep-card-green {
+  grid-area: deploy;
+  height: 100%;
+  min-height: 0;
+  align-self: stretch;
+}
+.dep-complete > .dep-exit-card {
+  grid-area: exit;
+}
+.dep-complete > .dep-done-card {
+  grid-area: done;
+}
+.dep-complete > .dep-exit-card,
+.dep-complete > .dep-done-card {
+  height: auto !important;
+  min-height: min-content;
+  overflow: hidden;
+  align-self: stretch;
+}
+.dep-complete > .card {
+  transform: none !important;
+}
+.dep-complete > .card:hover {
+  transform: none !important;
+}
+.dep-complete .btn-red {
+  margin-top: auto;
+  flex: 0 0 auto;
+}
+.dep-complete .complete-pre {
+  min-height: 0;
+}
+
 .dep-card-green,
 .dep-card-red {
   height: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
+}
+.dep-complete > .dep-exit-card.dep-card-red,
+.dep-complete > .dep-done-card.dep-card-red {
+  height: auto !important;
 }
 .dep-card-sub { margin: 0 0 14px; }
 .dep-card-green {
@@ -2174,7 +2215,14 @@ input[type=number] { -moz-appearance: textfield; }
   text-rendering: geometricPrecision;
 }
 @media (max-width: 820px) and (pointer: coarse) {
-  .dep-complete { grid-template-columns: 1fr; }
+  .dep-complete {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    grid-template-areas:
+      "deploy"
+      "exit"
+      "done";
+  }
 }
 
 

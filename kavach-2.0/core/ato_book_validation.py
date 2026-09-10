@@ -51,14 +51,27 @@ def qty_to_whole_lots(qty: int, lot_size: int) -> int:
 
 
 def lots_fulfilled(actual_qty: int, expected_qty: int, lot_size: int) -> bool:
-    """True when actual qty matches expected in whole lots."""
+    """True when book has at least the expected long qty (overfill counts as done)."""
     if expected_qty <= 0:
         return actual_qty <= 0
-    return actual_qty == expected_qty
+    # Lot-aware: enough whole lots, and never treat overfill as a miss.
+    if lot_size > 0:
+        return qty_to_whole_lots(actual_qty, lot_size) >= qty_to_whole_lots(
+            expected_qty, lot_size
+        )
+    return int(actual_qty) >= int(expected_qty)
 
 
 def remainder_lots(actual_qty: int, expected_qty: int, lot_size: int) -> int:
-    """Whole lots still missing (0 if fulfilled)."""
+    """Whole lots still missing (0 if fulfilled / overfilled)."""
     exp_lots = qty_to_whole_lots(expected_qty, lot_size)
     act_lots = qty_to_whole_lots(actual_qty, lot_size)
     return max(0, exp_lots - act_lots)
+
+
+def remainder_qty(actual_qty: int, expected_qty: int, lot_size: int) -> int:
+    """Qty still missing in lot multiples (0 if fulfilled / overfilled)."""
+    missing = remainder_lots(actual_qty, expected_qty, lot_size)
+    if missing <= 0 or lot_size <= 0:
+        return 0
+    return int(missing) * int(lot_size)

@@ -364,7 +364,7 @@ def _pause_ato(state: Any) -> None:
         logger.warning("pnl_exit clear ato flags: %s", exc)
 
 
-def _notify(events: Any, reason: str, pnl: float, level: float, result: dict[str, Any]) -> None:
+def _notify(events: Any, reason: str, pnl: float, level: float | None, result: dict[str, Any]) -> None:
     payload = {
         "reason": reason,
         "pnl": pnl,
@@ -383,15 +383,133 @@ def _notify(events: Any, reason: str, pnl: float, level: float, result: dict[str
     try:
         from bat_telegram.incident_publisher import publish_incident
 
+        if reason == "manual_exit":
+            detail = (
+                f"Manual flatten. Day PnL ₹{pnl:.2f}. "
+                f"Flatten orders={result.get('orders_placed')}."
+            )
+        elif level is None:
+            detail = f"Day PnL ₹{pnl:.2f}. Flatten orders={result.get('orders_placed')}."
+        else:
+            detail = (
+                f"Day PnL ₹{pnl:.2f} hit level ₹{level:.2f}. "
+                f"Flatten orders={result.get('orders_placed')}."
+            )
         publish_incident(
             severity="critical",
             category="pnl_exit",
             title=reason.replace("_", " ").upper(),
-            detail=f"Day PnL ₹{pnl:.2f} hit level ₹{level:.2f}. Flatten orders={result.get('orders_placed')}.",
+            detail=detail,
             next_action="Both Safe Exit and Take Profit cleared. Re-arm manually if needed.",
         )
     except Exception as exc:
         logger.debug("pnl_exit incident: %s", exc)
+
+
+def flatten_now(
+    *,
+    broker: Any,
+    state: Any,
+    events: Any = None,
+    reason: str = "manual_exit",
+    pnl: float | None = None,
+    level: float | None = None,
+) -> dict[str, Any]:
+    """Pause ATO and sequenced-flatten now. No PnL level required."""
+    if broker is None:
+        return {"ok": False, "error": "Broker not available."}
+    if not _FIRE_LOCK.acquire(blocking=False):
+        return {"ok": False, "error": "Exit already in progress."}
+    try:
+        if state is not None and bool(state.get(KEY_FIRING, False)):
+            return {"ok": False, "error": "Exit already in progress."}
+
+        day = current_day_pnl()
+        if pnl is not None:
+            pnl_v = float(pnl)
+        elif day is not None:
+            pnl_v = float(day)
+        else:
+            pnl_v = 0.0
+        level_v = float(level) if level is not None else None
+
+        if state is not None:
+            state.set(KEY_FIRING, True, save=False)
+            state.set(KEY_SAFE_ON, False, save=False)
+            state.set(KEY_TP_ON, False, save=False)
+            state.set(KEY_SAFE_LEVEL, None, save=False)
+            state.set(KEY_TP_LEVEL, None, save=False)
+            state.set(KEY_LAST_REASON, reason, save=False)
+            state.set(KEY_LAST_PNL, pnl_v, save=False)
+            from core import utils
+
+            state.set(KEY_LAST_AT, utils.now_ist().isoformat(), save=True)
+
+        if level_v is None:
+            logger.critical("PNL EXIT FIRE reason=%s pnl=%.2f level=none", reason, pnl_v)
+        else:
+            logger.critical(
+                "PNL EXIT FIRE reason=%s pnl=%.2f level=%.2f", reason, pnl_v, level_v
+            )
+        try:
+            from core.desk_alerts import emit_desk_alert
+
+            if reason == "take_profit":
+                emit_desk_alert(
+                    severity="green",
+                    category="PnL exit",
+                    alert="Target hit — book is flattening.",
+                    log=f"PNL EXIT FIRE reason={reason} pnl={pnl_v:.2f} level={level_v}",
+                )
+            elif reason == "safe_exit":
+                emit_desk_alert(
+                    severity="red",
+                    category="PnL exit",
+                    alert="Stop-loss hit — book is flattening.",
+                    log=f"PNL EXIT FIRE reason={reason} pnl={pnl_v:.2f} level={level_v}",
+                )
+            else:
+                emit_desk_alert(
+                    severity="red",
+                    category="PnL exit",
+                    alert="Manual exit — book is flattening.",
+                    log=f"PNL EXIT FIRE reason={reason} pnl={pnl_v:.2f}",
+                )
+        except Exception:
+            pass
+        _pause_ato(state)
+        result = sequenced_flatten(broker)
+        if state is not None:
+            state.set(KEY_FIRING, False, save=True)
+        _notify(events, reason, pnl_v, level_v, result)
+        left = int(result.get("legs_left") or 0)
+        placed = int(result.get("orders_placed") or 0)
+        if left:
+            leftover = ", ".join(str(s) for s in (result.get("left_symbols") or []) if s)
+            text = f"Exit finished with {left} leftover leg(s)"
+            if leftover:
+                text += f": {leftover}"
+            text += "."
+        else:
+            text = f"Exit complete. Orders placed: {placed}."
+        return {
+            "ok": True,
+            "reason": reason,
+            "pnl": pnl_v,
+            "level": level_v,
+            "text": text,
+            **result,
+        }
+    except Exception as exc:
+        logger.exception("pnl_exit fire failed: %s", exc)
+        try:
+            if state is not None:
+                state.set(KEY_FIRING, False, save=True)
+        except Exception:
+            pass
+        return {"ok": False, "error": str(exc), "reason": reason}
+    finally:
+        _FIRE_LOCK.release()
 
 
 def check_and_maybe_fire(*, broker: Any, state: Any, events: Any = None) -> dict[str, Any] | None:
@@ -425,56 +543,14 @@ def check_and_maybe_fire(*, broker: Any, state: Any, events: Any = None) -> dict
     if reason is None or level is None:
         return None
 
-    if not _FIRE_LOCK.acquire(blocking=False):
+    out = flatten_now(
+        broker=broker,
+        state=state,
+        events=events,
+        reason=reason,
+        pnl=float(pnl),
+        level=float(level),
+    )
+    if not out.get("ok") and "already in progress" in str(out.get("error") or "").lower():
         return None
-    try:
-        if bool(state.get(KEY_FIRING, False)):
-            return None
-        state.set(KEY_FIRING, True, save=False)
-        # Disarm + clear levels immediately
-        state.set(KEY_SAFE_ON, False, save=False)
-        state.set(KEY_TP_ON, False, save=False)
-        state.set(KEY_SAFE_LEVEL, None, save=False)
-        state.set(KEY_TP_LEVEL, None, save=False)
-        state.set(KEY_LAST_REASON, reason, save=False)
-        state.set(KEY_LAST_PNL, float(pnl), save=False)
-        from core import utils
-
-        state.set(KEY_LAST_AT, utils.now_ist().isoformat(), save=True)
-
-        logger.critical(
-            "PNL EXIT FIRE reason=%s pnl=%.2f level=%.2f", reason, float(pnl), float(level)
-        )
-        try:
-            from core.desk_alerts import emit_desk_alert
-
-            if reason == "take_profit":
-                emit_desk_alert(
-                    severity="green",
-                    category="PnL exit",
-                    alert="Target hit — book is flattening.",
-                    log=f"PNL EXIT FIRE reason={reason} pnl={float(pnl):.2f} level={float(level):.2f}",
-                )
-            else:
-                emit_desk_alert(
-                    severity="red",
-                    category="PnL exit",
-                    alert="Stop-loss hit — book is flattening.",
-                    log=f"PNL EXIT FIRE reason={reason} pnl={float(pnl):.2f} level={float(level):.2f}",
-                )
-        except Exception:
-            pass
-        _pause_ato(state)
-        result = sequenced_flatten(broker)
-        state.set(KEY_FIRING, False, save=True)
-        _notify(events, reason, float(pnl), float(level), result)
-        return {"ok": True, "reason": reason, "pnl": float(pnl), "level": float(level), **result}
-    except Exception as exc:
-        logger.exception("pnl_exit fire failed: %s", exc)
-        try:
-            state.set(KEY_FIRING, False, save=True)
-        except Exception:
-            pass
-        return {"ok": False, "error": str(exc), "reason": reason}
-    finally:
-        _FIRE_LOCK.release()
+    return out

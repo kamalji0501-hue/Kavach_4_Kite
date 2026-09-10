@@ -97,7 +97,7 @@ async def index(request: Request) -> Response:
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     html = re.sub(
         r'app\.(css|js)\?(?:v|cb)=[^"]+',
-        lambda m: f'app.{m.group(1)}?cb=20260907postot',
+        lambda m: f'app.{m.group(1)}?cb=20260910exit3',
         html,
     )
     return Response(html, media_type="text/html")
@@ -429,6 +429,39 @@ async def api_take_profit(request: Request) -> Response:
     return JSONResponse(out, status_code=code)
 
 
+
+async def api_flatten(request: Request) -> Response:
+    bad = _need_auth(request)
+    if bad:
+        return bad
+    body = await _read_json(request)
+    if not bool(body.get("confirm")):
+        return JSONResponse(
+            {
+                "ok": False,
+                "need_confirm": True,
+                "error": "Confirm required to exit all positions.",
+            },
+            status_code=400,
+        )
+    from core.pnl_exit_guard import current_day_pnl, flatten_now, snapshot_pnl_exit
+    from web.runtime import require_runtime
+
+    rt = require_runtime()
+    if rt.broker is None:
+        return JSONResponse({"ok": False, "error": "Broker not available."}, status_code=400)
+    out = flatten_now(
+        broker=rt.broker,
+        state=rt.state,
+        events=rt.event_bus,
+        reason="manual_exit",
+    )
+    out["pnl_exit"] = snapshot_pnl_exit(rt.state)
+    out["day_pnl"] = current_day_pnl()
+    code = 200 if out.get("ok") else 400
+    return JSONResponse(out, status_code=code)
+
+
 async def api_payoff(request: Request) -> Response:
     bad = _need_auth(request)
     return bad or _cmd(commands.payoff_graph)
@@ -468,6 +501,7 @@ def create_app() -> Starlette:
         Route("/api/deploy-register", api_deploy_register, methods=["POST"]),
         Route("/api/safe-exit", api_safe_exit, methods=["GET", "POST"]),
         Route("/api/take-profit", api_take_profit, methods=["GET", "POST"]),
+        Route("/api/flatten", api_flatten, methods=["POST"]),
         Route("/api/payoff", api_payoff),
         WebSocketRoute("/ws/state", ws_state),
         Mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static"),

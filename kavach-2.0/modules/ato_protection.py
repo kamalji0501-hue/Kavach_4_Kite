@@ -46,7 +46,7 @@ from decimal import Decimal
 from typing import Any, Literal, cast
 
 from core import utils
-from core.ato_book_validation import lots_fulfilled, net_qty_for_symbol
+from core.ato_book_validation import lots_fulfilled, net_qty_for_symbol, remainder_qty
 from core.ato_cycle_feed import record_ato_buy, record_ato_cycle_complete
 from core.ato_idempotency import (
     ato_order_key,
@@ -956,6 +956,61 @@ class ATOProtection(ModuleBase):
             },
         )
 
+    
+    def _ato_order_status(self, order_id: str) -> str | None:
+        """Best-effort Kite order status (OPEN/COMPLETE/…)."""
+        oid = str(order_id or "").strip()
+        if not oid:
+            return None
+        try:
+            book = self.broker.get_orderbook()
+        except Exception:
+            return None
+        try:
+            if hasattr(book, "empty") and book.empty:
+                return None
+            if hasattr(book, "iterrows"):
+                for _, row in book.iterrows():
+                    rid = str(row.get("order_id") or row.get("orderId") or "")
+                    if rid == oid:
+                        return str(row.get("status") or "").strip().upper() or None
+            elif isinstance(book, list):
+                for row in book:
+                    rid = str(row.get("order_id") or row.get("orderId") or "")
+                    if rid == oid:
+                        return str(row.get("status") or "").strip().upper() or None
+        except Exception:
+            return None
+        return None
+
+    def _wait_protect_fill(
+        self,
+        *,
+        symbol: str,
+        ato_qty: int,
+        lot_size: int,
+        order_id: str | None,
+        wait_s: float,
+        polls: int,
+    ) -> int | None:
+        """Poll book (and order status) briefly so fill lag does not trigger another BUY."""
+        import time as _time
+        from core.ato_book_validation import lots_fulfilled, net_qty_for_symbol
+
+        last = net_qty_for_symbol(self.broker, symbol)
+        n = max(1, int(polls))
+        delay = max(0.05, float(wait_s) / n)
+        for _ in range(n):
+            if last is not None and lots_fulfilled(last, ato_qty, lot_size):
+                return int(last)
+            if order_id:
+                st = self._ato_order_status(str(order_id))
+                if st in ("REJECTED", "CANCELLED", "CANCELED"):
+                    return last if last is not None else 0
+            _time.sleep(delay)
+            last = net_qty_for_symbol(self.broker, symbol)
+        return last
+
     def _execute_protect_buy(
         self,
         *,
@@ -965,11 +1020,23 @@ class ATOProtection(ModuleBase):
         product: str,
         idem_key: str,
     ) -> str | None:
-        """Place BUY with book validation + retries; halt side when exhausted."""
+        """Place BUY with book validation + top-up retries; halt side when exhausted.
+
+        Never re-buys full size when the book already has enough (or too much).
+        Fill-lag: wait/poll before treating a shortfall as another place.
+        """
+        from core.ato_book_validation import (
+            lots_fulfilled,
+            net_qty_for_symbol,
+            remainder_qty,
+        )
+
         op = self._operator_settings()
         max_retries = int(op.get("order_retry_max", 3))
         lot_size = int(op.get("lot_size", 65))
         tag = side.upper()
+        fill_wait_s = float(op.get("order_fill_wait_seconds", 1.5))
+        fill_polls = int(op.get("order_fill_polls", 4))
 
         from core.zerodha_instruments import nifty_expiry_key
 
@@ -994,22 +1061,106 @@ class ATOProtection(ModuleBase):
 
         existing = get_existing_ato_order(self.state, idem_key)
         if existing:
-            return str(existing)
+            # Still open? Wait for fill; do not punch another full BUY.
+            net_ex = net_qty_for_symbol(self.broker, symbol)
+            if net_ex is not None and lots_fulfilled(net_ex, ato_qty, lot_size):
+                self.log.info(
+                    "%s ATO idempotency — order %s already filled in book qty=%s",
+                    tag,
+                    existing,
+                    net_ex,
+                )
+                return str(existing)
+            status = self._ato_order_status(str(existing))
+            if status in ("OPEN", "TRIGGER PENDING", "AMO REQ RECEIVED", "PUT ORDER REQ RECEIVED"):
+                self.log.info(
+                    "%s ATO idempotency — order %s still %s; waiting, no second BUY",
+                    tag,
+                    existing,
+                    status,
+                )
+                filled = self._wait_protect_fill(
+                    symbol=symbol,
+                    ato_qty=ato_qty,
+                    lot_size=lot_size,
+                    order_id=str(existing),
+                    wait_s=fill_wait_s,
+                    polls=fill_polls,
+                )
+                if filled is not None and lots_fulfilled(filled, ato_qty, lot_size):
+                    return str(existing)
+                # Still short/open — return existing id; do not place another.
+                return str(existing)
+            if status in ("COMPLETE", "FILLED"):
+                return str(existing)
 
         net = net_qty_for_symbol(self.broker, symbol)
         if net is not None and lots_fulfilled(net, ato_qty, lot_size):
-            self.log.info("%s ATO book already shows fill for %s (qty=%d)", tag, symbol, net)
+            if int(net) > int(ato_qty):
+                self.log.warning(
+                    "%s ATO book overfill qty=%s expected=%s on %s — no further BUY",
+                    tag,
+                    net,
+                    ato_qty,
+                    symbol,
+                )
+            else:
+                self.log.info("%s ATO book already shows fill for %s (qty=%d)", tag, symbol, net)
             return "BOOK_FILLED"
 
         last_exc: Exception | None = None
+        last_order_id: str | None = None
         for attempt in range(1, max_retries + 1):
             try:
+                net_before = net_qty_for_symbol(self.broker, symbol)
+                if net_before is not None and lots_fulfilled(net_before, ato_qty, lot_size):
+                    if int(net_before) > int(ato_qty):
+                        self.log.warning(
+                            "%s ATO overfill before attempt %d qty=%s — stop",
+                            tag,
+                            attempt,
+                            net_before,
+                        )
+                    return last_order_id or "BOOK_FILLED"
+
+                need = (
+                    remainder_qty(int(net_before or 0), ato_qty, lot_size)
+                    if net_before is not None
+                    else int(ato_qty)
+                )
+                if need <= 0:
+                    return last_order_id or "BOOK_FILLED"
+
+                # If a prior attempt order is still working, do not place again.
+                if last_order_id:
+                    st = self._ato_order_status(str(last_order_id))
+                    if st in ("OPEN", "TRIGGER PENDING", "AMO REQ RECEIVED", "PUT ORDER REQ RECEIVED"):
+                        self.log.info(
+                            "%s ATO buy attempt %d — prior order %s still %s; wait not rebuy",
+                            tag,
+                            attempt,
+                            last_order_id,
+                            st,
+                        )
+                        filled = self._wait_protect_fill(
+                            symbol=symbol,
+                            ato_qty=ato_qty,
+                            lot_size=lot_size,
+                            order_id=str(last_order_id),
+                            wait_s=fill_wait_s,
+                            polls=fill_polls,
+                        )
+                        if filled is not None and lots_fulfilled(filled, ato_qty, lot_size):
+                            return str(last_order_id)
+                        continue
+
                 order_id = self._place_ato_aggressive_limit(
                     symbol=symbol,
-                    qty=ato_qty,
+                    qty=int(need),
                     side="BUY",
                     product=product,
                 )
+                last_order_id = str(order_id)
                 record_ato_order(self.state, idem_key, str(order_id))
                 sent = str(getattr(self.broker, "_last_order_tradingsymbol", "") or symbol)
                 sent_exp = nifty_expiry_key(sent)
@@ -1023,7 +1174,16 @@ class ATOProtection(ModuleBase):
                     )
                     halt_side(self.state, tag, reason="punched_wrong_expiry")
                     return None
-                net_after = net_qty_for_symbol(self.broker, symbol)
+
+                filled = self._wait_protect_fill(
+                    symbol=symbol,
+                    ato_qty=ato_qty,
+                    lot_size=lot_size,
+                    order_id=str(order_id),
+                    wait_s=fill_wait_s,
+                    polls=fill_polls,
+                )
+                net_after = filled if filled is not None else net_qty_for_symbol(self.broker, symbol)
                 net_sent = (
                     net_qty_for_symbol(self.broker, sent)
                     if sent and sent != symbol
@@ -1047,14 +1207,22 @@ class ATOProtection(ModuleBase):
                     halt_side(self.state, tag, reason="fill_wrong_contract")
                     return None
                 if net_after is None or lots_fulfilled(net_after, ato_qty, lot_size):
+                    if net_after is not None and int(net_after) > int(ato_qty):
+                        self.log.warning(
+                            "%s ATO book overfill after buy qty=%s expected=%s — no further BUY",
+                            tag,
+                            net_after,
+                            ato_qty,
+                        )
                     return str(order_id)
                 self.log.warning(
-                    "%s ATO buy attempt %d — book qty %s != expected %d on %s",
+                    "%s ATO buy attempt %d — book qty %s still short of %d on %s (placed %s)",
                     tag,
                     attempt,
                     net_after,
                     ato_qty,
                     symbol,
+                    need,
                 )
             except Exception as exc:
                 last_exc = exc
@@ -1070,6 +1238,11 @@ class ATOProtection(ModuleBase):
                 max_retries,
             )
             return None
+
+        # Final book check — overfill/fill may have landed after last attempt.
+        net_final = net_qty_for_symbol(self.broker, symbol)
+        if net_final is not None and lots_fulfilled(net_final, ato_qty, lot_size):
+            return last_order_id or "BOOK_FILLED"
 
         halt_side(self.state, tag, reason="order_retry_exhausted")
         error_text = str(last_exc) if last_exc else f"book qty mismatch for {symbol}"
@@ -1096,6 +1269,7 @@ class ATOProtection(ModuleBase):
             },
         )
         return None
+
 
     def _side_settings(self, side: str, sell_strike: int) -> dict[str, Any]:
         legacy_retrace = normalize_buffer_field(self.state.get("ato.retrace_points", 5))
@@ -1578,10 +1752,20 @@ class ATOProtection(ModuleBase):
             if not ltp:
                 continue
             try:
+                reg = int(self._registered_exit_qty(tag.upper(), f"{tag}_buy") or 0)
+                sell_qty = min(held, reg) if reg > 0 else held
+                if held > sell_qty:
+                    self.log.warning(
+                        "ATO %s SELL exit-Rescue capping qty held=%s registered=%s -> sell=%s",
+                        tag.upper(),
+                        held,
+                        reg,
+                        sell_qty,
+                    )
                 out = rescue_flatten_sell(
                     broker,
                     symbol=str(sym),
-                    remaining=held,
+                    remaining=int(sell_qty),
                     ltp=float(ltp),
                     existing_oid=str(oid),
                     product=product,
@@ -1591,7 +1775,7 @@ class ATOProtection(ModuleBase):
                 self.log.info(
                     "ATO %s SELL exit-Rescue remaining=%s ltp=%s id=%s",
                     tag.upper(),
-                    held,
+                    sell_qty,
                     ltp,
                     new_id,
                 )

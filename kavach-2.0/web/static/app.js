@@ -484,17 +484,21 @@
     if (!el) return;
     const ar = (s && s.ato_readiness) || {};
     const armed = !!ar.armed;
-    if (armed) {
+    const labels = ar.reason_labels || {};
+    const hard = ar.hard_blocked_reasons || ar.blocked_reasons || [];
+    const attention = ar.attention_reasons || [];
+    const sideHalt = attention.filter((r) => r === "pe_side_halted" || r === "ce_side_halted" || r === "all_sides_halted");
+    if (armed && !sideHalt.length) {
       el.classList.add("hidden");
       el.textContent = "";
       return;
     }
-    const labels = ar.reason_labels || {};
-    const hard = ar.hard_blocked_reasons || ar.blocked_reasons || [];
-    const top = hard.slice(0, 2).map((r) => labels[r] || r).filter(Boolean);
-    const line = top.join(" · ") || (ar.summary_line || "ATO BLOCKED");
+    const focus = (!armed ? hard : sideHalt).slice(0, 2);
+    const top = focus.map((r) => labels[r] || r).filter(Boolean);
+    const line = top.join(" · ") || (ar.summary_line || (armed ? "ATO PARTIAL" : "ATO BLOCKED"));
     let action = "Check Datafeedbot service / Feeder cache.";
-    if (hard.indexOf("deployment_not_confirmed") >= 0) action = "Register / Arm Kavach first.";
+    if (sideHalt.length) action = "Resume after checking broker book (Pause then Resume).";
+    else if (hard.indexOf("deployment_not_confirmed") >= 0) action = "Register / Arm Kavach first.";
     else if (hard.indexOf("algo_paused") >= 0) action = "Tap RESUME when the feed is healthy.";
     else if (hard.indexOf("datafeedbot_down") >= 0 || hard.indexOf("kavach2_down") >= 0) {
       action = "Check VPS: datafeedbot.service / batman-kavach2.service.";
@@ -1193,6 +1197,28 @@
         }
       };
     }
+    if ($("exitAllBtn")) {
+      $("exitAllBtn").onclick = async () => {
+        if (!window.confirm("Exit all positions now?")) return;
+        try {
+          setBusy(true);
+          const dres = await api("/api/flatten", {
+            method: "POST",
+            body: JSON.stringify({ confirm: true }),
+          });
+          $("exitMsg").textContent = dres.text || dres.error || "";
+          toastResult(dres, !!dres.ok);
+          if (dres.pnl_exit) live.pnl_exit = dres.pnl_exit;
+          if (dres.ok) live.paused = true;
+          applyChrome(live);
+        } catch (err) {
+          $("exitMsg").textContent = err.message;
+          toast(err.message, false);
+        } finally {
+          setBusy(false);
+        }
+      };
+    }
     if ($("doneYes")) {
       $("doneYes").onclick = async () => {
         if (!window.confirm("Complete Batman now? ATO will stop and deployment will be archived.")) return;
@@ -1540,7 +1566,7 @@
                 <span class="home-chip ${s.dyn_hedge ? "ok" : "bad"}">${s.dyn_hedge ? "HEDGE ON" : "HEDGE OFF"}</span>
                 <span class="home-chip ${s.broker ? "ok" : "bad"}">${s.broker ? "BROKER OK" : "BROKER OFF"}</span>
                 <span class="home-chip ${armed ? "ok" : "bad"}">${armed ? "ARMED" : "NOT ARMED"}</span>
-                <span class="home-chip ${(s.ato_readiness && s.ato_readiness.armed) ? "ok" : "bad"}">${(s.ato_readiness && s.ato_readiness.armed) ? "ATO ARMED" : "ATO BLOCKED"}</span>
+                <span class="home-chip ${(function(){ const ar=s.ato_readiness||{}; const att=(ar.attention_reasons||[]); const halt=att.some(r=>r==="pe_side_halted"||r==="ce_side_halted"||r==="all_sides_halted"); if(ar.armed && halt) return "bad"; return ar.armed?"ok":"bad"; })()}">${(function(){ const ar=s.ato_readiness||{}; const att=(ar.attention_reasons||[]); const halt=att.some(r=>r==="pe_side_halted"||r==="ce_side_halted"||r==="all_sides_halted"); if(ar.armed && halt) return "ATO PARTIAL"; return ar.armed?"ATO ARMED":"ATO BLOCKED"; })()}</span>
               </div>
               <div class="home-strip-group home-strip-ato">
                 <span class="home-chip ${s.ce_ato ? "ok" : ""}">CE ATO ${s.ce_ato ? "ACTIVE" : "IDLE"}</span>
@@ -1571,7 +1597,9 @@
                 </div>
                 <div class="card home-card ato-ready-card">
                   <h4 class="sec-title">ATO READINESS</h4>
-                  <div class="kv"><span>Status</span><b class="${(s.ato_readiness && s.ato_readiness.armed) ? "ok" : "bad"}">${esc((s.ato_readiness && s.ato_readiness.summary_line) || "—")}</b></div>
+                  <div class="kv"><span>Status</span><b class="${(function(){ const ar=s.ato_readiness||{}; const att=ar.attention_reasons||[]; const halt=att.some(r=>r==="pe_side_halted"||r==="ce_side_halted"||r==="all_sides_halted"); if(ar.armed && !halt) return "ok"; return "bad"; })()}">${esc((s.ato_readiness && s.ato_readiness.summary_line) || "—")}</b></div>
+                  <div class="kv"><span>PE side</span><b class="${(s.ato_readiness && s.ato_readiness.sides && s.ato_readiness.sides.pe && s.ato_readiness.sides.pe.halted) ? "bad" : "ok"}">${esc((s.ato_readiness && s.ato_readiness.sides && s.ato_readiness.sides.pe && s.ato_readiness.sides.pe.label) || "—")}</b></div>
+                  <div class="kv"><span>CE side</span><b class="${(s.ato_readiness && s.ato_readiness.sides && s.ato_readiness.sides.ce && s.ato_readiness.sides.ce.halted) ? "bad" : "ok"}">${esc((s.ato_readiness && s.ato_readiness.sides && s.ato_readiness.sides.ce && s.ato_readiness.sides.ce.label) || "—")}</b></div>
                   <div class="kv"><span>Feed age</span><b>${esc((s.ato_readiness && s.ato_readiness.feed && s.ato_readiness.feed.age_s != null) ? (Math.round(s.ato_readiness.feed.age_s) + "s") : "—")}</b></div>
                   <div class="kv"><span>Checked</span><b>${esc((s.ato_readiness && s.ato_readiness.checked_at) || "—")}</b></div>
                 </div>
@@ -1602,7 +1630,9 @@
         view.innerHTML = `<header class="page-head"><h3>KAVACH STATUS</h3></header>
           <div class="card ato-ready-card">
             <h4 class="sec-title">ATO READINESS</h4>
-            <div class="kv"><span>Summary</span><b class="${ready.armed ? "ok" : "bad"}">${esc(ready.summary_line || "—")}</b></div>
+            <div class="kv"><span>Summary</span><b class="${(function(){ const att=ready.attention_reasons||[]; const halt=att.some(r=>r==="pe_side_halted"||r==="ce_side_halted"||r==="all_sides_halted"); if(ready.armed && !halt) return "ok"; return "bad"; })()}">${esc(ready.summary_line || "—")}</b></div>
+            <div class="kv"><span>PE side</span><b class="${(ready.sides && ready.sides.pe && ready.sides.pe.halted) ? "bad" : "ok"}">${esc((ready.sides && ready.sides.pe && ready.sides.pe.label) || "—")}</b></div>
+            <div class="kv"><span>CE side</span><b class="${(ready.sides && ready.sides.ce && ready.sides.ce.halted) ? "bad" : "ok"}">${esc((ready.sides && ready.sides.ce && ready.sides.ce.label) || "—")}</b></div>
             <div class="kv"><span>Checked</span><b>${esc(ready.checked_at || "—")}</b></div>
             <div class="kv"><span>Feed</span><b>${esc((feed.ltp != null ? feed.ltp : "—") + " · age " + (feed.age_s != null ? Math.round(feed.age_s) + "s" : "?") + " · " + (feed.source || "") + " · " + (feed.collector || ""))}</b></div>
             <div class="kv"><span>Datafeedbot</span><b class="${svc.datafeedbot_active ? "ok" : "bad"}">${svc.datafeedbot_active ? "active" : "down"}</b></div>
@@ -1763,7 +1793,12 @@
               </div>
               <p class="sub" id="depMsg"></p>
             </div>
-            <div class="card add-form dep-card-red">
+            <div class="card add-form dep-card-red dep-exit-card">
+              <h4 class="sec-title">EXIT ALL POSITIONS</h4>
+              <div class="complete-pre" id="exitMsg">Exits every open position immediately after you confirm.</div>
+              <button type="button" class="btn btn-red" id="exitAllBtn">CONFIRM EXIT</button>
+            </div>
+            <div class="card add-form dep-card-red dep-done-card">
               <h4 class="sec-title">COMPLETE BATMAN</h4>
               <p class="sub dep-card-sub">End this deployment safely</p>
               <div class="complete-pre" id="doneMsg">${esc(c.text || c.error || "")}</div>

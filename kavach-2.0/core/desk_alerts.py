@@ -188,6 +188,7 @@ _PREV_READY: dict[str, Any] = {
     "primed": False,
     "armed": None,
     "hard_key": "",
+    "attention_key": "",
     "paused": None,
     "broker": None,
 }
@@ -239,19 +240,27 @@ def emit_readiness_edges(
         ar = ato_readiness or {}
         armed = bool(ar.get("armed"))
         hard = [str(x) for x in (ar.get("hard_blocked_reasons") or ar.get("blocked_reasons") or [])]
+        attention = [str(x) for x in (ar.get("attention_reasons") or [])]
+        # Always watch single-side halts even when overall armed stays True.
+        for key in ("pe_side_halted", "ce_side_halted", "all_sides_halted"):
+            if key in (ar.get("blocked_reasons") or []) and key not in attention:
+                attention.append(key)
         labels = ar.get("reason_labels") or {}
         hard_key = "|".join(hard)
+        attention_key = "|".join(attention)
         if not _PREV_READY["primed"]:
             _PREV_READY.update(
                 primed=True,
                 armed=armed,
                 hard_key=hard_key,
+                attention_key=attention_key,
                 paused=bool(paused),
                 broker=bool(broker_ok),
             )
             return
         prev_armed = _PREV_READY.get("armed")
-        if prev_armed is False and armed:
+        prev_attention = str(_PREV_READY.get("attention_key") or "")
+        if prev_armed is False and armed and not attention:
             emit_desk_alert(
                 severity="green",
                 category="ATO ready",
@@ -270,6 +279,38 @@ def emit_readiness_edges(
                     side=side,
                 )
                 break
+        # Partial halt: armed may stay True, but PE/CE halt must still notify.
+        if attention_key != prev_attention:
+            prev_set = set(filter(None, prev_attention.split("|")))
+            now_set = set(attention)
+            for reason in sorted(now_set - prev_set):
+                if reason not in ("pe_side_halted", "ce_side_halted", "all_sides_halted"):
+                    continue
+                sev, cat, line, side = _notice_for_reason(reason, labels)
+                emit_desk_alert(
+                    severity=sev,
+                    category=cat,
+                    alert=line,
+                    log=str(labels.get(reason) or ar.get("summary_line") or reason),
+                    side=side,
+                )
+            for reason in sorted(prev_set - now_set):
+                if reason == "pe_side_halted":
+                    emit_desk_alert(
+                        severity="green",
+                        category="Side halted",
+                        alert="PE side resumed — monitoring again.",
+                        log="pe_side_halted cleared",
+                        side="PE",
+                    )
+                elif reason == "ce_side_halted":
+                    emit_desk_alert(
+                        severity="green",
+                        category="Side halted",
+                        alert="CE side resumed — monitoring again.",
+                        log="ce_side_halted cleared",
+                        side="CE",
+                    )
         if bool(paused) and not _PREV_READY.get("paused"):
             emit_desk_alert(
                 severity="orange",
@@ -287,6 +328,7 @@ def emit_readiness_edges(
         _PREV_READY.update(
             armed=armed,
             hard_key=hard_key,
+            attention_key=attention_key,
             paused=bool(paused),
             broker=bool(broker_ok),
         )
