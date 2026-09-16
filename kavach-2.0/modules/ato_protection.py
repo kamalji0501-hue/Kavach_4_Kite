@@ -56,7 +56,7 @@ from core.ato_idempotency import (
     record_ato_order,
 )
 from core.ato_manual_leg_sync import ManualLegSyncResult, evaluate_side_manual_sync
-from core.ato_operator_config import ato_operator_settings, soft_cap_should_warn
+from core.ato_operator_config import ato_operator_settings
 from core.ato_position_book import read_positions_with_retry
 from core.ato_side_state import halt_side, is_side_halted, pause_all_ato
 from core.batman_mode import deployments_dir, workspace_root
@@ -340,10 +340,23 @@ class ATOProtection(ModuleBase):
                     continue
 
                 if not is_past_monitoring_start():
+                    try:
+                        from core import utils
+                        from core.overnight_handoff import morning_handoff_due
+
+                        if morning_handoff_due(
+                            self.state,
+                            utils.now_ist().time(),
+                            utils.now_ist().date().isoformat(),
+                        ):
+                            self._check_breach()
+                    except Exception as exc:
+                        self.log.warning("Overnight morning handoff wait-window failed: %s", exc)
                     if self._sleep(self._effective_poll_interval(cfg_ato)):
                         return
                     continue
 
+                self._maybe_evening_hedge_box()
                 self._check_breach()
                 self._maybe_run_pnl_exits()
 
@@ -384,6 +397,21 @@ class ATOProtection(ModuleBase):
                         start_label,
                     )
                 return
+            try:
+                from core import utils
+                from core.overnight_handoff import morning_handoff_due
+
+                if morning_handoff_due(
+                    self.state,
+                    utils.now_ist().time(),
+                    utils.now_ist().date().isoformat(),
+                ):
+                    self.log.info(
+                        "ATO Protection: overnight morning handoff due — unlocking at 09:20 IST"
+                    )
+                    return
+            except Exception:
+                pass
             if not ato_session_open_for_breach():
                 if self._sleep(30):
                     return
@@ -899,89 +927,100 @@ class ATOProtection(ModuleBase):
         setattr(self, attr, new_val)
         return new_val
 
-    def _maybe_soft_cap_warn(self, side: str, spot: float) -> None:
-        """Warn operator on choppy session — never auto-stop ATO (operator rules §6)."""
-        op = self._operator_settings()
-        prefix = self._side_prefix(side)
-        cycles = getattr(self, f"_{prefix}_cycles", 0)
-        breach_only = getattr(self, f"_{prefix}_breach_only_count", 0)
-        if not soft_cap_should_warn(
-            cycle_count=cycles,
-            breach_only_count=breach_only,
-            settings=op,
-        ):
-            return
-        if op.get("monitor_breach_counts_toward_soft_cap", True):
-            exposure = max(cycles, breach_only)
-        else:
-            exposure = cycles
-        last_attr = f"_{prefix}_soft_cap_last_exposure"
-        if getattr(self, last_attr, -1) == exposure:
-            return
-        setattr(self, last_attr, exposure)
-        first = int(op.get("soft_cap_first_warn_cycles", 3))
-        self.log.warning(
-            "%s ATO soft cap — exposure %d (cycles=%d breach_only=%d) spot=%.1f",
-            side,
-            exposure,
-            cycles,
-            breach_only,
-            spot,
+    @staticmethod
+    def _ato_fire_nth(n: int) -> str:
+        words = (
+            "FIRST", "SECOND", "THIRD", "FOURTH", "FIFTH",
+            "SIXTH", "SEVENTH", "EIGHTH", "NINTH", "TENTH",
+            "ELEVENTH", "TWELFTH", "THIRTEENTH", "FOURTEENTH", "FIFTEENTH",
+            "SIXTEENTH", "SEVENTEENTH", "EIGHTEENTH", "NINETEENTH", "TWENTIETH",
         )
+        if 1 <= int(n) <= 20:
+            return words[int(n) - 1]
+        return f"{int(n)}TH"
+
+    def _notify_ato_fired(self, side: str, spot: float, cycles: int) -> None:
+        """Tell the desk each time this side actually buys ATO protect. No cap."""
+        tag = str(side or "").strip().upper()
+        if tag not in ("CE", "PE"):
+            return
+        n = max(1, int(cycles or 1))
+        nth = self._ato_fire_nth(n)
+        line = f"{tag} ATO FIRED FOR THE {nth} TIME"
+        self.log.info("%s spot=%.1f cycle=%d", line, float(spot or 0), n)
         try:
             from core.desk_alerts import emit_desk_alert
 
             emit_desk_alert(
                 severity="orange",
-                category="ATO size cap",
-                alert=f"{str(side).upper()} ATO hit its size cap — order still went through.",
-                log=(
-                    f"{side} ATO soft cap — exposure {exposure} "
-                    f"(cycles={cycles} breach_only={breach_only}) spot={spot:.1f}"
-                ),
-                side=str(side).upper(),
+                category="ATO fire",
+                alert=line,
+                log=f"{line} — spot={float(spot or 0):.1f} cycle={n}",
+                side=tag,
             )
         except Exception:
             pass
-        self.events.publish(
-            Event.ATO_MAX_CYCLES_REACHED,
-            {
-                "side": side.upper(),
-                "cycles": cycles,
-                "breach_only_count": breach_only,
-                "exposure": exposure,
-                "soft_cap": True,
-                "soft_cap_first": first,
-                "spot": spot,
-            },
-        )
 
     
-    def _ato_order_status(self, order_id: str) -> str | None:
-        """Best-effort Kite order status (OPEN/COMPLETE/…)."""
+    def _ato_order_snapshot(self, order_id: str) -> dict[str, object] | None:
+        """Best-effort Kite order row: status + filled qty."""
         oid = str(order_id or "").strip()
         if not oid:
             return None
         try:
             book = self.broker.get_orderbook()
         except Exception:
-            return None
+            book = None
+        row = None
         try:
-            if hasattr(book, "empty") and book.empty:
-                return None
-            if hasattr(book, "iterrows"):
-                for _, row in book.iterrows():
-                    rid = str(row.get("order_id") or row.get("orderId") or "")
-                    if rid == oid:
-                        return str(row.get("status") or "").strip().upper() or None
-            elif isinstance(book, list):
-                for row in book:
-                    rid = str(row.get("order_id") or row.get("orderId") or "")
-                    if rid == oid:
-                        return str(row.get("status") or "").strip().upper() or None
+            if book is not None and not (hasattr(book, "empty") and book.empty):
+                if hasattr(book, "iterrows"):
+                    for _, cand in book.iterrows():
+                        rid = str(cand.get("order_id") or cand.get("orderId") or "")
+                        if rid == oid:
+                            row = cand
+                            break
+                elif isinstance(book, list):
+                    for cand in book:
+                        rid = str(cand.get("order_id") or cand.get("orderId") or "")
+                        if rid == oid:
+                            row = cand
+                            break
         except Exception:
+            row = None
+        if row is None:
+            getter = getattr(self.broker, "get_order_status", None)
+            if not callable(getter):
+                return None
+            try:
+                st = str(getter(oid) or "").strip().upper() or None
+            except Exception:
+                return None
+            return {"status": st, "filled_qty": None, "quantity": None} if st else None
+        from core.ato_exec import _as_qty
+
+        status = str(row.get("status") or "").strip().upper() or None
+        filled = None
+        for key in ("filled_quantity", "filledQty", "filled_qty", "tradedQuantity"):
+            filled = _as_qty(row.get(key))
+            if filled is not None:
+                break
+        quantity = None
+        for key in ("quantity", "qty", "pending_quantity"):
+            if key == "pending_quantity":
+                continue
+            quantity = _as_qty(row.get(key))
+            if quantity is not None:
+                break
+        return {"status": status, "filled_qty": filled, "quantity": quantity}
+
+    def _ato_order_status(self, order_id: str) -> str | None:
+        """Best-effort Kite order status (OPEN/COMPLETE/…)."""
+        snap = self._ato_order_snapshot(order_id)
+        if not snap:
             return None
-        return None
+        st = snap.get("status")
+        return str(st).strip().upper() if st else None
 
     def _wait_protect_fill(
         self,
@@ -1329,44 +1368,20 @@ class ATOProtection(ModuleBase):
     def _update_reentry_clearance(
         self, side: str, spot: float, settings: dict[str, Any] | None
     ) -> None:
-        """Arm re-entry only after spot leaves the entry/breach zone.
-
-        Prevents enter→exit→enter loops when exit sits inside the entry band
-        (e.g. PE entry=-10 / exit=-5 → trigger 24160, exit 24145).
-        """
-        if settings is None:
-            return
+        """Clearance lock is off — wipe any leftover flag so a new trigger can buy."""
+        del spot, settings
         key = f"ato.{side.lower()}_awaiting_clearance"
-        if not self.state.get(key, False):
-            return
-        trigger = float(settings["trigger_level"])
-        cleared = (spot > trigger) if side == "PE" else (spot < trigger)
-        if not cleared:
-            return
-        self.state.set(key, False)
-        self.log.info(
-            "%s ATO clearance — spot %s left trigger %s; re-entry armed",
-            side,
-            spot,
-            settings["trigger_level"],
-        )
+        if self.state.get(key, False):
+            self.state.set(key, False)
+            self.log.info("%s ATO clearance lock cleared — re-entry allowed on trigger", side)
 
     def _mark_awaiting_clearance_after_exit(
         self, side: str, spot: float, settings: dict[str, Any]
     ) -> None:
-        """After exit, block re-entry while spot is still in the breach zone."""
-        trigger = float(settings["trigger_level"])
-        still_in_zone = (spot <= trigger) if side == "PE" else (spot >= trigger)
+        """Do not lock re-entry after exit. Next poll may buy if trigger is still on."""
+        del spot, settings
         key = f"ato.{side.lower()}_awaiting_clearance"
-        self.state.set(key, still_in_zone)
-        if still_in_zone:
-            self.log.warning(
-                "%s ATO exit while still in breach zone (spot=%s trigger=%s) — "
-                "blocking re-entry until spot clears trigger",
-                side,
-                spot,
-                settings["trigger_level"],
-            )
+        self.state.set(key, False)
 
     def _append_telemetry_row(
         self,
@@ -1662,23 +1677,63 @@ class ATOProtection(ModuleBase):
         return fill if fill is not None else None
 
     def _watch_ato_buy_fill_rescue(self, *, position_reader=None) -> None:
-        """If parked BUY is still short and LTP ran +1 Rs, Rescue completes the BUY."""
-        from core.ato_exec import remaining_qty, rescue_complete_buy, should_fill_rescue
+        """Top up protect BUY only after the first order is dead; leftover qty only."""
+        from core.ato_exec import buy_chase_plan, remaining_qty, rescue_complete_buy
 
         broker = self.broker
         om = getattr(self, "order_manager", None)
         if om is not None and getattr(om, "is_paper", False):
             return
+        product = self.config.get("strategy.product_type", "MARGIN")
         for tag in ("ce", "pe"):
             if not self.state.get(f"ato.{tag}_ato_active"):
                 continue
             if self.state.get(f"ato.{tag}_ato_exit_order_id"):
                 continue
             oid = self.state.get(f"ato.{tag}_buy_oid")
-            trig = self.state.get(f"ato.{tag}_buy_trigger")
-            qty = int(self.state.get(f"ato.{tag}_buy_qty") or 0)
             sym = self.state.get(f"ato.{tag}_protect_symbol")
-            if not oid or not trig or qty <= 0 or not sym:
+            if not oid or not sym:
+                continue
+            registered = int(self._registered_exit_qty(tag.upper(), f"{tag}_buy") or 0)
+            if registered <= 0:
+                registered = int(self.state.get(f"ato.{tag}_buy_qty") or 0)
+            if registered <= 0:
+                continue
+            book_qty: int | None
+            try:
+                from core.ato_book_validation import net_qty_for_symbol
+
+                net = net_qty_for_symbol(broker, str(sym), position_reader=position_reader)
+                book_qty = abs(int(net)) if net is not None else None
+            except Exception:
+                book_qty = None
+            snap = self._ato_order_snapshot(str(oid)) or {}
+            plan = buy_chase_plan(
+                registered_qty=registered,
+                order_status=str(snap.get("status") or "") or None,
+                order_filled_qty=snap.get("filled_qty"),  # type: ignore[arg-type]
+                book_qty=book_qty,
+            )
+            action = str(plan.get("action") or "wait")
+            if action == "done":
+                self.state.set(f"ato.{tag}_buy_oid", None, save=False)
+                continue
+            if action != "chase":
+                self.log.info(
+                    "ATO %s BUY chase wait — %s oid=%s registered=%s book=%s filled=%s",
+                    tag.upper(),
+                    plan.get("reason"),
+                    oid,
+                    registered,
+                    book_qty,
+                    snap.get("filled_qty"),
+                )
+                continue
+            rem = int(plan.get("qty") or 0)
+            rem = remaining_qty(requested=registered, filled=max(book_qty or 0, int(snap.get("filled_qty") or 0)))
+            rem = min(rem, int(plan.get("qty") or rem), registered)
+            if rem <= 0:
+                self.state.set(f"ato.{tag}_buy_oid", None, save=False)
                 continue
             ltp = None
             try:
@@ -1689,32 +1744,33 @@ class ATOProtection(ModuleBase):
                 try:
                     ltp = self._resolve_option_premium(str(sym), None, spot=0.0)
                 except Exception:
-                    continue
+                    ltp = None
             if not ltp:
                 continue
-            filled = 0
             try:
-                from core.ato_book_validation import net_qty_for_symbol
-
-                net = net_qty_for_symbol(broker, str(sym), position_reader=position_reader)
-                filled = abs(int(net or 0))
-            except Exception:
-                filled = 0
-            rem = remaining_qty(requested=qty, filled=filled)
-            if not should_fill_rescue(trigger=float(trig), ltp=float(ltp), remaining_qty=rem):
-                continue
-            try:
-                rescue_complete_buy(
+                # existing_oid=None: never cancel/modify a live first order.
+                out = rescue_complete_buy(
                     broker,
                     symbol=str(sym),
                     remaining=rem,
                     ltp=float(ltp),
-                    existing_oid=str(oid),
+                    existing_oid=None,
+                    product=product,
                 )
-                self.state.set(f"ato.{tag}_buy_oid", None, save=False)
-                self.log.info("ATO %s BUY fill-Rescue remaining=%s ltp=%s", tag.upper(), rem, ltp)
+                new_id = str((out or {}).get("order_id") or "")
+                if new_id:
+                    self.state.set(f"ato.{tag}_buy_oid", new_id, save=False)
+                self.log.info(
+                    "ATO %s BUY chase %s remaining=%s registered=%s ltp=%s id=%s",
+                    tag.upper(),
+                    plan.get("reason"),
+                    rem,
+                    registered,
+                    ltp,
+                    new_id,
+                )
             except Exception as exc:
-                self.log.warning("ATO %s BUY fill-Rescue failed: %s", tag, exc)
+                self.log.warning("ATO %s BUY chase failed: %s", tag.upper(), exc)
 
     def _watch_ato_sell_exit_rescue(self, *, position_reader=None) -> None:
         """If an ATO SELL is still pending and we still hold the protect, flatten it."""
@@ -1752,16 +1808,7 @@ class ATOProtection(ModuleBase):
             if not ltp:
                 continue
             try:
-                reg = int(self._registered_exit_qty(tag.upper(), f"{tag}_buy") or 0)
-                sell_qty = min(held, reg) if reg > 0 else held
-                if held > sell_qty:
-                    self.log.warning(
-                        "ATO %s SELL exit-Rescue capping qty held=%s registered=%s -> sell=%s",
-                        tag.upper(),
-                        held,
-                        reg,
-                        sell_qty,
-                    )
+                sell_qty = int(held)
                 out = rescue_flatten_sell(
                     broker,
                     symbol=str(sym),
@@ -2387,28 +2434,23 @@ class ATOProtection(ModuleBase):
                 self._place_ce_protection(ce_strike, spot, ce_settings)
 
         if pe_breached and not pe_triggered:
-            if self.state.get("ato.pe_awaiting_clearance", False):
-                self.log.info(
-                    "ATO startup scan: PE breached but awaiting clearance — skip auto-place"
+            self.log.warning(
+                "ATO startup scan: PE BREACHED — spot=%.1f ≤ PE trigger=%d",
+                spot,
+                pe_settings["trigger_level"],
+            )
+            broker_pe_qty = self._position_qty(pe_protect_symbol) if pe_protect_symbol else 0
+            if broker_pe_qty > 0:
+                # Always recover registered protect inventory (algo fill or operator).
+                self._adopt_manual_ato(
+                    "PE", pe_protect_symbol, broker_pe_qty, expected_pe_qty, spot
                 )
             else:
                 self.log.warning(
-                    "ATO startup scan: PE BREACHED — spot=%.1f ≤ PE trigger=%d",
-                    spot,
-                    pe_settings["trigger_level"],
+                    "ATO startup scan: No PE ATO found at broker — "
+                    "auto-placing PE protection"
                 )
-                broker_pe_qty = self._position_qty(pe_protect_symbol) if pe_protect_symbol else 0
-                if broker_pe_qty > 0:
-                    # Always recover registered protect inventory (algo fill or operator).
-                    self._adopt_manual_ato(
-                        "PE", pe_protect_symbol, broker_pe_qty, expected_pe_qty, spot
-                    )
-                else:
-                    self.log.warning(
-                        "ATO startup scan: No PE ATO found at broker — "
-                        "auto-placing PE protection"
-                    )
-                    self._place_pe_protection(pe_strike, spot, pe_settings)
+                self._place_pe_protection(pe_strike, spot, pe_settings)
 
         # ── Step 2b: Adopt leftover protect on registered symbols (no second BUY)
         # Covers re-Register / restart when Nifty is not currently at breach but
@@ -2436,7 +2478,6 @@ class ATOProtection(ModuleBase):
             and manage_sides in ("pe", "both")
             and pe_protect_symbol
             and not self.state.get("ato.pe_ato_active", False)
-            and not self.state.get("ato.pe_awaiting_clearance", False)
             and not is_side_halted(self.state, "PE")
         ):
             broker_pe_qty = self._position_qty(pe_protect_symbol)
@@ -2502,7 +2543,10 @@ class ATOProtection(ModuleBase):
         )
 
         adopt_oid = "MANUAL_PRE_ALGO"
-        exit_qty = int(expected_qty) if int(expected_qty or 0) > 0 else int(broker_qty)
+        leftover = max(0, int(broker_qty or 0))
+        expected = int(expected_qty or 0)
+        # Retrace must exit leftover only — never the larger registered size.
+        exit_qty = leftover if leftover > 0 else expected
         if side == "CE":
             self.state.set("ato.ce_triggered", True)
             self.state.set("ato.ce_ato_active", True)
@@ -2574,13 +2618,13 @@ class ATOProtection(ModuleBase):
 
         if not qty_match:
             self.log.warning(
-                "⚠ ATO QTY MISMATCH on %s side — broker=%d, expected=%d. "
-                "ATO adopted but retracement exit will use expected qty (%d). "
-                "Please verify position at broker manually.",
+                "⚠ ATO QTY MISMATCH on %s side — leftover=%d, registered=%d. "
+                "Adopted leftover only. Retrace SELL will exit leftover qty (%d), "
+                "never extra qty that would open a short.",
                 side,
                 broker_qty,
                 expected_qty,
-                expected_qty,
+                leftover,
             )
             self.events.publish(
                 Event.ATO_STARTUP_QTY_MISMATCH,
@@ -2660,12 +2704,55 @@ class ATOProtection(ModuleBase):
         self._book_recovery_notified = False
 
     def _registered_exit_qty(self, side: str, buy_leg_key: str) -> int:
-        """Q60 — retrace SELL always uses registered ATO qty, not broker adopt qty."""
+        """Remembered ATO size (algo BUY qty, or leftover adopt qty)."""
         prefix = self._side_prefix(side)
         stored = self.state.get(f"ato.{prefix}_exit_qty")
         if stored is not None:
             return int(stored)
         return self._ato_qty(buy_leg_key)
+
+    def _held_protect_qty(self, symbol: str) -> int | None:
+        """Net long qty for the protect symbol, or None if the book is unreadable."""
+        from core.ato_book_validation import net_qty_for_symbol
+
+        net = net_qty_for_symbol(self.broker, str(symbol))
+        if net is None:
+            return None
+        return max(0, int(net))
+
+    def _retrace_sell_qty(self, side: str, buy_leg_key: str, symbol: str) -> int | None:
+        """Leftover long only. Never sell more than Kite holds (no short).
+
+        None = book unreadable — skip this poll, keep ATO active.
+        0 = already flat — complete the exit without a SELL.
+        """
+        registered = int(self._registered_exit_qty(side, buy_leg_key) or 0)
+        held = self._held_protect_qty(symbol)
+        if held is None:
+            self.log.error(
+                "%s retrace SELL skipped — position book unreadable "
+                "(will not sell registered %s and risk a short)",
+                side,
+                registered,
+            )
+            return None
+        if held <= 0:
+            self.log.info(
+                "%s retrace — no leftover long on %s (registered=%s). No SELL.",
+                side,
+                symbol,
+                registered,
+            )
+            return 0
+        if registered > 0 and held != registered:
+            self.log.warning(
+                "%s retrace SELL uses leftover only: held=%s registered=%s -> sell=%s",
+                side,
+                held,
+                registered,
+                held,
+            )
+        return int(held)
 
     def _set_registered_exit_qty(self, side: str, qty: int) -> None:
         prefix = self._side_prefix(side)
@@ -2853,6 +2940,162 @@ class ATOProtection(ModuleBase):
                 },
             )
 
+    def _maybe_evening_hedge_box(self) -> None:
+        """Kavach owns the evening Hedge Box. Uses Ratripal math only — no extra process."""
+        try:
+            from datetime import time as dt_time
+
+            helper = getattr(self, "_hedge_box", None)
+            if helper is None:
+                from modules.ratripal import Ratripal
+
+                helper = Ratripal(self.broker, self.config, self.state, self.events)
+                self._hedge_box = helper
+            raw = self.config.get("hedge_box.check_time_ist", "15:15")
+            try:
+                check = dt_time.fromisoformat(str(raw))
+            except Exception:
+                check = dt_time(15, 15)
+            helper._tick(check)
+        except Exception as exc:
+            self.log.warning("Kavach overnight hedge tick failed: %s", exc)
+
+    def _overnight_blocks_ato(self) -> bool:
+        from core import utils
+        from core.overnight_handoff import ato_buffers_blocked
+
+        return ato_buffers_blocked(self.state, utils.now_ist().date().isoformat())
+
+    def _maybe_morning_overnight_handoff(
+        self,
+        spot: float,
+        ce_settings: dict[str, Any] | None,
+        pe_settings: dict[str, Any] | None,
+        ce_strike: int,
+        pe_strike: int,
+        sym_qty: dict[str, int],
+    ) -> None:
+        """09:20: ATO first if open outside the box, then sell evening overnight qty only."""
+        from core import utils
+        from core.overnight_handoff import (
+            classify_open,
+            morning_cutoff_reached,
+            morning_sell_qty,
+        )
+
+        if not self.state.get("overnight.hedge_active", False):
+            return False
+        if self.state.get("deployment.batman_complete", False):
+            return False
+        today = utils.now_ist().date().isoformat()
+        if self.state.get("overnight.morning_done_date") == today:
+            return False
+        if not morning_cutoff_reached(utils.now_ist().time()):
+            return False
+
+        ce_trig = float(ce_settings["trigger_level"]) if ce_settings else None
+        pe_trig = float(pe_settings["trigger_level"]) if pe_settings else None
+        kind = classify_open(spot=spot, ce_trigger=ce_trig, pe_trigger=pe_trig)
+        self.log.info("Overnight morning handoff open=%s spot=%s ce_trig=%s pe_trig=%s", kind, spot, ce_trig, pe_trig)
+
+        if kind in ("ce_out", "both_out") and ce_settings and ce_strike:
+            try:
+                self._place_ce_protection(ce_strike, float(spot), ce_settings, "overnight_gap_open")
+            except Exception as exc:
+                self.log.error("Overnight morning CE ATO failed: %s", exc)
+        if kind in ("pe_out", "both_out") and pe_settings and pe_strike:
+            try:
+                self._place_pe_protection(pe_strike, float(spot), pe_settings, "overnight_gap_open")
+            except Exception as exc:
+                self.log.error("Overnight morning PE ATO failed: %s", exc)
+
+        self._exit_overnight_side("CE", sym_qty)
+        self._exit_overnight_side("PE", sym_qty)
+        self.state.set("overnight.hedge_active", False, save=False)
+        self.state.set("overnight.morning_done_date", today)
+        try:
+            from core.desk_alerts import emit_desk_alert
+
+            if kind == "inside":
+                msg = "Open inside box — overnight hedges exited — ATO on."
+            elif kind == "ce_out":
+                msg = "Open outside CE — CE ATO fired — hedges exited."
+            elif kind == "pe_out":
+                msg = "Open outside PE — PE ATO fired — hedges exited."
+            else:
+                msg = "Open outside both — ATO fired both sides — hedges exited."
+            emit_desk_alert(
+                severity="green" if kind == "inside" else "orange",
+                category="Overnight hedge",
+                alert=msg,
+                log=f"overnight morning kind={kind} spot={spot}",
+            )
+        except Exception:
+            pass
+        try:
+            from core.overnight_handoff import merge_overnight_summary
+
+            merge_overnight_summary(
+                self.state,
+                status="done",
+                morning_kind=kind,
+                morning_spot=spot,
+                morning_done_date=today,
+                morning_ce_sold=int(self.state.get("overnight.ce_qty") or 0),
+                morning_pe_sold=int(self.state.get("overnight.pe_qty") or 0),
+            )
+        except Exception:
+            pass
+        return True
+
+    def _exit_overnight_side(self, side: str, sym_qty: dict[str, int]) -> None:
+        from core.overnight_handoff import morning_sell_qty
+
+        tag = "ce" if side.upper() == "CE" else "pe"
+        symbol = self.state.get(f"overnight.{tag}_symbol")
+        stored = int(self.state.get(f"overnight.{tag}_qty") or 0)
+        if not symbol or stored <= 0:
+            return
+        book = int(sym_qty.get(str(symbol), 0) or 0)
+        qty = morning_sell_qty(stored_evening_qty=stored, book_long=book)
+        if qty <= 0:
+            self.log.info("Overnight %s morning SELL skip — stored=%s book=%s", side, stored, book)
+            return
+        product = self.config.get("strategy.product_type", "MARGIN")
+        try:
+            oid = self._place_ato_aggressive_limit(
+                symbol=str(symbol), qty=int(qty), side="SELL", product=product
+            )
+            self.log.info(
+                "Overnight %s morning SELL evening_qty=%s book=%s sell=%s id=%s",
+                side,
+                stored,
+                book,
+                qty,
+                oid,
+            )
+            try:
+                from core import utils
+                from core.overnight_handoff import close_overnight_cycle_exit
+
+                px = None
+                try:
+                    prices = self.broker.get_ltp([str(symbol)]) or {}
+                    px = float(prices.get(str(symbol)) or 0) or None
+                except Exception:
+                    px = None
+                close_overnight_cycle_exit(
+                    self.state,
+                    side=side,
+                    symbol=str(symbol),
+                    exit_premium=px,
+                    exit_time=utils.now_ist().strftime("%H:%M:%S"),
+                )
+            except Exception:
+                pass
+        except Exception as exc:
+            self.log.error("Overnight %s morning SELL failed: %s", side, exc)
+
     # ── Per-tick breach check ─────────────────────────────────────────────────
 
     def _resolve_protect_symbol(
@@ -2975,6 +3218,11 @@ class ATOProtection(ModuleBase):
         ce_settings, pe_settings = self._apply_cross_side_level_gap(ce_settings, pe_settings)
         self._update_reentry_clearance("CE", float(spot), ce_settings)
         self._update_reentry_clearance("PE", float(spot), pe_settings)
+        ran_overnight = self._maybe_morning_overnight_handoff(
+            float(spot), ce_settings, pe_settings, ce_strike, pe_strike, sym_qty
+        )
+        if ran_overnight or self._overnight_blocks_ato():
+            return
 
         ce_protect_sym, _ = (
             self._resolve_protect_symbol(
@@ -3094,8 +3342,8 @@ class ATOProtection(ModuleBase):
             if (
                 ce_breach
                 and not ce_has_long_protect
-                and not self.state.get("ato.ce_awaiting_clearance", False)
                 and (not ce_triggered or (ce_triggered and not ce_ato_active))
+                and not exited_ce_this_poll
                 and not exited_pe_this_poll
             ):
                 trigger_reason = (
@@ -3123,6 +3371,17 @@ class ATOProtection(ModuleBase):
                 except Exception:
                     pass
                 self._place_ce_protection(ce_strike, float(spot), ce_settings, trigger_reason)
+            elif (
+                ce_breach
+                and not ce_has_long_protect
+                and exited_ce_this_poll
+            ):
+                self.log.info(
+                    "CE entry deferred — CE exited this poll at spot=%s "
+                    "(next poll may re-buy if still on trigger %s)",
+                    spot,
+                    ce_settings["trigger_level"],
+                )
             elif ce_breach and ce_has_long_protect and not ce_ato_active:
                 self.log.warning(
                     "CE breach — long protect already in book qty=%s (%s) — adopting (no second BUY)",
@@ -3151,8 +3410,8 @@ class ATOProtection(ModuleBase):
             if (
                 pe_breach
                 and not pe_has_long_protect
-                and not self.state.get("ato.pe_awaiting_clearance", False)
                 and (not pe_triggered or (pe_triggered and not pe_ato_active))
+                and not exited_pe_this_poll
                 and not exited_ce_this_poll
             ):
                 trigger_reason = (
@@ -3270,7 +3529,6 @@ class ATOProtection(ModuleBase):
                 "breach_only_count": breach_count,
             },
         )
-        self._maybe_soft_cap_warn(tag, spot)
         return True
 
     def _position_qty(self, symbol: str) -> int:
@@ -3416,7 +3674,7 @@ class ATOProtection(ModuleBase):
         self._set_registered_exit_qty("CE", ato_qty)
         self.state.set("ato.ce_ato_exit_order_id", None, save=False)
         self._ce_cycles = getattr(self, "_ce_cycles", 0) + 1
-        self._maybe_soft_cap_warn("CE", spot)
+        self._notify_ato_fired("CE", spot, self._ce_cycles)
         self._maybe_exit_dyn_hedge("CE")
         self.log.info(
             "✅ CE ATO placed: BUY %d × %s (strike %d) → %s [cycle %d]",
@@ -3583,7 +3841,7 @@ class ATOProtection(ModuleBase):
         self._set_registered_exit_qty("PE", ato_qty)
         self.state.set("ato.pe_ato_exit_order_id", None, save=False)
         self._pe_cycles = getattr(self, "_pe_cycles", 0) + 1
-        self._maybe_soft_cap_warn("PE", spot)
+        self._notify_ato_fired("PE", spot, self._pe_cycles)
         self._maybe_exit_dyn_hedge("PE")
         self.log.info(
             "✅ PE ATO placed: BUY %d × %s (strike %d) → %s [cycle %d]",
@@ -3642,11 +3900,21 @@ class ATOProtection(ModuleBase):
         the market moves outside the range again.
         """
         symbol = self.state.get("ato.ce_protect_symbol")
-        ato_qty = self._registered_exit_qty("CE", "ce_buy")
         product = self.config.get("strategy.product_type", "MARGIN")
         settings = settings or self._side_settings("CE", ce_strike)
 
         if not symbol:
+            return
+
+        ato_qty = self._retrace_sell_qty("CE", "ce_buy", str(symbol))
+        if ato_qty is None:
+            return
+        if ato_qty <= 0:
+            self._ce_protect_seen_at_broker = False
+            self.state.set("ato.ce_ato_active", False)
+            self.state.set("ato.ce_triggered", False)
+            self.state.set("ato.ce_entry_replay_market_time", None)
+            self._mark_awaiting_clearance_after_exit("CE", spot, settings)
             return
 
         idem_key = ato_order_key("CE", "SELL", symbol)
@@ -3733,11 +4001,21 @@ class ATOProtection(ModuleBase):
         Resets pe_triggered to False so the breach can re-fire.
         """
         symbol = self.state.get("ato.pe_protect_symbol")
-        ato_qty = self._registered_exit_qty("PE", "pe_buy")
         product = self.config.get("strategy.product_type", "MARGIN")
         settings = settings or self._side_settings("PE", pe_strike)
 
         if not symbol:
+            return
+
+        ato_qty = self._retrace_sell_qty("PE", "pe_buy", str(symbol))
+        if ato_qty is None:
+            return
+        if ato_qty <= 0:
+            self._pe_protect_seen_at_broker = False
+            self.state.set("ato.pe_ato_active", False)
+            self.state.set("ato.pe_triggered", False)
+            self.state.set("ato.pe_entry_replay_market_time", None)
+            self._mark_awaiting_clearance_after_exit("PE", spot, settings)
             return
 
         idem_key = ato_order_key("PE", "SELL", symbol)

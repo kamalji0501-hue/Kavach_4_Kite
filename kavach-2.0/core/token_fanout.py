@@ -102,6 +102,12 @@ def persist_zerodha_token(
         feeder_zerodha_json_path(),
         kavach_zerodha_json_path(root),
     )
+    try:
+        from core.zerodha_credentials import sync_live_zerodha_token
+
+        sync_live_zerodha_token(root=root, force=True)
+    except Exception as exc:
+        logger.warning("live Zerodha token sync after save failed: %s", exc)
     return saved_at
 
 

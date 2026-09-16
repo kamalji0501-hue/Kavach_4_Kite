@@ -172,7 +172,7 @@ def pause() -> dict[str, Any]:
     from core.desk_alerts import emit_desk_alert
 
     row = emit_desk_alert(
-        severity="orange",
+        severity="red",
         category="ATO blocked",
         alert="Kavach is paused — tap Resume when the feed is healthy.",
         log="Algo paused. ATO monitoring suspended.",
@@ -345,7 +345,7 @@ def register_batman(payload: dict[str, Any]) -> dict[str, Any]:
         _rb(payload),
         category="Desk",
         ok_alert="Batman is armed.",
-        fail_severity="orange",
+        fail_severity="red",
         fail_alert="Batman arm failed.",
     )
 
@@ -484,6 +484,16 @@ def token_zerodha(token: str) -> dict[str, Any]:
         source="kavach_web",
         user_id=str(detail) if detail not in ("ok", "") else "",
     )
+    try:
+        from core.zerodha_credentials import register_live_order_broker, sync_live_zerodha_token
+        from web.runtime import get_runtime
+
+        rt = get_runtime()
+        if rt is not None and getattr(rt, "broker", None) is not None:
+            register_live_order_broker(rt.broker)
+            sync_live_zerodha_token(rt.broker, root=_root(), force=True)
+    except Exception:
+        pass
     from core.desk_alerts import tag_result
 
     return tag_result(
@@ -539,6 +549,42 @@ def deploy_note() -> dict[str, Any]:
             "Confirm legs in Telegram Deploy Batman 2.0 — same backend, no second strategy."
         ),
     }
+
+
+def hedge_box_status() -> dict[str, Any]:
+    from core.overnight_handoff import overnight_snapshot
+
+    st = _state()
+    snap = overnight_snapshot(st)
+    snap["ok"] = True
+    return snap
+
+
+def hedge_box_deny() -> dict[str, Any]:
+    from core.desk_alerts import emit_desk_alert
+
+    st = _state()
+    if st is None:
+        return {"ok": False, "error": "No state."}
+    rid = st.get("ratripal.pending.request_id")
+    if not rid:
+        return {"ok": False, "error": "No pending Hedge Box plan to deny."}
+    if st.get("ratripal.pending.response") == "deny":
+        return {"ok": True, "text": "Hedge Box already denied."}
+    st.set("ratripal.pending.response", "deny")
+    try:
+        from core.overnight_handoff import merge_overnight_summary
+
+        merge_overnight_summary(st, status="denied", denied=True)
+    except Exception:
+        pass
+    emit_desk_alert(
+        severity="orange",
+        category="Overnight hedge",
+        alert="Overnight hedge denied — Kavach will not buy.",
+        log=f"web deny request_id={rid}",
+    )
+    return {"ok": True, "text": "Overnight hedge denied — Kavach will not buy the evening hedge."}
 
 
 def payoff_graph() -> dict[str, Any]:

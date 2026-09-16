@@ -27,6 +27,12 @@ _RED_READY = {
     "pe_side_halted",
     "ce_side_halted",
     "all_sides_halted",
+    "nifty_cache_missing",
+    "nifty_cache_stale",
+    "feed_unhealthy",
+    "feeder_ipc_down",
+    "outside_monitoring_window",
+    "algo_paused",
 }
 
 
@@ -208,19 +214,19 @@ def _notice_for_reason(reason: str, labels: dict[str, Any]) -> tuple[str, str, s
     if reason == "kavach2_down":
         return "red", "Desk", "Kavach service itself is not running.", None
     if reason == "nifty_cache_missing":
-        return "orange", "ATO blocked", "Nifty price file is missing — check Datafeedbot.", None
+        return "red", "ATO blocked", "Nifty price file is missing — check Datafeedbot.", None
     if reason == "nifty_cache_stale":
-        return "orange", "ATO blocked", "Nifty price is old — check Datafeedbot.", None
+        return "red", "ATO blocked", "Nifty price is old — check Datafeedbot.", None
     if reason == "feed_unhealthy":
-        return "orange", "ATO blocked", "Nifty feed marked unhealthy — check Datafeedbot.", None
+        return "red", "ATO blocked", "Nifty feed marked unhealthy — check Datafeedbot.", None
     if reason == "feeder_ipc_down":
-        return "orange", "Market feed", "Kavach cannot talk to the feeder socket.", None
+        return "red", "Market feed", "Kavach cannot talk to the feeder socket.", None
     if reason == "deployment_not_confirmed":
         return "orange", "ATO blocked", "Batman is not armed yet — Register / Arm Kavach first.", None
     if reason == "algo_paused":
-        return "orange", "ATO blocked", "Kavach is paused — tap Resume when the feed is healthy.", None
+        return "red", "ATO blocked", "Kavach is paused — tap Resume when the feed is healthy.", None
     if reason == "outside_monitoring_window":
-        return "orange", "ATO blocked", "Outside the ATO watch window — protection will not fire yet.", None
+        return "red", "ATO blocked", "Outside the ATO watch window — protection will not fire yet.", None
     if reason == "pe_protect_in_book":
         return "orange", "Protect in book", "PE protect is already in the broker book — no second buy.", "PE"
     if reason == "ce_protect_in_book":
@@ -313,7 +319,7 @@ def emit_readiness_edges(
                     )
         if bool(paused) and not _PREV_READY.get("paused"):
             emit_desk_alert(
-                severity="orange",
+                severity="red",
                 category="ATO blocked",
                 alert="Kavach is paused — tap Resume when the feed is healthy.",
                 log="algo.paused=true",

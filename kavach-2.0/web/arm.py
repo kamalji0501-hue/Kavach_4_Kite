@@ -461,6 +461,12 @@ def _load_register_book() -> tuple[list[dict[str, Any]], str]:
             refresh = getattr(broker, "refresh_fixture_positions", None)
             if callable(refresh):
                 refresh()
+            try:
+                from core.zerodha_credentials import sync_live_zerodha_token
+
+                sync_live_zerodha_token(broker, root=getattr(rt, "root", None))
+            except Exception:
+                pass
             from core.positions import filter_nifty_positions
 
             df = broker.get_positions()
@@ -1019,6 +1025,12 @@ def _sync_state(filepath: Path, state: Any) -> None:
     state.set("deployment.confirmed", True, save=False)
     state.set("deployment.batman_complete", False, save=False)
     state.set("deployment.file", str(filepath), save=False)
+    try:
+        from core.overnight_handoff import reset_overnight_cycles
+
+        reset_overnight_cycles(state)
+    except Exception:
+        pass
     state.set("algo.paused", False, save=False)
     try:
         from core.pnl_exit_guard import clear_last_fire

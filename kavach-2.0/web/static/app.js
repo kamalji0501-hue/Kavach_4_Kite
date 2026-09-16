@@ -1520,7 +1520,37 @@
     wireRegisterHandlers(d);
   }
 
+  function demoOvernight() {
+    try {
+      return new URLSearchParams(location.search).get("demo") === "hedge";
+    } catch (e) {
+      return false;
+    }
+  }
+  function overnightDemoData() {
+    return {
+      pending: true,
+      denied: false,
+      active: false,
+      buy_time_ist: "15:20",
+      ce_symbol: "NIFTY25SEP24950CE",
+      ce_qty: 650,
+      pe_symbol: "NIFTY25SEP23950PE",
+      pe_qty: 650,
+      sides: [
+        { side: "CE", zone: "White", symbol: "NIFTY25SEP24950CE", strike: 24950, qty: 650, action: "standard_break_even" },
+        { side: "PE", zone: "White", symbol: "NIFTY25SEP23950PE", strike: 23950, qty: 650, action: "standard_break_even" },
+      ],
+      summary: { status: "pending", denied: false },
+      cycles: [
+        { side: "CE", symbol: "NIFTY25SEP24950CE", qty: 650, entry_time: "15:20:11", entry_premium: 42.5, exit_time: "", exit_premium: null, impact: null, status: "open" },
+        { side: "PE", symbol: "NIFTY25SEP23950PE", qty: 650, entry_time: "15:20:14", entry_premium: 38.0, exit_time: "", exit_premium: null, impact: null, status: "open" },
+      ],
+    };
+  }
+
   async function render() {
+
     const view = $("view");
     if (!view) return;
     try {
@@ -1536,6 +1566,7 @@
           api("/api/trade-summary"),
           api("/api/token/status"),
         ]);
+        if (demoOvernight()) s.overnight = overnightDemoData();
         applyChrome(s);
         const homePnl = s.deployment ? s.day_pnl : 0;
         const pnlCls = homePnl == null || homePnl === "" ? "" : clsPnl(homePnl);
@@ -1564,6 +1595,7 @@
               <div class="home-strip-group home-strip-ops">
                 <span class="home-chip ${s.paused ? "bad" : "ok"}">${s.paused ? "KAVACH PAUSED" : "KAVACH RESUMED"}</span>
                 <span class="home-chip ${s.dyn_hedge ? "ok" : "bad"}">${s.dyn_hedge ? "HEDGE ON" : "HEDGE OFF"}</span>
+                <span class="home-chip ${(s.overnight && s.overnight.active) ? "ok" : ((s.overnight && s.overnight.pending) ? "bad" : "")}">${(function(){ const o=s.overnight||{}; if(o.active) return "OVERNIGHT HEDGE ON"; if(o.pending) return "HEDGE BOX PENDING"; return "OVERNIGHT OFF"; })()}</span>
                 <span class="home-chip ${s.broker ? "ok" : "bad"}">${s.broker ? "BROKER OK" : "BROKER OFF"}</span>
                 <span class="home-chip ${armed ? "ok" : "bad"}">${armed ? "ARMED" : "NOT ARMED"}</span>
                 <span class="home-chip ${(function(){ const ar=s.ato_readiness||{}; const att=(ar.attention_reasons||[]); const halt=att.some(r=>r==="pe_side_halted"||r==="ce_side_halted"||r==="all_sides_halted"); if(ar.armed && halt) return "bad"; return ar.armed?"ok":"bad"; })()}">${(function(){ const ar=s.ato_readiness||{}; const att=(ar.attention_reasons||[]); const halt=att.some(r=>r==="pe_side_halted"||r==="ce_side_halted"||r==="all_sides_halted"); if(ar.armed && halt) return "ATO PARTIAL"; return ar.armed?"ATO ARMED":"ATO BLOCKED"; })()}</span>
@@ -1595,6 +1627,24 @@
                   <div class="kv"><span>PE Exit</span><b>${lvl(b.pe_retrace)}</b></div>
                   <div class="kv"><span>NIFTY</span><b>${lvl(b.nifty_ltp != null ? Number(b.nifty_ltp).toFixed(2) : s.nifty)}</b></div>
                 </div>
+                <div class="card home-card" id="hedgeBoxCard">
+                  <h4 class="sec-title">HEDGE BOX / OVERNIGHT</h4>
+                  ${(function(){
+                    const o = s.overnight || {};
+                    const sides = o.sides || [];
+                    const sideHtml = sides.length
+                      ? sides.map((x) => `<div class="kv"><span>${esc(x.side)} ${esc(x.zone || "")}</span><b>${esc(x.symbol || x.strike || "—")} x${esc(x.qty || 0)}</b></div>`).join("")
+                      : (o.active
+                          ? `<div class="kv"><span>CE overnight</span><b>${esc(o.ce_symbol || "—")} x${esc(o.ce_qty || 0)}</b></div>
+                             <div class="kv"><span>PE overnight</span><b>${esc(o.pe_symbol || "—")} x${esc(o.pe_qty || 0)}</b></div>`
+                          : `<p class="sub home-empty">No Hedge Box plan. Auto-buy 15:20 unless Deny.</p>`);
+                    const denyBtn = o.pending
+                      ? `<button type="button" class="btn danger oh-deny" id="hedgeBoxDeny">DENY EVENING BUY</button>`
+                      : "";
+                    const status = o.denied ? "DENIED" : (o.active ? "ON — ATO OFF UNTIL 09:20" : (o.pending ? ("AUTO-BUY " + (o.buy_time_ist || "15:20")) : "IDLE"));
+                    return `<div class="kv"><span>Status</span><b>${esc(status)}</b></div>${sideHtml}${denyBtn}`;
+                  })()}
+                </div>
                 <div class="card home-card ato-ready-card">
                   <h4 class="sec-title">ATO READINESS</h4>
                   <div class="kv"><span>Status</span><b class="${(function(){ const ar=s.ato_readiness||{}; const att=ar.attention_reasons||[]; const halt=att.some(r=>r==="pe_side_halted"||r==="ce_side_halted"||r==="all_sides_halted"); if(ar.armed && !halt) return "ok"; return "bad"; })()}">${esc((s.ato_readiness && s.ato_readiness.summary_line) || "—")}</b></div>
@@ -1618,6 +1668,12 @@
             </div>
           </div>`;
         finishPageRender("home", view, null, navT0);
+        const denyBtn = $("hedgeBoxDeny");
+        if (denyBtn) denyBtn.onclick = async () => {
+          const r = await api("/api/hedge-box", { method: "POST", body: JSON.stringify({ action: "deny" }) });
+          toast((r && r.text) || (r && r.error) || "Deny sent", r && r.ok);
+          render();
+        };
         return;
       }
       if (page === "status") {
@@ -1639,6 +1695,94 @@
             <div class="kv"><span>Kavach2</span><b class="${svc.kavach2_active ? "ok" : "bad"}">${svc.kavach2_active ? "active" : "down"}</b></div>
             <div class="kv"><span>Block reasons</span><b>${esc(hard.length ? hard.join("; ") : "none")}</b></div>
           </div>` + pre(stTxt);
+
+      } else if (page === "overnight") {
+        const o = demoOvernight() ? overnightDemoData() : ((await api("/api/hedge-box")) || {});
+        const sum = o.summary || {};
+        const sides = o.sides && o.sides.length ? o.sides : (sum.sides || []);
+        const sideRows = sides.length
+          ? sides.map((x, i) => `<tr>
+              <td>${i + 1}</td>
+              <td>${esc(x.side)}</td>
+              <td>${esc(x.zone || "—")}</td>
+              <td>${esc(x.symbol || x.strike || "—")}</td>
+              <td>${esc(x.qty || 0)}</td>
+              <td>${esc(x.action || "—")}</td>
+            </tr>`).join("")
+          : `<tr><td colspan="6">No evening plan yet. Kavach posts CE + PE here at 15:15.</td></tr>`;
+        const status = o.denied || sum.denied ? "DENIED" : (o.active ? "HOLDING — ATO OFF UNTIL 09:20" : (o.pending ? ("PENDING — AUTO-BUY " + (o.buy_time_ist || "15:20")) : (sum.status || "IDLE")));
+        const morning = sum.morning_kind
+          ? (sum.morning_kind === "inside"
+              ? "Open inside box — hedges exited — ATO on"
+              : sum.morning_kind === "ce_out"
+                ? "Open outside CE — CE ATO first — hedges exited"
+                : sum.morning_kind === "pe_out"
+                  ? "Open outside PE — PE ATO first — hedges exited"
+                  : "Open outside both — ATO both sides — hedges exited")
+          : "Waiting for 09:20";
+        const denyBtn = o.pending
+          ? `<button type="button" class="btn danger oh-deny" id="hedgeBoxDeny">DENY EVENING BUY</button>`
+          : "";
+        const cycles = o.cycles || [];
+        let cycTotal = 0;
+        let cycRs = 0;
+        let cycN = 0;
+        const cycRows = cycles.map((b, i) => {
+          const impact = b.impact == null || b.impact === "" ? null : Number(b.impact);
+          if (impact != null && Number.isFinite(impact)) {
+            cycTotal += impact;
+            cycRs += Number(b.impact_rupees || 0);
+            cycN += 1;
+          }
+          return `<tr class="hist-buy">
+            <td>${i + 1}</td>
+            <td>${esc(b.side)}</td>
+            <td>${esc(b.symbol)}</td>
+            <td>${esc(b.entry_time || "—")}</td>
+            <td>${b.entry_premium != null && b.entry_premium !== "" ? fmt(b.entry_premium) : "—"}</td>
+            <td>${esc(b.exit_time || "—")}</td>
+            <td>${b.exit_premium != null && b.exit_premium !== "" ? fmt(b.exit_premium) : "—"}</td>
+            <td class="${impact == null ? "" : clsPnl(impact)}">${impact == null ? "—" : ((impact >= 0 ? "+" : "") + fmt(impact))}</td>
+          </tr>`;
+        }).join("");
+        const cycFoot = cycN
+          ? `<tfoot><tr class="hist-total">
+              <td colspan="7"><b>${cycN} hedge cycle${cycN === 1 ? "" : "s"} · ₹ ${fmt(cycRs)}</b></td>
+              <td class="${clsPnl(cycTotal)}"><b>${(cycTotal >= 0 ? "+" : "") + fmt(cycTotal)}</b></td>
+            </tr></tfoot>`
+          : "";
+        view.innerHTML = `
+          <header class="page-head"><h3>OVERNIGHT HEDGE</h3></header>
+          <div class="oh-page-grid">
+            <div class="oh-left-stack">
+              <div class="card home-card dep-card-blue">
+                <h4 class="sec-title">TODAY</h4>
+                <div class="kv"><span>Status</span><b>${esc(status)}</b></div>
+                <div class="kv"><span>CE fill</span><b>${esc(o.ce_symbol || sum.ce_symbol || "—")} x${esc(o.ce_qty || sum.ce_qty || 0)}</b></div>
+                <div class="kv"><span>PE fill</span><b>${esc(o.pe_symbol || sum.pe_symbol || "—")} x${esc(o.pe_qty || sum.pe_qty || 0)}</b></div>
+                <div class="kv"><span>Morning</span><b>${esc(morning)}</b></div>
+                <p class="sub">Kavach buys at 15:20 unless you Deny. Morning SELL is the evening fill only — extra lots and 35% dyn hedge stay.</p>
+                ${denyBtn}
+              </div>
+              <div class="card hist-wrap">
+                <table class="hist-table"><thead><tr>
+                  <th>#</th><th>Side</th><th>Zone</th><th>Hedge</th><th>Qty</th><th>Action</th>
+                </tr></thead><tbody>${sideRows}</tbody></table>
+              </div>
+            </div>
+            <div class="card hist-wrap oh-summary-card">
+              <table class="hist-table"><thead><tr>
+                <th>#</th><th>Side</th><th>Hedge</th><th>Entry Time</th><th>Entry Px</th>
+                <th>Exit Time</th><th>Exit Px</th><th>Impact</th>
+              </tr></thead><tbody>${cycRows || '<tr><td colspan="8">No completed hedge cycles since Register.</td></tr>'}</tbody>${cycFoot}</table>
+            </div>
+          </div>`;
+        const denyBtnEl = $("hedgeBoxDeny");
+        if (denyBtnEl) denyBtnEl.onclick = async () => {
+          const r = await api("/api/hedge-box", { method: "POST", body: JSON.stringify({ action: "deny" }) });
+          toast((r && r.text) || (r && r.error) || "Deny sent", r && r.ok);
+          render();
+        };
 
       } else if (page === "summary") {
         const d = await api("/api/trade-summary");
@@ -1863,7 +2007,7 @@
         await renderTokenPage(view);
       }
       if (page === "ato" || page === "buffer") page = "ato";
-      if (page === "status" || page === "summary" || page === "ato" || page === "deploy" || page === "payoff" || page === "token" || page === "alerts") {
+      if (page === "status" || page === "summary" || page === "overnight" || page === "ato" || page === "deploy" || page === "payoff" || page === "token" || page === "alerts") {
         finishPageRender(page, view, pageMeta, navT0);
       } else {
         playViewIn(view);
@@ -1910,13 +2054,21 @@
   let brokerAcctPainted = false;
 
   function paintBrokerAcct(me) {
-    if (brokerAcctPainted) return;
     const z = (me && me.zerodha) || {};
-    const name = String(z.name || "").trim();
-    const uid = String(z.user_id || "").trim();
-    if (!name && !uid) return;
+    const d = (me && me.dhan) || {};
+    const kiteId = String(z.user_id || "").trim();
+    const kiteName = String(z.name || "").trim();
+    const kiteOn = !!(z.present || kiteId || kiteName);
+    const dhanId = String(d.client_id || d.client_code || "").trim();
+    const dhanOn = !!d.present;
+    const useKite = kiteOn || !dhanOn;
+    const broker = useKite ? "Kite" : "Dhan";
+    const name = useKite ? kiteName : String(d.name || "").trim();
+    const uid = useKite ? (kiteId || "STE992") : dhanId;
+    const active = useKite ? kiteOn : dhanOn;
     const wrap = $("brokerAcct");
     const nameEl = $("brokerAcctName");
+    const brokerEl = $("brokerAcctBroker");
     const idEl = $("brokerAcctId");
     const sep1 = $("brokerAcctSep1");
     const sep2 = $("brokerAcctSep2");
@@ -1924,18 +2076,20 @@
     if (!wrap || !nameEl || !idEl) return;
     nameEl.textContent = name;
     nameEl.style.display = name ? "" : "none";
-    idEl.textContent = uid;
+    if (brokerEl) {
+      brokerEl.textContent = broker;
+      brokerEl.style.display = "";
+    }
+    idEl.textContent = uid || "—";
     idEl.style.display = uid ? "" : "none";
-    if (sep1) sep1.style.display = name && uid ? "" : "none";
-    // Subscription hardcoded active for now
-    const active = true;
-    if (sep2) sep2.style.display = (name || uid) ? "" : "none";
+    if (sep1) sep1.style.display = name && broker ? "" : "none";
+    if (sep2) sep2.style.display = broker && uid ? "" : "none";
     if (statusEl) {
-      statusEl.style.display = (name || uid) ? "" : "none";
+      statusEl.style.display = "";
       statusEl.classList.toggle("is-active", active);
       statusEl.classList.toggle("is-inactive", !active);
-      statusEl.title = active ? "Subscription active" : "Subscription inactive";
-      statusEl.setAttribute("aria-label", active ? "Subscription active" : "Subscription inactive");
+      statusEl.title = active ? (broker + " connected") : (broker + " off");
+      statusEl.setAttribute("aria-label", active ? "Connected" : "Disconnected");
     }
     wrap.hidden = false;
     brokerAcctPainted = true;

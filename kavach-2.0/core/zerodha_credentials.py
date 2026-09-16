@@ -71,7 +71,9 @@ def _read_json(path: Path) -> dict:
         return {}
 
 
-def load_zerodha_order_creds(root: Path | None = None) -> ZerodhaOrderCreds:
+def load_zerodha_order_creds(
+    root: Path | None = None, *, log: bool = True
+) -> ZerodhaOrderCreds:
     for env_path in candidate_env_paths():
         if env_path.is_file():
             load_dotenv(env_path, override=False)
@@ -106,14 +108,53 @@ def load_zerodha_order_creds(root: Path | None = None) -> ZerodhaOrderCreds:
         api_key=api_key, access_token=access, user_id=user_id, source=source
     )
     if creds.ok:
-        logger.info(
-            "Zerodha order creds ready last4=%s source=%s",
-            creds.access_token[-4:],
-            Path(str(creds.source)).name if creds.source else "env",
-        )
-    else:
+        if log:
+            logger.info(
+                "Zerodha order creds ready last4=%s source=%s",
+                creds.access_token[-4:],
+                Path(str(creds.source)).name if creds.source else "env",
+            )
+    elif log:
         logger.warning("Zerodha order creds missing api_key or access_token")
     return creds
+
+
+def sync_live_zerodha_token(
+    broker=None,
+    *,
+    root: Path | None = None,
+    on_token_ready: Callable[[str], None] | None = None,
+    force: bool = False,
+) -> bool:
+    """Push the disk Kite token into the live REST client used by Register/orders."""
+    global _LIVE_ORDER_BROKER
+    creds = load_zerodha_order_creds(root, log=False)
+    live = broker if broker is not None else _LIVE_ORDER_BROKER
+    if live is not None:
+        register_live_order_broker(live)
+        live = _LIVE_ORDER_BROKER
+    if not creds.ok:
+        clearer = getattr(live, "clear_access_token", None) if live is not None else None
+        if callable(clearer):
+            try:
+                clearer()
+            except Exception as exc:
+                logger.warning("Zerodha order token clear failed: %s", exc)
+        return False
+    if live is None:
+        if on_token_ready is not None:
+            on_token_ready(creds.access_token)
+            return True
+        return False
+    current = str(getattr(live, "_access_token", "") or "").strip()
+    if not force and current == creds.access_token:
+        return False
+    reload_fn = getattr(live, "hot_reload_token", None)
+    if not callable(reload_fn):
+        return False
+    reload_fn(creds.api_key, creds.access_token)
+    logger.info("Kavach Zerodha REST synced last4=%s", creds.access_token[-4:])
+    return True
 
 
 def watch_path(root: Path | None = None) -> Path:
@@ -143,67 +184,39 @@ def start_zerodha_token_watch(
     broker,
     *,
     root: Path | None = None,
-    poll_seconds: float = 30.0,
+    poll_seconds: float = 5.0,
     on_token_ready: Callable[[str], None] | None = None,
 ) -> threading.Event:
-    """Reload Kavach Kite REST when Datafeedbot / TOKEN saves a new access_token."""
+    """Reload Kavach Kite REST when TOKEN / feeder writes a new access_token.
+
+    Watch the token string (not file mtime). mtime-only missed Kavach Register
+    after a TOKEN paste because the live REST client kept the old token.
+    """
     stop = threading.Event()
-    paths = [p for p in candidate_session_paths(root)]
-
-    def _newest() -> tuple[float, Path | None]:
-        best = 0.0
-        hit: Path | None = None
-        for path in paths:
-            try:
-                mtime = path.stat().st_mtime
-            except OSError:
-                continue
-            if mtime > best:
-                best = mtime
-                hit = path
-        return best, hit
-
     register_live_order_broker(broker)
 
+    def _fp() -> str:
+        creds = load_zerodha_order_creds(root, log=False)
+        return creds.access_token if creds.ok else ""
+
     def _loop() -> None:
-        last, _ = _newest()
+        last = _fp()
         while not stop.wait(timeout=poll_seconds):
-            mtime, hit = _newest()
-            if hit is None:
-                if last > 0:
-                    clearer = getattr(broker, "clear_access_token", None)
-                    if callable(clearer):
-                        try:
-                            clearer()
-                        except Exception as exc:
-                            logger.warning("Zerodha order token clear failed: %s", exc)
-                    last = 0.0
+            fp = _fp()
+            live = _LIVE_ORDER_BROKER if _LIVE_ORDER_BROKER is not None else broker
+            mem = str(getattr(live, "_access_token", "") or "").strip() if live is not None else ""
+            if fp == last and (not fp or mem == fp):
                 continue
-            if mtime <= last:
-                continue
-            last = mtime
-            creds = load_zerodha_order_creds(root)
-            if not creds.ok:
-                clearer = getattr(broker, "clear_access_token", None)
-                if callable(clearer):
-                    try:
-                        clearer()
-                    except Exception as exc:
-                        logger.warning("Zerodha order token clear failed: %s", exc)
-                continue
-            if broker is None and on_token_ready is not None:
-                try:
-                    on_token_ready(creds.access_token)
-                except Exception as exc:
-                    logger.error("Zerodha token bootstrap failed: %s", exc)
-                continue
-            reload_fn = getattr(broker, "hot_reload_token", None)
-            if callable(reload_fn):
-                try:
-                    reload_fn(creds.api_key, creds.access_token)
-                    logger.info("Kavach Zerodha REST hot-reloaded last4=%s", creds.access_token[-4:])
-                except Exception as exc:
-                    logger.error("Zerodha hot-reload failed: %s", exc)
+            last = fp
+            try:
+                sync_live_zerodha_token(
+                    live if live is not None else broker,
+                    root=root,
+                    on_token_ready=on_token_ready,
+                    force=True,
+                )
+            except Exception as exc:
+                logger.error("Zerodha live token sync failed: %s", exc)
 
     threading.Thread(target=_loop, daemon=True, name="zerodha-token-watch").start()
     return stop

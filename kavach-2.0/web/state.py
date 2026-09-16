@@ -113,8 +113,15 @@ def snapshot() -> dict[str, Any]:
         "ato_buy_fill_token": _state_get(state, "ato.web_buy_fill_token") or "",
         "ato_sell_fill_token": _state_get(state, "ato.web_sell_fill_token") or "",
         "pnl_exit": _pnl_exit_snap(state),
+        "overnight": {},
         "desk_alerts": [],
     }
+    try:
+        from core.overnight_handoff import overnight_snapshot
+
+        out["overnight"] = overnight_snapshot(state)
+    except Exception:
+        out["overnight"] = {"active": False, "pending": False}
     try:
         from core.desk_alerts import emit_readiness_edges, recent as desk_recent
 

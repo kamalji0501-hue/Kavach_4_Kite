@@ -1008,6 +1008,7 @@ class TestATOStartupScan:
         mock_broker._nifty_ltp = 24706.0
         mock_broker._positions = pd.DataFrame(
             [
+                {"tradingSymbol": "NIFTY 10 MAR 24650 PUT", "netQty": 65},
                 {"tradingSymbol": "NIFTY 10 MAR 24750 PUT", "netQty": 65},
                 {"tradingSymbol": "NIFTY 10 MAR 24700 PUT", "netQty": -130},
                 {"tradingSymbol": "NIFTY 10 MAR 25250 CALL", "netQty": 65},
@@ -1020,6 +1021,38 @@ class TestATOStartupScan:
         assert state.get("ato.pe_ato_active") is False
         exit_order = next(o for o in mock_broker._orders if "24650" in o["symbol"])
         assert exit_order["side"] == "SELL"
+        assert exit_order["qty"] == 65
+
+    def test_retrace_sells_leftover_not_larger_registered(
+        self, mock_broker, config, state, event_bus
+    ):
+        """Leftover 65 + registered 130 must SELL 65 only — never open a short."""
+        from modules.ato_protection import ATOProtection
+
+        self._set_positions(state)
+        mock_broker._nifty_ltp = 24000.0
+        mock_broker._positions = pd.DataFrame(
+            [
+                {"tradingSymbol": "NIFTY 10 MAR 24650 PUT", "netQty": 65},
+            ]
+        )
+
+        mod = ATOProtection(mock_broker, config, state, event_bus)
+        mod._startup_scan()
+        assert state.get("ato.pe_ato_active") is True
+        # Simulate the old Q60 bug: remembered size is the full registered ATO.
+        state.set("ato.pe_exit_qty", 130)
+        assert mod._registered_exit_qty("PE", "pe_buy") == 130
+        assert mod._retrace_sell_qty("PE", "pe_buy", "NIFTY 10 MAR 24650 PUT") == 65
+
+        settings = mod._side_settings("PE", 24700)
+        mod._exit_pe_ato(spot=24706.0, pe_strike=24700, settings=settings)
+
+        exit_order = next(o for o in mock_broker._orders if "24650" in o["symbol"])
+        assert exit_order["side"] == "SELL"
+        assert exit_order["qty"] == 65
+        shorts = [o for o in mock_broker._orders if o.get("side") == "SELL" and o.get("qty", 0) > 65]
+        assert shorts == []
 
 
 class TestBatmanEntry:

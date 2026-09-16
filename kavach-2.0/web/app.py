@@ -97,7 +97,7 @@ async def index(request: Request) -> Response:
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     html = re.sub(
         r'app\.(css|js)\?(?:v|cb)=[^"]+',
-        lambda m: f'app.{m.group(1)}?cb=20260910exit3',
+        lambda m: f'app.{m.group(1)}?cb=20260910ohColor',
         html,
     )
     return Response(html, media_type="text/html")
@@ -148,14 +148,36 @@ async def logout(request: Request) -> Response:
 async def api_me(request: Request) -> Response:
     if not _authed(request):
         return JSONResponse({"ok": False, "auth": False}, status_code=401)
-    zerodha = {"user_id": "", "name": ""}
+    zerodha = {"user_id": "", "name": "", "present": False}
+    dhan = {"client_id": "", "name": "", "present": False}
     try:
         from core.zerodha_account_label import get_zerodha_account_label
 
         zerodha = get_zerodha_account_label()
+        if "present" not in zerodha:
+            zerodha["present"] = bool(zerodha.get("user_id") or zerodha.get("name"))
     except Exception as exc:
         logger.warning("zerodha account label failed: %s", exc)
-    return JSONResponse({"ok": True, "auth": True, "zerodha": zerodha})
+    try:
+        import os
+
+        from bat_telegram.bots.kavach2.token_ui import token_snapshot
+        from web.runtime import get_runtime
+
+        rt = get_runtime()
+        snap = token_snapshot(root=rt.root if rt else None)
+        ztok = (snap or {}).get("zerodha") or {}
+        dtok = (snap or {}).get("dhan") or {}
+        if ztok.get("present"):
+            zerodha["present"] = True
+        dhan = {
+            "client_id": (os.environ.get("DHAN_CLIENT_CODE") or "").strip(),
+            "name": "",
+            "present": bool(dtok.get("present")),
+        }
+    except Exception as exc:
+        logger.warning("dhan account label failed: %s", exc)
+    return JSONResponse({"ok": True, "auth": True, "zerodha": zerodha, "dhan": dhan})
 
 
 
@@ -462,6 +484,18 @@ async def api_flatten(request: Request) -> Response:
     return JSONResponse(out, status_code=code)
 
 
+async def api_hedge_box(request: Request) -> Response:
+    bad = _need_auth(request)
+    if bad:
+        return bad
+    if request.method == "GET":
+        return _cmd(commands.hedge_box_status)
+    body = await _read_json(request)
+    if str(body.get("action") or "").strip().lower() == "deny":
+        return _cmd(commands.hedge_box_deny)
+    return JSONResponse({"ok": False, "error": "Unknown hedge-box action."}, status_code=400)
+
+
 async def api_payoff(request: Request) -> Response:
     bad = _need_auth(request)
     return bad or _cmd(commands.payoff_graph)
@@ -502,6 +536,7 @@ def create_app() -> Starlette:
         Route("/api/safe-exit", api_safe_exit, methods=["GET", "POST"]),
         Route("/api/take-profit", api_take_profit, methods=["GET", "POST"]),
         Route("/api/flatten", api_flatten, methods=["POST"]),
+        Route("/api/hedge-box", api_hedge_box, methods=["GET", "POST"]),
         Route("/api/payoff", api_payoff),
         WebSocketRoute("/ws/state", ws_state),
         Mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static"),

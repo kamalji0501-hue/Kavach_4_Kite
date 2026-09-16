@@ -76,13 +76,30 @@ class Ratripal(ModuleBase):
             return
         if self.state.get("algo.paused", False):
             return
-        if not self.state.get("modules.ratripal.enabled", False):
+        if not bool(self.config.get("hedge_box.enabled", True)):
             return
         if not utils.is_trading_day():
             return
 
         now = utils.now_ist()
         today = now.date()
+        pending_id = self.state.get("ratripal.pending.request_id")
+        if pending_id:
+            if self.state.get("ratripal.pending.response") == "deny":
+                self._clear_pending_request(str(pending_id))
+                self.state.set("ratripal.last_run_date", today.isoformat())
+                self.state.set("ratripal.last_decision", "denied")
+                self._update_overnight_summary(
+                    status="denied",
+                    denied=True,
+                    date=today.isoformat(),
+                )
+                return
+            if now.time() < self._resolve_buy_time():
+                return
+            self._execute_pending(str(pending_id), today)
+            return
+
         if self.state.get("ratripal.last_run_date") == today.isoformat():
             return
         if now.time() < check_time:
@@ -106,24 +123,7 @@ class Ratripal(ModuleBase):
 
         request_id = f"{today.isoformat()}::{int(now.timestamp())}"
         buy_time = self._resolve_buy_time()
-        response = self._request_confirmation(request_id, eligible, dte, spot, buy_time)
-        if response == "deny":
-            self.state.set("ratripal.last_run_date", today.isoformat())
-            self.state.set("ratripal.last_decision", "denied")
-            return
-
-        if not self._wait_until_buy_time(buy_time):
-            self.state.set("ratripal.last_run_date", today.isoformat())
-            self.state.set("ratripal.last_decision", "stopped_before_buy")
-            return
-
-        for plan in eligible:
-            if not self._execute_plan(plan, deployment, dte, spot, request_id):
-                self.state.set("ratripal.last_run_date", today.isoformat())
-                return
-
-        self.state.set("ratripal.last_run_date", today.isoformat())
-        self.state.set("ratripal.last_decision", response or "timeout")
+        self._request_confirmation(request_id, eligible, dte, spot, buy_time)
 
     def _load_deployment(self) -> dict[str, Any] | None:
         deployment_path = self.state.get("deployment.file")
@@ -332,9 +332,36 @@ class Ratripal(ModuleBase):
         buy_time: time | None = None,
     ) -> str | None:
         buy_hhmm = (buy_time or self._resolve_buy_time()).strftime("%H:%M")
+        sides = [
+            {
+                "side": plan.side,
+                "zone": plan.state,
+                "action": plan.action,
+                "strike": plan.strike,
+                "symbol": plan.symbol,
+                "qty": plan.quantity,
+                "break_even": plan.break_even,
+                "option_ltp": plan.option_ltp,
+            }
+            for plan in eligible
+        ]
         self.state.set("ratripal.pending.request_id", request_id, save=False)
         self.state.set("ratripal.pending.response", None, save=False)
         self.state.set("ratripal.pending.sent_at", utils.now_ist().isoformat(), save=False)
+        self.state.set("ratripal.pending.buy_time_ist", buy_hhmm, save=False)
+        self.state.set("ratripal.pending.sides", sides, save=False)
+        try:
+            from core.desk_alerts import emit_desk_alert
+
+            bits = ", ".join(f"{s['side']} {s['strike']} x{s['qty']}" for s in sides)
+            emit_desk_alert(
+                severity="orange",
+                category="Hedge Box",
+                alert=f"Hedge Box plan {bits} — auto-buy {buy_hhmm} unless Deny on the desk.",
+                log=f"Hedge Box pending {request_id} buy_time={buy_hhmm}",
+            )
+        except Exception:
+            pass
         self.events.publish(
             Event.HEDGE_BOX_CONFIRMATION_REQUEST,
             {
@@ -343,35 +370,26 @@ class Ratripal(ModuleBase):
                 "dte": dte,
                 "buy_time_ist": buy_hhmm,
                 "timeout_seconds": _REQUEST_TIMEOUT_SECONDS,
-                "sides": [
-                    {
-                        "side": plan.side,
-                        "zone": plan.state,
-                        "action": plan.action,
-                        "strike": plan.strike,
-                        "symbol": plan.symbol,
-                        "qty": plan.quantity,
-                        "break_even": plan.break_even,
-                        "option_ltp": plan.option_ltp,
-                    }
-                    for plan in eligible
-                ],
+                "sides": sides,
             },
         )
 
-        waited = 0
-        while waited < _REQUEST_TIMEOUT_SECONDS and not self._stop_event.is_set():
-            if self.state.get("ratripal.pending.request_id") != request_id:
-                break
-            response = self.state.get("ratripal.pending.response")
-            if response in {"confirm", "deny"}:
-                self._clear_pending_request(request_id)
-                return str(response)
-            if self._sleep(2):
-                break
-            waited += 2
+        try:
+            from core.overnight_handoff import merge_overnight_summary
 
-        self._clear_pending_request(request_id)
+            merge_overnight_summary(
+                self.state,
+                date=utils.now_ist().date().isoformat(),
+                status="pending",
+                denied=False,
+                buy_time_ist=buy_hhmm,
+                sides=sides,
+                request_id=request_id,
+                dte=dte,
+                spot=spot,
+            )
+        except Exception:
+            pass
         return None
 
     def _execute_plan(
@@ -386,6 +404,12 @@ class Ratripal(ModuleBase):
             return True
 
         try:
+            from core.ato_book_validation import net_qty_for_symbol
+
+            book_before = net_qty_for_symbol(self.broker, str(plan.symbol)) or 0
+        except Exception:
+            book_before = 0
+        try:
             order_id = self.broker.place_market_order(
                 symbol=plan.symbol,
                 qty=plan.quantity,
@@ -395,7 +419,7 @@ class Ratripal(ModuleBase):
         except Exception as exc:
             self._publish_execution_failure(
                 scenario="hedge_box_execution_failure",
-                title=f"RATRIPAL failed to place {plan.side} Hedge Box buy",
+                title=f"Kavach failed to place {plan.side} overnight hedge buy",
                 error_message=str(exc),
                 next_action="Check broker order book and place the hedge manually if required.",
             )
@@ -410,6 +434,19 @@ class Ratripal(ModuleBase):
             )
             return False
 
+        try:
+            from core.ato_book_validation import net_qty_for_symbol
+
+            book_after = net_qty_for_symbol(self.broker, str(plan.symbol))
+        except Exception:
+            book_after = None
+        if book_after is None:
+            filled = int(plan.quantity)
+        else:
+            filled = max(0, int(book_after) - int(book_before or 0))
+            if filled <= 0:
+                filled = int(plan.quantity)
+        self._record_overnight_fill(plan, filled)
         self._write_handoff_row(plan, deployment, dte, spot, order_id, request_id)
         self.events.publish(
             Event.HEDGE_BOX_EXECUTED,
@@ -520,10 +557,96 @@ class Ratripal(ModuleBase):
 
         self.state.set("aditya.handoff_file", str(_HANDOFF_PATH), save=False)
 
+    def _update_overnight_summary(self, **fields: Any) -> None:
+        from core.overnight_handoff import merge_overnight_summary
+
+        merge_overnight_summary(self.state, **fields)
+
+    def _execute_pending(self, request_id: str, today: date) -> None:
+        sides = self.state.get("ratripal.pending.sides") or []
+        deployment = self._load_deployment() or {}
+        dte = self._calculate_dte(deployment, today) if deployment else 0
+        try:
+            spot = float(self.broker.get_nifty_ltp())
+        except Exception:
+            spot = 0.0
+        for row in sides:
+            plan = SidePlan(
+                side=str(row.get("side") or ""),
+                state=str(row.get("zone") or ""),
+                action=str(row.get("action") or "standard_break_even"),
+                strike=row.get("strike"),
+                symbol=row.get("symbol"),
+                quantity=int(row.get("qty") or 0),
+                break_even=row.get("break_even"),
+                option_ltp=row.get("option_ltp"),
+            )
+            if not self._execute_plan(plan, deployment, dte, spot, request_id):
+                self.state.set("ratripal.last_run_date", today.isoformat())
+                self._update_overnight_summary(status="buy_failed", date=today.isoformat())
+                return
+        self._clear_pending_request(request_id)
+        self.state.set("ratripal.last_run_date", today.isoformat())
+        self.state.set("ratripal.last_decision", "bought")
+        self._update_overnight_summary(
+            status="holding",
+            denied=False,
+            date=today.isoformat(),
+            ce_symbol=self.state.get("overnight.ce_symbol"),
+            ce_qty=int(self.state.get("overnight.ce_qty") or 0),
+            pe_symbol=self.state.get("overnight.pe_symbol"),
+            pe_qty=int(self.state.get("overnight.pe_qty") or 0),
+        )
+
+    def _record_overnight_fill(self, plan: SidePlan, filled: int) -> None:
+        """Remember evening overnight fill only — not the full book / 35% pile."""
+        tag = "ce" if str(plan.side).upper() == "CE" else "pe"
+        today = utils.now_ist().date().isoformat()
+        self.state.set(f"overnight.{tag}_symbol", str(plan.symbol), save=False)
+        self.state.set(f"overnight.{tag}_strike", int(plan.strike or 0), save=False)
+        self.state.set(f"overnight.{tag}_qty", int(filled), save=False)
+        self.state.set("overnight.hedge_active", True, save=False)
+        self.state.set("overnight.buy_date", today, save=False)
+        self.state.set("overnight.morning_done_date", None)
+        self._update_overnight_summary(
+            status="holding",
+            denied=False,
+            **{
+                f"{tag}_symbol": str(plan.symbol),
+                f"{tag}_qty": int(filled),
+                f"{tag}_strike": int(plan.strike or 0),
+            },
+        )
+        try:
+            from core.overnight_handoff import record_overnight_cycle_entry
+
+            px = None
+            try:
+                px = float(plan.option_ltp) if plan.option_ltp is not None else None
+            except (TypeError, ValueError):
+                px = None
+            record_overnight_cycle_entry(
+                self.state,
+                side=str(plan.side),
+                symbol=str(plan.symbol),
+                qty=int(filled),
+                entry_premium=px,
+                entry_time=utils.now_ist().strftime("%H:%M:%S"),
+                zone=str(plan.state or ""),
+            )
+        except Exception:
+            pass
+        self.log.info(
+            "Kavach overnight hedge recorded side=%s symbol=%s filled=%s (evening qty only)",
+            plan.side,
+            plan.symbol,
+            filled,
+        )
+
     def _is_buy_candidate(self, plan: SidePlan) -> bool:
-        if plan.action not in _BUY_ACTIONS or not plan.symbol:
-            return False
-        return not self._has_existing_long_position(plan.symbol, plan.quantity)
+        # Always add Hedge Box qty. Existing 35% / extra lots on the same strike
+        # must not block the evening overnight buy.
+        return plan.action in _BUY_ACTIONS and bool(plan.symbol)
 
     def _has_existing_long_position(self, symbol: str, qty: int) -> bool:
         try:
@@ -547,6 +670,8 @@ class Ratripal(ModuleBase):
         self.state.set("ratripal.pending.request_id", None, save=False)
         self.state.set("ratripal.pending.response", None, save=False)
         self.state.set("ratripal.pending.sent_at", None, save=False)
+        self.state.set("ratripal.pending.sides", None, save=False)
+        self.state.set("ratripal.pending.buy_time_ist", None, save=False)
 
     def _get_option_ltp(self, symbol: str | None) -> float | None:
         if not symbol:

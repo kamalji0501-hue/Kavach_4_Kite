@@ -270,6 +270,7 @@ body:has(#desk:not(.hidden)) {
   text-align: center;
 }
 .broker-acct-name,
+.broker-acct-broker,
 .broker-acct-id {
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   font-size: 12px;
@@ -627,6 +628,60 @@ h3 {
 }
 .btn:hover { transform: translateY(-2px); filter: brightness(1.04); }
 .btn.gold:hover { box-shadow: 0 14px 26px rgba(124, 106, 232, 0.36); }
+.oh-deny {
+  margin-top: 16px;
+  width: 100%;
+  min-height: 48px;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+}
+.oh-page-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.82fr) minmax(420px, 1.18fr);
+  gap: 14px;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+.oh-left-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+.oh-left-stack > .card {
+  flex: 1 1 0;
+  min-height: 0;
+}
+.oh-left-stack > .home-card {
+  overflow: auto;
+}
+.oh-left-stack > .hist-wrap,
+.oh-summary-card {
+  padding: 0;
+  overflow: auto;
+}
+
+.oh-left-stack > .dep-card-blue {
+  border: 1.5px solid rgba(124, 106, 232, 0.45);
+  background: linear-gradient(180deg, rgba(124, 106, 232, 0.10), #fff 42%);
+}
+.oh-left-stack > .dep-card-blue .sec-title { color: var(--purple, #7C6AE8); }
+.oh-left-stack > .hist-wrap {
+  border: 1.5px solid rgba(43, 179, 192, 0.35);
+}
+.oh-summary-card {
+  border: 1.5px solid rgba(124, 106, 232, 0.28);
+}
+.body:has(.oh-page-grid) { overflow: hidden; }
+.body:has(.oh-page-grid) .page-head { flex: 0 0 auto; }
+@media (max-width: 980px) {
+  .oh-page-grid { grid-template-columns: 1fr; }
+  .oh-left-stack > .card { flex: 0 1 auto; }
+}
 .btn:active { transform: translateY(0) scale(0.97); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; filter: none; }
 .feed {

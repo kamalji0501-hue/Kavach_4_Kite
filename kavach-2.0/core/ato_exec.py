@@ -91,6 +91,76 @@ def remaining_qty(*, requested: int, filled: int) -> int:
     return max(0, req - max(0, got))
 
 
+WORKING_BUY_STATUSES = frozenset(
+    {
+        "OPEN",
+        "TRIGGER PENDING",
+        "AMO REQ RECEIVED",
+        "PUT ORDER REQ RECEIVED",
+        "PENDING",
+        "TRANSIT",
+        "PART_TRADED",
+        "UNKNOWN",
+        "UPDATE",
+        "MODIFY",
+        "VALIDATION PENDING",
+    }
+)
+DEAD_BUY_STATUSES = frozenset({"CANCELLED", "CANCELED", "REJECTED", "EXPIRED"})
+DONE_BUY_STATUSES = frozenset({"COMPLETE", "FILLED", "TRADED"})
+
+
+def _as_qty(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return max(0, int(float(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def buy_chase_plan(
+    *,
+    registered_qty: int,
+    order_status: str | None,
+    order_filled_qty: int | None = None,
+    book_qty: int | None = None,
+) -> dict[str, object]:
+    """Decide whether a second protect BUY is allowed.
+
+    Never buy more than registered. Never place while the first order is
+    still working (broker delay). Chase only when:
+      • first order cancelled/rejected and leftover long is 0 → full registered
+      • first order is dead or complete and leftover is short → remaining only
+    """
+    registered = _as_qty(registered_qty) or 0
+    book = _as_qty(book_qty)
+    ofill = _as_qty(order_filled_qty)
+    known = [n for n in (book, ofill) if n is not None]
+    filled = max(known) if known else 0
+    rem = remaining_qty(requested=registered, filled=filled)
+    if registered <= 0:
+        return {"action": "done", "qty": 0, "reason": "no_registered_qty"}
+    if rem <= 0:
+        return {"action": "done", "qty": 0, "reason": "registered_qty_already_filled"}
+
+    st = str(order_status or "").strip().upper()
+    if st in WORKING_BUY_STATUSES:
+        return {"action": "wait", "qty": 0, "reason": "first_order_still_working"}
+    if st in DONE_BUY_STATUSES:
+        if ofill is None and book in (None, 0):
+            # COMPLETE but fill count unknown / book lag — do not assume shortfall.
+            return {"action": "wait", "qty": 0, "reason": "complete_fill_unconfirmed"}
+        if rem > 0:
+            return {"action": "chase", "qty": rem, "reason": "partial_fill_remaining"}
+        return {"action": "done", "qty": 0, "reason": "complete"}
+    if st in DEAD_BUY_STATUSES:
+        if filled <= 0:
+            return {"action": "chase", "qty": registered, "reason": "cancelled_and_flat"}
+        return {"action": "chase", "qty": rem, "reason": "cancelled_partial_remaining"}
+    return {"action": "wait", "qty": 0, "reason": "order_status_unknown"}
+
+
 def place_buy_resting(
     broker: Any,
     *,
