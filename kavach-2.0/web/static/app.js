@@ -760,12 +760,32 @@
     const totp = t.totp || {};
     const z = t.zerodha || {};
     const n = t.nifty || {};
+    const main = String(t.main_broker || "zerodha").toLowerCase() === "dhan" ? "dhan" : "zerodha";
     const health = d.health_class || (d.present ? "healthy" : "missing");
     const healthLabel = d.present ? cap(d.status || health) : "Missing";
+    const zTok = z.present ? (kiteValidToday(z.saved_at) ? "Token valid today" : "Token stale — paste fresh") : "Token missing";
+    const dTok = d.present ? ("Token " + (healthLabel || "set").toLowerCase()) : "Token missing";
     view.innerHTML = `
       <header class="page-head"><h3>AUTHORISATION</h3></header>
-      <div class="row2 tok-grid">
-        <div class="card tok-card tok-card-green">
+      <div class="tok-grid tok-grid-3">
+        <div class="card tok-card tok-card-main">
+          <h3 class="tok-title">MAIN ORDER BROKER</h3>
+          <p class="sub tok-main-lead">Tap a broker. Orders and positions use this one. Feeder Nifty LTP can still use both.</p>
+          <div class="tok-picks" role="radiogroup" aria-label="Main order broker">
+            <button type="button" class="tok-pick tok-pick-z${main === "zerodha" ? " on" : ""}" id="mainZ" data-broker="zerodha" role="radio" aria-checked="${main === "zerodha" ? "true" : "false"}">
+              <img class="tok-logo" src="/static/kite.svg" alt="" />
+              <span class="tok-pick-copy"><b>ZERODHA</b><small>${zTok}</small></span>
+              <span class="tok-pick-mark" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="tok-pick tok-pick-d${main === "dhan" ? " on" : ""}" id="mainD" data-broker="dhan" role="radio" aria-checked="${main === "dhan" ? "true" : "false"}">
+              <img class="tok-logo" src="/static/dhan.png" alt="" />
+              <span class="tok-pick-copy"><b>DHAN</b><small>${dTok}</small></span>
+              <span class="tok-pick-mark" aria-hidden="true"></span>
+            </button>
+          </div>
+          <p class="tok-main-live">Orders go through <b id="mainLiveLbl">${main === "dhan" ? "DHAN" : "ZERODHA"}</b></p>
+        </div>
+        <div class="card tok-card tok-card-green${main === "dhan" ? " tok-card-live" : ""}">
           <h3 class="tok-title"><img class="tok-logo" src="/static/dhan.png" alt="" />DHAN TOKEN</h3>
           <div class="tok-meta">
             <div class="kv"><span>Status</span><b class="${d.present ? "buy" : "sell"}">${esc(healthLabel)}</b></div>
@@ -789,7 +809,7 @@
             <button type="button" class="btn btn-red" id="tokOff">DEACTIVATE TOKEN</button>
           </div>
         </div>
-        <div class="card tok-card tok-card-red">
+        <div class="card tok-card tok-card-red${main === "zerodha" ? " tok-card-live" : ""}">
           <h3 class="tok-title"><img class="tok-logo" src="/static/kite.svg" alt="" />KITE TOKEN</h3>
           <div class="tok-meta">
             <div class="kv"><span>Set</span><b class="${z.present ? "buy" : "sell"}">${z.present ? "Yes" : "No"}</b></div>
@@ -1279,6 +1299,42 @@
         setBusy(false);
       }
     }
+    const paintMain = (broker) => {
+      view.querySelectorAll(".tok-pick").forEach((el) => {
+        const on = el.getAttribute("data-broker") === broker;
+        el.classList.toggle("on", on);
+        el.setAttribute("aria-checked", on ? "true" : "false");
+      });
+      const dhanCard = view.querySelector(".tok-card-green");
+      const kiteCard = view.querySelector(".tok-card-red");
+      if (dhanCard) dhanCard.classList.toggle("tok-card-live", broker === "dhan");
+      if (kiteCard) kiteCard.classList.toggle("tok-card-live", broker === "zerodha");
+      const live = $("mainLiveLbl");
+      if (live) live.textContent = broker === "dhan" ? "DHAN" : "ZERODHA";
+    };
+    const currentMain = () => {
+      const on = view.querySelector(".tok-pick.on");
+      return (on && on.getAttribute("data-broker")) || "zerodha";
+    };
+    const setMain = (broker) => {
+      if (broker === currentMain()) return;
+      paintMain(broker);
+      tokenCall(() => api("/api/token/main-broker", {
+        method: "POST",
+        body: JSON.stringify({ main_broker: broker }),
+      }));
+    };
+    view.querySelectorAll(".tok-pick").forEach((el) => {
+      el.onclick = () => setMain(el.getAttribute("data-broker"));
+    });
+    const picks = view.querySelector(".tok-picks");
+    if (picks) {
+      picks.onkeydown = (ev) => {
+        if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp" && ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+        ev.preventDefault();
+        setMain(currentMain() === "zerodha" ? "dhan" : "zerodha");
+      };
+    }
     if ($("tokRef")) $("tokRef").onclick = () => tokenCall(() => api("/api/token/refresh", { method: "POST", body: "{}" }));
     if ($("tokOff")) $("tokOff").onclick = () => tokenCall(() => api("/api/token/deactivate", { method: "POST", body: "{}" }));
     if ($("tokStat")) $("tokStat").onclick = () => renderTokenPage(view, "Token status refreshed.");
@@ -1296,6 +1352,7 @@
     }
     if ($("tokZOff")) $("tokZOff").onclick = () => tokenCall(() => api("/api/token/zerodha/deactivate", { method: "POST", body: "{}" }));
   }
+
 
   function wireRegisterHandlers(d) {
     const step = Number(d.ato_step || 50);
@@ -1605,6 +1662,7 @@
                 <span class="home-chip ${s.pe_ato ? "ok" : ""}">PE ATO ${s.pe_ato ? "ACTIVE" : "IDLE"}</span>
               </div>
               <div class="home-strip-group home-strip-tok">
+                <span class="home-chip ok">MAIN · ${esc(String((tok && tok.main_broker) || "zerodha").toUpperCase())}</span>
                 <span class="home-chip ${dhan.present ? "ok" : "bad"}">DHAN · ${esc(dhanLbl)}</span>
                 <span class="home-chip ${kite.present ? "ok" : "bad"}">KITE · ${esc(kiteLbl)}</span>
               </div>

@@ -348,6 +348,16 @@ async def api_token_off(request: Request) -> Response:
     return bad or _cmd(commands.token_deactivate)
 
 
+async def api_main_broker(request: Request) -> Response:
+    bad = _need_auth(request)
+    if bad:
+        return bad
+    if request.method == "GET":
+        return _cmd(commands.token_main_broker_get)
+    body = await _read_json(request)
+    return _cmd(commands.token_main_broker_set, str(body.get("main_broker") or body.get("broker") or ""))
+
+
 async def api_zerodha(request: Request) -> Response:
     bad = _need_auth(request)
     if bad:
@@ -528,6 +538,7 @@ def create_app() -> Starlette:
         Route("/api/token/refresh", api_token_refresh, methods=["POST"]),
         Route("/api/token/dhan-jwt", api_token_paste, methods=["POST"]),
         Route("/api/token/deactivate", api_token_off, methods=["POST"]),
+        Route("/api/token/main-broker", api_main_broker, methods=["GET", "POST"]),
         Route("/api/token/zerodha", api_zerodha, methods=["POST"]),
         Route("/api/token/zerodha/deactivate", api_zerodha_off, methods=["POST"]),
         Route("/api/register", api_register, methods=["GET", "POST"]),

@@ -98,15 +98,19 @@ def _connect_broker(client_code: str):
     try:
         return create_broker(client_code or "", "", ROOT)
     except Exception as exc:
-        logger.error("Zerodha broker connect failed: %s", exc)
+        from core.order_broker_select import get_main_order_broker
+
+        main = get_main_order_broker(ROOT)
+        logger.error("%s broker connect failed: %s", main.title(), exc)
         try:
             from core.desk_alerts import emit_desk_alert
 
+            label = "Dhan JWT" if main == "dhan" else "Kite token"
             emit_desk_alert(
                 severity="red",
                 category="Tokens",
-                alert="Kavach started with no Kite token — live orders cannot go out.",
-                log=f"Zerodha broker connect failed: {exc}",
+                alert=f"Kavach started with no {label} — live orders cannot go out (main={main}).",
+                log=f"{main} broker connect failed: {exc}",
             )
         except Exception:
             pass
@@ -342,6 +346,12 @@ def main() -> None:
         """Keep web desk + Telegram bot_data in sync after late token bootstrap."""
         _runtime["broker"] = broker
         try:
+            from core.order_broker_select import attach_live_broker
+
+            attach_live_broker(broker)
+        except Exception as exc:
+            logger.debug("attach_live_broker skipped: %s", exc)
+        try:
             from web.runtime import get_runtime
 
             rt = get_runtime()
@@ -376,13 +386,19 @@ def main() -> None:
     broker = _connect_broker(client_code)
     _runtime["broker"] = broker
     if broker:
+        try:
+            from core.order_broker_select import attach_live_broker
+
+            attach_live_broker(broker)
+        except Exception as exc:
+            logger.debug("attach_live_broker at boot skipped: %s", exc)
         if mode == "uat":
             logger.info("UAT ShadowBroker ready — /positions from screenshot book")
         else:
             logger.info("Broker connected — /positions and /register ready")
     else:
         logger.warning(
-            "No broker at startup — will bootstrap when Zerodha access_token is available"
+            "No broker at startup — will bootstrap when the selected main-broker token is available"
         )
 
     # Feeder writes NIFTY cache. IPC peeks only — no always-on collector.

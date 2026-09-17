@@ -412,11 +412,42 @@ def ato_combined() -> dict[str, Any]:
 
 def token_status() -> dict[str, Any]:
     from bat_telegram.bots.kavach2.token_ui import token_snapshot, token_summary
+    from core.order_broker_select import get_main_order_broker
 
     snap = token_snapshot(root=_root())
     snap["ok"] = True
     snap["text"] = token_summary(root=_root())
+    snap["main_broker"] = get_main_order_broker(_root())
     return snap
+
+
+def token_main_broker_get() -> dict[str, Any]:
+    from core.order_broker_select import get_main_order_broker
+
+    main = get_main_order_broker(_root())
+    return {"ok": True, "main_broker": main, "text": f"Main order broker is {main}."}
+
+
+def token_main_broker_set(name: str) -> dict[str, Any]:
+    from core.desk_alerts import tag_result
+    from core.order_broker_select import reconnect_main_broker, set_main_order_broker
+
+    try:
+        main = set_main_order_broker(name, _root())
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    note = f"Main order broker is now {main}."
+    try:
+        reconnect_main_broker(_root())
+        note += " Broker reconnected."
+    except Exception as exc:
+        logger.warning("reconnect after main-broker switch: %s", exc)
+        note += f" Saved, but reconnect failed: {exc}"
+    return tag_result(
+        {"ok": True, "main_broker": main, "text": note},
+        category="Tokens",
+        ok_alert=f"Orders will use {main.title()}.",
+    )
 
 
 def token_refresh() -> dict[str, Any]:
@@ -448,6 +479,13 @@ def token_paste(jwt: str) -> dict[str, Any]:
         TokenStore(path=access_token_path(_root())).save(tok)
     except Exception as exc:
         logger.warning("token store save: %s", exc)
+    try:
+        from core.order_broker_select import get_main_order_broker, reconnect_main_broker
+
+        if get_main_order_broker(_root()) == "dhan":
+            reconnect_main_broker(_root(), access_token=tok)
+    except Exception as exc:
+        logger.warning("dhan reconnect after save: %s", exc)
     from core.desk_alerts import tag_result
 
     return tag_result(
@@ -485,15 +523,12 @@ def token_zerodha(token: str) -> dict[str, Any]:
         user_id=str(detail) if detail not in ("ok", "") else "",
     )
     try:
-        from core.zerodha_credentials import register_live_order_broker, sync_live_zerodha_token
-        from web.runtime import get_runtime
+        from core.order_broker_select import get_main_order_broker, reconnect_main_broker
 
-        rt = get_runtime()
-        if rt is not None and getattr(rt, "broker", None) is not None:
-            register_live_order_broker(rt.broker)
-            sync_live_zerodha_token(rt.broker, root=_root(), force=True)
-    except Exception:
-        pass
+        if get_main_order_broker(_root()) == "zerodha":
+            reconnect_main_broker(_root())
+    except Exception as exc:
+        logger.warning("zerodha reconnect after save: %s", exc)
     from core.desk_alerts import tag_result
 
     return tag_result(

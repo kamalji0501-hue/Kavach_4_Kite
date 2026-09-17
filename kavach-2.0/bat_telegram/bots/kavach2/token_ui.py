@@ -279,11 +279,17 @@ def token_snapshot(*, root: Any = None) -> dict[str, Any]:
             "last4": tok[-4:] if len(tok) >= 4 else "",
         }
 
+    try:
+        from core.order_broker_select import get_main_order_broker
+        main_broker = get_main_order_broker(root)
+    except Exception:
+        main_broker = "zerodha"
     return {
         "dhan": dhan,
         "totp": totp,
         "zerodha": _zerodha_spot(root=root),
         "nifty": _nifty_spot(),
+        "main_broker": main_broker,
     }
 
 

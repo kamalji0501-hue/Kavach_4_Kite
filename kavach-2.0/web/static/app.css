@@ -5717,3 +5717,94 @@ html[data-theme="dark"] .ato-mgr-buf #bufMsg.buf-hint-bad {
   text-align: right;
   color: rgba(71, 85, 105, 0.9);
 }
+
+
+/* TOKEN main-order broker picker (ported from bot-2) */
+.tok-grid.tok-grid-3 {
+  grid-template-columns: minmax(230px, 0.82fr) minmax(260px, 1.1fr) minmax(260px, 1.1fr) !important;
+  width: min(1380px, 100%) !important;
+  max-width: 1380px !important;
+}
+.tok-card-main {
+  border: 1.5px solid rgba(124, 106, 232, 0.40);
+  background: #fff;
+}
+.tok-card-main .tok-title { color: var(--purple, #7C6AE8); }
+.tok-main-lead { margin: 0 !important; font-size: 12px; line-height: 1.4; }
+.tok-picks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.tok-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 14px 14px;
+  border-radius: 14px;
+  border: 1.5px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+.tok-pick:hover { transform: translateY(-1px); }
+.tok-pick:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.tok-pick .tok-logo { width: 28px; height: 28px; }
+.tok-pick-d .tok-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #25A17D;
+}
+.tok-pick-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.tok-pick-copy b {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  font-weight: 800;
+}
+.tok-pick-copy small { font-size: 11px; color: var(--muted); letter-spacing: 0; font-weight: 600; }
+.tok-pick-mark {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #C9C3DC;
+  flex: 0 0 auto;
+  position: relative;
+}
+.tok-pick-mark::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: transparent;
+}
+.tok-pick-z.on {
+  border-color: rgba(212, 91, 122, 0.70);
+  background: rgba(212, 91, 122, 0.12);
+}
+.tok-pick-z.on .tok-pick-mark { border-color: var(--sell, #D45B7A); }
+.tok-pick-z.on .tok-pick-mark::after { background: var(--sell, #D45B7A); }
+.tok-pick-d.on {
+  border-color: rgba(43, 179, 192, 0.70);
+  background: rgba(43, 179, 192, 0.12);
+}
+.tok-pick-d.on .tok-pick-mark { border-color: var(--green, #2BB3C0); }
+.tok-pick-d.on .tok-pick-mark::after { background: var(--green, #2BB3C0); }
+.tok-main-live {
+  margin: 0 !important;
+  font-size: 12px;
+  color: var(--muted);
+}
+.tok-main-live b { color: var(--ink); letter-spacing: 0.06em; }
+.tok-card-live {
+  box-shadow: inset 0 0 0 1.5px rgba(124, 106, 232, 0.35);
+}
+@media (max-width: 1100px) {
+  .tok-grid.tok-grid-3 { grid-template-columns: 1fr !important; }
