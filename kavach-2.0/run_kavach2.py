@@ -46,6 +46,7 @@ from core.token_watch import start_token_watch
 from core.daily_ato_prompt import daily_ato_prompt_status_line
 from core.feeder_nifty_collector import stop_feeder_nifty_collector
 from modules.ato_protection import ATOProtection, apply_ato_analytics_paths
+from modules.ratripal import Ratripal
 
 ROOT = Path(__file__).parent
 
@@ -54,6 +55,7 @@ import bat_telegram.bots.kavach2.bot as _kavach_bot
 LOCK_PATH = bot_lock_path("kavach2", ROOT)
 
 _ATO_MODULE: ATOProtection | None = None
+_RATRIPAL_MODULE: Ratripal | None = None
 _TOKEN_WATCH_STOP: threading.Event | None = None
 
 
@@ -178,12 +180,77 @@ def _start_ato_module(
     return ato
 
 
+
+
+def _sync_ratripal_enabled_from_deployment(state: StateManager) -> None:
+    """Enable Hedge Box / overnight when registered sell legs exist."""
+    logger = logging.getLogger("run_kavach")
+    path_raw = state.get("deployment.file")
+    has_sell = False
+    if path_raw:
+        try:
+            import json as _json
+            from pathlib import Path as _P
+
+            dep = _json.loads(_P(str(path_raw)).read_text(encoding="utf-8"))
+            positions = dep.get("positions") or {}
+            has_sell = bool(positions.get("pe_sell") or positions.get("ce_sell"))
+        except Exception as exc:
+            logger.warning("RATRIPAL enable sync failed: %s", exc)
+    if not has_sell:
+        # Fall back to live state legs (register already confirmed).
+        try:
+            has_sell = bool(state.get("positions.pe_sell") or state.get("positions.ce_sell"))
+        except Exception:
+            has_sell = False
+    state.set("modules.ratripal.enabled", bool(has_sell), save=False)
+    try:
+        state.save()
+    except Exception:
+        pass
+    logger.info("RATRIPAL enable sync: modules.ratripal.enabled=%s", bool(has_sell))
+
+
+def _start_ratripal_module(
+    broker,
+    config: Config,
+    state: StateManager,
+    event_bus: EventBus,
+) -> Ratripal | None:
+    """Start Hedge Box / overnight (RATRIPAL) daemon thread beside ATO."""
+    logger = logging.getLogger("run_kavach")
+    if broker is None:
+        logger.warning("RATRIPAL not started — no broker connection")
+        return None
+    _sync_ratripal_enabled_from_deployment(state)
+    if not bool(config.get("hedge_box.enabled", True)):
+        logger.info("RATRIPAL skipped — hedge_box.enabled=false")
+        return None
+    if not bool(config.get("modules.ratripal.enabled", True)):
+        logger.info("RATRIPAL skipped — modules.ratripal.enabled=false")
+        return None
+    mod = Ratripal(broker, config, state, event_bus)
+    if not mod.is_enabled():
+        logger.info("RATRIPAL disabled in config — skipping module start")
+        return None
+    mod.start()
+    logger.info(
+        "RATRIPAL / overnight hedge started (deployment.confirmed=%s, hedge_box.enabled=%s)",
+        state.get("deployment.confirmed", False),
+        config.get("hedge_box.enabled", False),
+    )
+    return mod
+
 def _shutdown_ato() -> None:
-    global _ATO_MODULE, _TOKEN_WATCH_STOP
+    global _ATO_MODULE, _RATRIPAL_MODULE, _TOKEN_WATCH_STOP
     stop_feeder_nifty_collector()
     if _TOKEN_WATCH_STOP is not None:
         _TOKEN_WATCH_STOP.set()
         _TOKEN_WATCH_STOP = None
+    if _RATRIPAL_MODULE is not None:
+        logging.getLogger("run_kavach").info("Stopping RATRIPAL / overnight hedge...")
+        _RATRIPAL_MODULE.stop()
+        _RATRIPAL_MODULE = None
     if _ATO_MODULE is not None:
         logging.getLogger("run_kavach").info("Stopping ATO Protection module...")
         _ATO_MODULE.stop()
@@ -191,7 +258,7 @@ def _shutdown_ato() -> None:
 
 
 def main() -> None:
-    global _ATO_MODULE, _TOKEN_WATCH_STOP
+    global _ATO_MODULE, _RATRIPAL_MODULE, _TOKEN_WATCH_STOP
 
     _configure_logging()
     logger = logging.getLogger("run_kavach")
@@ -303,6 +370,8 @@ def main() -> None:
         logger.info("KAVACH 2.0 broker bootstrapped from token file")
         if _ATO_MODULE is None:
             _ATO_MODULE = _start_ato_module(boot_broker, config, state, event_bus)
+            if _RATRIPAL_MODULE is None:
+                _RATRIPAL_MODULE = _start_ratripal_module(boot_broker, config, state, event_bus)
 
     broker = _connect_broker(client_code)
     _runtime["broker"] = broker
@@ -337,7 +406,10 @@ def main() -> None:
 
     if broker:
         apply_runtime_mode_provider(broker, state)
+        global _RATRIPAL_MODULE
         _ATO_MODULE = _start_ato_module(broker, config, state, event_bus)
+        if _RATRIPAL_MODULE is None:
+            _RATRIPAL_MODULE = _start_ratripal_module(broker, config, state, event_bus)
 
     if mode == "uat":
         _TOKEN_WATCH_STOP = start_token_watch(

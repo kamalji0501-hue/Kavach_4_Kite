@@ -941,6 +941,16 @@ def register_batman(payload: dict[str, Any]) -> dict[str, Any]:
         },
         "status": "armed",
     }
+    # Overnight / Hedge Box DTE source (Ratripal). Prefer registered week expiry.
+    try:
+        exp = str((scope or {}).get("expiry") or "").strip()
+        if exp:
+            data["calendar"] = {
+                "expiry_date": exp[:10],
+                "source": "registration_scope",
+            }
+    except Exception:
+        pass
 
     try:
         from core.ato_working_profile import apply_working_profile_to_deploy
@@ -1031,6 +1041,15 @@ def _sync_state(filepath: Path, state: Any) -> None:
         reset_overnight_cycles(state)
     except Exception:
         pass
+    # Overnight hedge (RATRIPAL): arm with this register so 15:15 plan can run today.
+    has_sell = bool(positions.get("pe_sell") or positions.get("ce_sell"))
+    state.set("modules.ratripal.enabled", has_sell, save=False)
+    state.set("ratripal.last_run_date", None, save=False)
+    state.set("ratripal.last_decision", None, save=False)
+    state.set("ratripal.pending.request_id", None, save=False)
+    state.set("ratripal.pending.response", None, save=False)
+    state.set("overnight.hedge_active", False, save=False)
+    state.set("overnight.morning_done_date", None, save=False)
     state.set("algo.paused", False, save=False)
     try:
         from core.pnl_exit_guard import clear_last_fire

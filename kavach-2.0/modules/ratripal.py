@@ -136,16 +136,22 @@ class Ratripal(ModuleBase):
             return cast(dict[str, Any], json.load(fh))
 
     def _calculate_dte(self, deployment: dict[str, Any], today: date) -> int:
-        calendar = deployment.get("calendar", {})
+        calendar = deployment.get("calendar", {}) or {}
         effective = calendar.get("effective_working_days") or []
         if effective:
             days = sorted(date.fromisoformat(d) for d in effective)
             future_days = [d for d in days if today < d]
             return len(future_days)
 
-        expiry_raw = calendar.get("expiry_date")
+        scope = deployment.get("registration_scope") or {}
+        expiry_raw = (
+            calendar.get("expiry_date")
+            or scope.get("expiry")
+            or deployment.get("expiry")
+            or deployment.get("expiry_date")
+        )
         if expiry_raw:
-            expiry = date.fromisoformat(expiry_raw)
+            expiry = date.fromisoformat(str(expiry_raw)[:10])
             dte = 0
             cursor = today
             while cursor < expiry:
@@ -153,6 +159,7 @@ class Ratripal(ModuleBase):
                 dte += 1
             return dte
 
+        # Last resort: next weekly Tuesday expiry (can be 0 on expiry morning).
         expiry = utils.current_week_expiry(utils.day_name_to_weekday("Tuesday"), today)
         dte = 0
         cursor = today
@@ -721,7 +728,29 @@ class Ratripal(ModuleBase):
 
     @staticmethod
     def _build_option_symbol(sell_symbol: str, strike: int, side: str) -> str | None:
-        match = re.match(r"^([A-Z]+\d{2}[A-Z]{3})\d+(CE|PE)$", sell_symbol)
-        if not match:
+        """Build hedge symbol on the same expiry as the sell leg.
+
+        Supports classic ``NIFTY26SEP23500CE`` and weekly ``NIFTY2692223500CE``.
+        """
+        sym = str(sell_symbol or "").strip()
+        if not sym or not strike:
             return None
-        return f"{match.group(1)}{strike}{side}"
+        side_u = str(side or "").upper()
+        if side_u not in {"CE", "PE"}:
+            return None
+        try:
+            from core.positions import build_ato_protect_symbol
+
+            out = build_ato_protect_symbol(sym, int(strike), side_u)
+            if out and out.startswith("NIFTY"):
+                return out
+        except Exception:
+            pass
+        # Fallbacks (same as build_ato_protect_symbol)
+        compact = re.match(r"^([A-Z]+\d{2}[A-Z]{3})(\d+)(CE|PE)$", sym)
+        if compact:
+            return f"{compact.group(1)}{int(strike)}{side_u}"
+        weekly = re.match(r"^(NIFTY\d{5})(\d{4,5})(CE|PE)$", sym)
+        if weekly:
+            return f"{weekly.group(1)}{int(strike)}{side_u}"
+        return None
