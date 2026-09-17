@@ -339,7 +339,7 @@ class ATOProtection(ModuleBase):
                         return
                     continue
 
-                if not is_past_monitoring_start():
+                if not is_past_monitoring_start(state=self.state):
                     try:
                         from core import utils
                         from core.overnight_handoff import morning_handoff_due
@@ -349,12 +349,15 @@ class ATOProtection(ModuleBase):
                             utils.now_ist().time(),
                             utils.now_ist().date().isoformat(),
                         ):
+                            # Runs 09:20 handoff (ATO-first if outside, then sell hedges).
                             self._check_breach()
                     except Exception as exc:
                         self.log.warning("Overnight morning handoff wait-window failed: %s", exc)
-                    if self._sleep(self._effective_poll_interval(cfg_ato)):
-                        return
-                    continue
+                    # After overnight exit, monitoring unlocks immediately (no 09:25 wait).
+                    if not is_past_monitoring_start(state=self.state):
+                        if self._sleep(self._effective_poll_interval(cfg_ato)):
+                            return
+                        continue
 
                 self._maybe_evening_hedge_box()
                 self._check_breach()
@@ -386,7 +389,7 @@ class ATOProtection(ModuleBase):
         )
         last_log = 0.0
         while not self._stop_event.is_set():
-            if is_past_monitoring_start():
+            if is_past_monitoring_start(state=self.state):
                 if is_uat_replay_feed_active():
                     self.log.info(
                         "ATO Protection: UAT replay feed active — starting breach checks now"
@@ -408,6 +411,12 @@ class ATOProtection(ModuleBase):
                 ):
                     self.log.info(
                         "ATO Protection: overnight morning handoff due — unlocking at 09:20 IST"
+                    )
+                    return
+                if is_past_monitoring_start(state=self.state):
+                    self.log.info(
+                        "ATO Protection: overnight morning handoff done — ATO monitoring unlocked before %s IST",
+                        start_label,
                     )
                     return
             except Exception:
@@ -1876,10 +1885,25 @@ class ATOProtection(ModuleBase):
         entry_buffer: int,
         retrace_points: int,
         entry_source: str,
+        buy_option_premium: float | None = None,
+        buy_timestamp_ist: str | None = None,
     ) -> None:
         self._ensure_ledger_state()
-        buy_ts = utils.now_ist().strftime("%Y-%m-%d %H:%M:%S IST")
-        buy_premium = self._wait_fill_price(order_id)
+        buy_ts = (
+            str(buy_timestamp_ist).strip()
+            if buy_timestamp_ist
+            else utils.now_ist().strftime("%Y-%m-%d %H:%M:%S IST")
+        )
+        buy_premium = None
+        if buy_option_premium is not None:
+            try:
+                buy_premium = float(buy_option_premium)
+            except (TypeError, ValueError):
+                buy_premium = None
+            if buy_premium is not None and buy_premium <= 0:
+                buy_premium = None
+        if buy_premium is None:
+            buy_premium = self._wait_fill_price(order_id)
         if buy_premium is None:
             buy_premium = self._resolve_option_premium(
                 protect_symbol, order_id, spot=float(spot)
@@ -1983,6 +2007,30 @@ class ATOProtection(ModuleBase):
         except Exception as exc:
             self.log.warning("ATO snapshot XLSX export soft-failed: %s", exc)
 
+
+    def _session_ato_cycle_index(self, side: str) -> int:
+        """Next session-wide ATO cycle number (Register → Complete), CE+PE combined."""
+        try:
+            from pathlib import Path as _P
+
+            dep = _P(str(self.state.get("deployment.file") or "")).name
+        except Exception:
+            dep = ""
+        n = 0
+        try:
+            path = _ATO_LEDGER_FILE
+            if path.is_file() and dep:
+                import csv as _csv
+
+                with path.open(encoding="utf-8", newline="") as fh:
+                    for raw in _csv.DictReader(fh):
+                        row_dep = str(raw.get("deployment_file") or "").strip()
+                        if row_dep == dep or _P(row_dep).name == dep:
+                            n += 1
+        except Exception:
+            pass
+        return int(n) + 1
+
     def _record_trade_cycle(
         self,
         *,
@@ -2046,9 +2094,7 @@ class ATOProtection(ModuleBase):
             "timestamp_ist": utils.now_ist().strftime("%Y-%m-%d %H:%M:%S IST"),
             "deployment_file": pathlib.Path(str(self.state.get("deployment.file", ""))).name,
             "side": side,
-            "cycle_index": (
-                getattr(self, "_ce_cycles", 0) if side == "CE" else getattr(self, "_pe_cycles", 0)
-            ),
+            "cycle_index": self._session_ato_cycle_index(side),
             "entry_source": (entry or {}).get("entry_source", "unknown"),
             "buy_timestamp_ist": (entry or {}).get("buy_timestamp_ist", ""),
             "buy_order_id": (entry or {}).get("buy_order_id", ""),
@@ -2975,12 +3021,17 @@ class ATOProtection(ModuleBase):
         pe_strike: int,
         sym_qty: dict[str, int],
     ) -> None:
-        """09:20: ATO first if open outside the box, then sell evening overnight qty only."""
+        """09:20: ATO first if open outside the box, then sell evening overnight qty only.
+
+        Same-strike exception: if overnight hedge already sits on the ATO protect
+        symbol, convert it to ATO (keep qty / top up to ATO size) and do NOT sell
+        that symbol in the overnight exit.
+        """
         from core import utils
         from core.overnight_handoff import (
             classify_open,
             morning_cutoff_reached,
-            morning_sell_qty,
+            overnight_matches_protect,
         )
 
         if not self.state.get("overnight.hedge_active", False):
@@ -2998,19 +3049,107 @@ class ATOProtection(ModuleBase):
         kind = classify_open(spot=spot, ce_trigger=ce_trig, pe_trigger=pe_trig)
         self.log.info("Overnight morning handoff open=%s spot=%s ce_trig=%s pe_trig=%s", kind, spot, ce_trig, pe_trig)
 
+        skip_exit_ce = False
+        skip_exit_pe = False
+        converted: list[str] = []
+
         if kind in ("ce_out", "both_out") and ce_settings and ce_strike:
             try:
-                self._place_ce_protection(ce_strike, float(spot), ce_settings, "overnight_gap_open")
+                ce_protect_sym, _ = self._resolve_protect_symbol(
+                    "CE",
+                    "ato.ce_protect_symbol",
+                    "ato.ce_protect_strike",
+                    "positions.ce_sell",
+                    ce_strike,
+                )
+                ov_ce = self.state.get("overnight.ce_symbol")
+                if overnight_matches_protect(
+                    overnight_symbol=ov_ce, protect_symbol=ce_protect_sym
+                ):
+                    if self._convert_overnight_hedge_to_ato(
+                        "CE", ce_strike, float(spot), ce_settings
+                    ):
+                        skip_exit_ce = True
+                        converted.append("CE")
+                    else:
+                        self._place_ce_protection(
+                            ce_strike, float(spot), ce_settings, "overnight_gap_open"
+                        )
+                else:
+                    self._place_ce_protection(
+                        ce_strike, float(spot), ce_settings, "overnight_gap_open"
+                    )
             except Exception as exc:
                 self.log.error("Overnight morning CE ATO failed: %s", exc)
+
         if kind in ("pe_out", "both_out") and pe_settings and pe_strike:
             try:
-                self._place_pe_protection(pe_strike, float(spot), pe_settings, "overnight_gap_open")
+                pe_protect_sym, _ = self._resolve_protect_symbol(
+                    "PE",
+                    "ato.pe_protect_symbol",
+                    "ato.pe_protect_strike",
+                    "positions.pe_sell",
+                    pe_strike,
+                )
+                ov_pe = self.state.get("overnight.pe_symbol")
+                if overnight_matches_protect(
+                    overnight_symbol=ov_pe, protect_symbol=pe_protect_sym
+                ):
+                    if self._convert_overnight_hedge_to_ato(
+                        "PE", pe_strike, float(spot), pe_settings
+                    ):
+                        skip_exit_pe = True
+                        converted.append("PE")
+                    else:
+                        self._place_pe_protection(
+                            pe_strike, float(spot), pe_settings, "overnight_gap_open"
+                        )
+                else:
+                    self._place_pe_protection(
+                        pe_strike, float(spot), pe_settings, "overnight_gap_open"
+                    )
             except Exception as exc:
                 self.log.error("Overnight morning PE ATO failed: %s", exc)
 
-        self._exit_overnight_side("CE", sym_qty)
-        self._exit_overnight_side("PE", sym_qty)
+        if not skip_exit_ce:
+            self._exit_overnight_side("CE", sym_qty)
+        else:
+            self.log.info(
+                "Overnight CE converted to ATO protect — morning SELL skipped for %s "
+                "(P&L continues on ATO Summary using overnight entry px)",
+                self.state.get("overnight.ce_symbol"),
+            )
+            try:
+                from core.overnight_handoff import mark_overnight_converted_to_ato
+
+                mark_overnight_converted_to_ato(
+                    self.state,
+                    side="CE",
+                    symbol=str(self.state.get("overnight.ce_symbol") or ""),
+                    convert_time=utils.now_ist().strftime("%Y-%m-%d %H:%M:%S"),
+                )
+            except Exception:
+                pass
+        if not skip_exit_pe:
+            self._exit_overnight_side("PE", sym_qty)
+        else:
+            self.log.info(
+                "Overnight PE converted to ATO protect — morning SELL skipped for %s "
+                "(P&L continues on ATO Summary using overnight entry px)",
+                self.state.get("overnight.pe_symbol"),
+            )
+            try:
+                from core.overnight_handoff import mark_overnight_converted_to_ato
+
+                mark_overnight_converted_to_ato(
+                    self.state,
+                    side="PE",
+                    symbol=str(self.state.get("overnight.pe_symbol") or ""),
+                    convert_time=utils.now_ist().strftime("%Y-%m-%d %H:%M:%S"),
+                )
+            except Exception:
+                pass
+
         self.state.set("overnight.hedge_active", False, save=False)
         self.state.set("overnight.morning_done_date", today)
         try:
@@ -3018,6 +3157,16 @@ class ATOProtection(ModuleBase):
 
             if kind == "inside":
                 msg = "Open inside box — overnight hedges exited — ATO on."
+            elif converted:
+                bits = "+".join(converted)
+                msg = (
+                    f"Open outside — overnight {bits} converted to ATO "
+                    f"(kept/topped up; not sold)."
+                )
+                if kind == "ce_out" and "PE" not in converted:
+                    msg = "Open outside CE — CE overnight converted to ATO (kept/topped up)."
+                elif kind == "pe_out" and "CE" not in converted:
+                    msg = "Open outside PE — PE overnight converted to ATO (kept/topped up)."
             elif kind == "ce_out":
                 msg = "Open outside CE — CE ATO fired — hedges exited."
             elif kind == "pe_out":
@@ -3028,7 +3177,7 @@ class ATOProtection(ModuleBase):
                 severity="green" if kind == "inside" else "orange",
                 category="Overnight hedge",
                 alert=msg,
-                log=f"overnight morning kind={kind} spot={spot}",
+                log=f"overnight morning kind={kind} spot={spot} converted={converted}",
             )
         except Exception:
             pass
@@ -3041,8 +3190,187 @@ class ATOProtection(ModuleBase):
                 morning_kind=kind,
                 morning_spot=spot,
                 morning_done_date=today,
-                morning_ce_sold=int(self.state.get("overnight.ce_qty") or 0),
-                morning_pe_sold=int(self.state.get("overnight.pe_qty") or 0),
+                morning_converted=converted,
+                morning_ce_sold=0
+                if skip_exit_ce
+                else int(self.state.get("overnight.ce_qty") or 0),
+                morning_pe_sold=0
+                if skip_exit_pe
+                else int(self.state.get("overnight.pe_qty") or 0),
+            )
+        except Exception:
+            pass
+        return True
+
+    def _convert_overnight_hedge_to_ato(
+        self,
+        side: str,
+        sell_strike: int,
+        spot: float,
+        settings: dict[str, Any] | None,
+    ) -> bool:
+        """Keep overnight long on ATO protect strike; top up to ATO size if short."""
+        from core.ato_idempotency import ato_order_key
+
+        tag = side.upper()
+        if tag == "CE":
+            symbol, protect_strike = self._resolve_protect_symbol(
+                "CE",
+                "ato.ce_protect_symbol",
+                "ato.ce_protect_strike",
+                "positions.ce_sell",
+                sell_strike,
+            )
+            buy_key = "ce_buy"
+            triggered_key = "ato.ce_triggered"
+            active_key = "ato.ce_ato_active"
+            order_key = "ato.ce_order_id"
+            exit_oid_key = "ato.ce_ato_exit_order_id"
+        else:
+            symbol, protect_strike = self._resolve_protect_symbol(
+                "PE",
+                "ato.pe_protect_symbol",
+                "ato.pe_protect_strike",
+                "positions.pe_sell",
+                sell_strike,
+            )
+            buy_key = "pe_buy"
+            triggered_key = "ato.pe_triggered"
+            active_key = "ato.pe_ato_active"
+            order_key = "ato.pe_order_id"
+            exit_oid_key = "ato.pe_ato_exit_order_id"
+
+        if not symbol:
+            self.log.error("%s overnight→ATO convert failed — no protect symbol", tag)
+            return False
+
+        if self._skip_ato_entry_if_zero_qty(
+            tag,
+            buy_key,
+            spot=spot,
+            sell_strike=sell_strike,
+            settings=settings or self._side_settings(tag, sell_strike),
+            trigger_reason="overnight_gap_open_convert",
+        ):
+            return False
+
+        ato_qty = int(self._ato_qty(buy_key) or 0)
+        if ato_qty <= 0:
+            self.log.error("%s overnight→ATO convert failed — ato_qty=0", tag)
+            return False
+
+        product = self.config.get("strategy.product_type", "MARGIN")
+        settings = settings or self._side_settings(tag, sell_strike)
+        idem_key = ato_order_key(tag, "BUY", str(symbol))
+
+        # Engage ATO on the existing overnight long, then top up only if short.
+        self.state.set(triggered_key, True, save=False)
+        self.state.set(active_key, True, save=False)
+        self.state.set(exit_oid_key, None, save=False)
+        self._begin_protect_entry_cycle(tag)
+        self._set_registered_exit_qty(tag, ato_qty)
+        self._record_side_entry_replay_time(tag)
+
+        from core.overnight_handoff import (
+            convert_entry_premium,
+            overnight_open_entry_premium,
+        )
+
+        ov_px, ov_ts, ov_qty = overnight_open_entry_premium(
+            self.state, side=tag, symbol=str(symbol)
+        )
+        if ov_qty <= 0:
+            try:
+                ov_qty = int(self.state.get(f"overnight.{tag.lower()}_qty") or 0)
+            except (TypeError, ValueError):
+                ov_qty = 0
+
+        order_id = self._execute_protect_buy(
+            side=tag,
+            symbol=str(symbol),
+            ato_qty=ato_qty,
+            product=product,
+            idem_key=idem_key,
+        )
+        if order_id and order_id != "BOOK_FILLED":
+            self.state.set(order_key, order_id, save=False)
+
+        topup_qty = max(0, int(ato_qty) - int(ov_qty or 0))
+        topup_px = None
+        if topup_qty > 0 and order_id and str(order_id) not in {"BOOK_FILLED", "CONVERTED"}:
+            topup_px = self._wait_fill_price(str(order_id))
+            if topup_px is None:
+                topup_px = self._resolve_option_premium(
+                    str(symbol), str(order_id), spot=float(spot)
+                )
+
+        entry_px = convert_entry_premium(
+            overnight_px=ov_px,
+            overnight_qty=int(ov_qty or 0),
+            topup_px=topup_px,
+            topup_qty=int(topup_qty),
+        )
+
+        if ov_ts and topup_qty <= 0:
+            buy_ts = str(ov_ts).strip()
+            if "IST" not in buy_ts:
+                if len(buy_ts) >= 19:
+                    buy_ts = f"{buy_ts} IST"
+                elif len(buy_ts) <= 8:
+                    buy_ts = utils.now_ist().strftime("%Y-%m-%d ") + buy_ts + " IST"
+                else:
+                    buy_ts = f"{buy_ts} IST"
+        else:
+            buy_ts = utils.now_ist().strftime("%Y-%m-%d %H:%M:%S IST")
+
+        held = int(self._position_qty(str(symbol)) or 0)
+        self.log.info(
+            "Overnight %s converted to ATO protect %s — kept book=%s target_ato=%s "
+            "order=%s entry_px=%s ov_px=%s topup_px=%s (morning SELL skipped; "
+            "P&L continues on ATO Summary)",
+            tag,
+            symbol,
+            held,
+            ato_qty,
+            order_id or "none",
+            entry_px,
+            ov_px,
+            topup_px,
+        )
+        try:
+            cycles_attr = "_ce_cycles" if tag == "CE" else "_pe_cycles"
+            setattr(self, cycles_attr, getattr(self, cycles_attr, 0) + 1)
+            self._notify_ato_fired(tag, spot, getattr(self, cycles_attr, 1))
+            self._maybe_exit_dyn_hedge(tag)
+        except Exception:
+            pass
+        try:
+            self._append_telemetry_row(
+                side=tag,
+                action="BUY entry (overnight convert)",
+                trigger_reason="overnight_gap_open_convert",
+                spot=spot,
+                sell_strike=sell_strike,
+                trigger_level_used=(settings or {}).get("trigger_level"),
+                protect_strike=int(protect_strike),
+                protect_symbol=str(symbol),
+                order_id=str(order_id or "CONVERTED"),
+                qty=ato_qty,
+            )
+            self._remember_entry(
+                side=tag,
+                spot=spot,
+                order_id=str(order_id or "CONVERTED"),
+                qty=ato_qty,
+                sell_strike=sell_strike,
+                trigger_level=(settings or {}).get("trigger_level"),
+                protect_strike=int(protect_strike),
+                protect_symbol=str(symbol),
+                entry_buffer=(settings or {}).get("entry_buffer"),
+                retrace_points=(settings or {}).get("retrace_points"),
+                entry_source="overnight_convert",
+                buy_option_premium=entry_px,
+                buy_timestamp_ist=buy_ts,
             )
         except Exception:
             pass
@@ -3089,7 +3417,7 @@ class ATOProtection(ModuleBase):
                     side=side,
                     symbol=str(symbol),
                     exit_premium=px,
-                    exit_time=utils.now_ist().strftime("%H:%M:%S"),
+                    exit_time=utils.now_ist().strftime("%Y-%m-%d %H:%M:%S"),
                 )
             except Exception:
                 pass

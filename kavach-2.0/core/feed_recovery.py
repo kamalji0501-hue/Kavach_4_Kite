@@ -434,7 +434,7 @@ def is_past_kavach_monitoring_start(now: datetime | None = None) -> bool:
 
 
 def try_session_open_auto_resume(*, state_path: Path | str | None = None) -> str | None:
-    """After KAVACH monitoring start (default 09:25): auto-resume if feed healthy.
+    """After KAVACH monitoring start (default 09:20): auto-resume if feed healthy.
 
     Returns ``auto_resumed``, ``notify_operator``, or None.
     """

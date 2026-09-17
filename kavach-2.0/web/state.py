@@ -108,6 +108,8 @@ def snapshot() -> dict[str, Any]:
         "nifty_ok": nifty_ok,
         "order_mode": _state_get(state, "order_mode") or "paper",
         "day_pnl": day_pnl,
+        "batman_pnl": None,
+        "batman_pnl_detail": {},
         "positions": positions,
         "ato_readiness": ato_readiness,
         "ato_buy_fill_token": _state_get(state, "ato.web_buy_fill_token") or "",
@@ -116,6 +118,15 @@ def snapshot() -> dict[str, Any]:
         "overnight": {},
         "desk_alerts": [],
     }
+    try:
+        from core.batman_pnl import compute_batman_pnl
+
+        bp = compute_batman_pnl(state=state, day_pnl=day_pnl)
+        out["batman_pnl"] = bp.get("batman_pnl")
+        out["batman_pnl_detail"] = bp
+    except Exception:
+        out["batman_pnl"] = day_pnl
+        out["batman_pnl_detail"] = {}
     try:
         from core.overnight_handoff import overnight_snapshot
 

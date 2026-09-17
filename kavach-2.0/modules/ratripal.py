@@ -638,8 +638,9 @@ class Ratripal(ModuleBase):
                 symbol=str(plan.symbol),
                 qty=int(filled),
                 entry_premium=px,
-                entry_time=utils.now_ist().strftime("%H:%M:%S"),
+                entry_time=utils.now_ist().strftime("%Y-%m-%d %H:%M:%S"),
                 zone=str(plan.state or ""),
+                date_ist=utils.now_ist().date().isoformat(),
             )
         except Exception:
             pass

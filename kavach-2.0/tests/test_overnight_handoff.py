@@ -10,6 +10,11 @@ from core.overnight_handoff import (
     morning_cutoff_reached,
     morning_handoff_due,
     morning_sell_qty,
+    convert_entry_premium,
+    mark_overnight_converted_to_ato,
+    overnight_matches_protect,
+    overnight_open_entry_premium,
+    overnight_session_totals,
     overnight_snapshot,
 )
 
@@ -215,3 +220,173 @@ def test_overnight_cycle_entry_then_exit_impact():
     assert ce["impact"] == -10.0
     assert ce["impact_rupees"] == -6500.0
     assert rows[1]["status"] == "open"
+
+
+def test_overnight_matches_protect_same_strike():
+    assert overnight_matches_protect(
+        overnight_symbol="NIFTY25SEP24500PE",
+        protect_symbol="nifty25sep24500pe",
+    )
+    assert not overnight_matches_protect(
+        overnight_symbol="NIFTY25SEP24500PE",
+        protect_symbol="NIFTY25SEP24450PE",
+    )
+    assert not overnight_matches_protect(overnight_symbol="", protect_symbol="X")
+    assert not overnight_matches_protect(overnight_symbol=None, protect_symbol=None)
+
+
+def test_convert_overnight_to_ato_skips_sell_and_tops_up(monkeypatch):
+    """Outside open + overnight on protect strike → keep/top-up, no overnight SELL."""
+    from modules import ato_protection as ap_mod
+
+    class _S:
+        def __init__(self):
+            self.d = {
+                "overnight.hedge_active": True,
+                "overnight.morning_done_date": None,
+                "overnight.pe_symbol": "NIFTY25SEP24500PE",
+                "overnight.pe_qty": 650,
+                "overnight.ce_symbol": None,
+                "overnight.ce_qty": 0,
+                "ato.pe_protect_symbol": "NIFTY25SEP24500PE",
+                "ato.pe_protect_strike": 24500,
+                "deployment.batman_complete": False,
+            }
+
+        def get(self, k, default=None):
+            return self.d.get(k, default)
+
+        def set(self, k, v, save=True):
+            self.d[k] = v
+
+    st = _S()
+    exits: list[str] = []
+    converts: list[str] = []
+
+    class _Fake:
+        def __init__(self):
+            self.state = st
+            self.log = type("L", (), {"info": lambda *a, **k: None, "error": lambda *a, **k: None})()
+            self.config = {"strategy.product_type": "MARGIN"}
+
+        def _resolve_protect_symbol(self, side, *args):
+            if side == "PE":
+                return "NIFTY25SEP24500PE", 24500
+            return "NIFTY25SEP24600CE", 24600
+
+        def _convert_overnight_hedge_to_ato(self, side, *a, **k):
+            converts.append(side)
+            return True
+
+        def _place_pe_protection(self, *a, **k):
+            raise AssertionError("should convert, not place fresh PE ATO blindly")
+
+        def _place_ce_protection(self, *a, **k):
+            raise AssertionError("CE should not fire on pe_out")
+
+        def _exit_overnight_side(self, side, sym_qty):
+            exits.append(side)
+
+    fake = _Fake()
+    monkeypatch.setattr("core.utils.now_ist", lambda: __import__("datetime").datetime(2026, 9, 11, 9, 20, tzinfo=__import__("zoneinfo").ZoneInfo("Asia/Kolkata")))
+    monkeypatch.setattr("core.desk_alerts.emit_desk_alert", lambda **kw: None)
+    # bind unbound method
+    ap_mod.ATOProtection._maybe_morning_overnight_handoff(
+        fake,
+        spot=24300.0,
+        ce_settings={"trigger_level": 24800},
+        pe_settings={"trigger_level": 24400},
+        ce_strike=24750,
+        pe_strike=24450,
+        sym_qty={"NIFTY25SEP24500PE": 650},
+    )
+    assert converts == ["PE"]
+    assert exits == ["CE"]  # CE overnight empty/skip path still called; PE skipped
+    assert st.get("overnight.hedge_active") is False
+    assert st.get("overnight.morning_done_date") == "2026-09-11"
+
+
+def test_overnight_session_totals_accumulate_closed():
+    from core.overnight_handoff import (
+        close_overnight_cycle_exit,
+        record_overnight_cycle_entry,
+        reset_overnight_cycles,
+    )
+
+    class _S:
+        def __init__(self):
+            self.d = {}
+        def get(self, k, default=None):
+            return self.d.get(k, default)
+        def set(self, k, v, save=True):
+            self.d[k] = v
+
+    st = _S()
+    reset_overnight_cycles(st)
+    record_overnight_cycle_entry(
+        st, side="CE", symbol="NIFTY25SEP24950CE", qty=650,
+        entry_premium=40.0, entry_time="2026-09-10 15:20:01", zone="White",
+        date_ist="2026-09-10",
+    )
+    close_overnight_cycle_exit(
+        st, side="CE", symbol="NIFTY25SEP24950CE",
+        exit_premium=30.0, exit_time="2026-09-11 09:20:05",
+    )
+    record_overnight_cycle_entry(
+        st, side="PE", symbol="NIFTY25SEP23950PE", qty=650,
+        entry_premium=35.0, entry_time="2026-09-11 15:20:02", zone="White",
+        date_ist="2026-09-11",
+    )
+    close_overnight_cycle_exit(
+        st, side="PE", symbol="NIFTY25SEP23950PE",
+        exit_premium=40.0, exit_time="2026-09-12 09:20:05",
+    )
+    tot = overnight_session_totals(st)
+    assert tot["closed_count"] == 2
+    assert tot["cycle_count"] == 2
+    assert tot["total_impact"] == (-10.0 + 5.0)
+    assert tot["total_rupees"] == round((-10.0 * 650) + (5.0 * 650), 2)
+
+
+def test_convert_entry_premium_weighted_average():
+    assert convert_entry_premium(
+        overnight_px=40.0, overnight_qty=650, topup_px=None, topup_qty=0
+    ) == 40.0
+    # 650@40 + 650@50 = 45
+    assert convert_entry_premium(
+        overnight_px=40.0, overnight_qty=650, topup_px=50.0, topup_qty=650
+    ) == 45.0
+
+
+def test_overnight_open_entry_and_mark_converted():
+    class _S:
+        def __init__(self):
+            self.d = {}
+        def get(self, k, default=None):
+            return self.d.get(k, default)
+        def set(self, k, v, save=True):
+            self.d[k] = v
+
+    from core.overnight_handoff import record_overnight_cycle_entry, overnight_cycles, reset_overnight_cycles
+
+    st = _S()
+    reset_overnight_cycles(st)
+    record_overnight_cycle_entry(
+        st, side="PE", symbol="NIFTY25SEP23500PE", qty=650,
+        entry_premium=42.5, entry_time="2026-09-17 15:20:11",
+        zone="White", date_ist="2026-09-17",
+    )
+    px, ts, qty = overnight_open_entry_premium(
+        st, side="PE", symbol="NIFTY25SEP23500PE"
+    )
+    assert px == 42.5
+    assert qty == 650
+    assert "15:20" in ts
+    mark_overnight_converted_to_ato(
+        st, side="PE", symbol="NIFTY25SEP23500PE", convert_time="2026-09-18 09:20:01"
+    )
+    rows = overnight_cycles(st)
+    assert rows[0]["status"] == "closed"
+    assert rows[0]["converted_to_ato"] is True
+    assert rows[0]["impact"] is None
+    assert rows[0]["entry_premium"] == 42.5

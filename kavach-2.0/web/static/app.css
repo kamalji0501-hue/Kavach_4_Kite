@@ -5717,3 +5717,17 @@ html[data-theme="dark"] .ato-mgr-buf #bufMsg.buf-hint-bad {
   text-align: right;
   color: rgba(71, 85, 105, 0.9);
 }
+
+
+.home-pnl-pair {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: stretch;
+}
+.home-pnl-strip-batman {
+  border-color: rgba(42, 36, 80, 0.28);
+}
+html[data-theme="dark"] .home-pnl-strip-batman {
+  border-color: rgba(255, 255, 255, 0.18);
+}
