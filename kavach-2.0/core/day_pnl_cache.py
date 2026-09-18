@@ -4,9 +4,8 @@ Updated only when get_positions() already hits Kite (no extra REST).
 Uses a sys.modules singleton so parent/core and kavach-2.0/core share one cache
 even if both zerodha_broker copies are imported.
 
-Live PnL uses Zerodha's official formula:
-    pnl = (sell_value - buy_value) + (quantity * last_price * multiplier)
-with last_price from the existing /quote/ltp batch (same cadence as before).
+Day PnL matches Kite Positions Total P&L (sum of net[].pnl from get_positions).
+Open-leg LTP may still refresh from /quote/ltp for display only.
 """
 
 from __future__ import annotations
@@ -51,27 +50,30 @@ def _f(row: dict[str, Any], *keys: str) -> float | None:
 
 
 def _official_leg_pnl(row: dict[str, Any], *, ltp_override: float | None) -> tuple[float, float | None]:
-    """Zerodha: pnl = (sell_value - buy_value) + (qty * ltp * multiplier)."""
+    """Match Kite Positions Total: prefer broker `pnl` from get_positions().
+
+    Only fall back to (sell_value - buy_value) + (qty * ltp * mult) when broker
+    pnl is missing. Do not overwrite a present broker pnl with a local LTP
+    rebuild — that drifts from Kite (especially after market close).
+    """
     broker_pnl = _f(row, "pnl")
-    if broker_pnl is None:
-        broker_pnl = 0.0
+    ltp = ltp_override if ltp_override is not None else _f(row, "ltp")
+    if ltp is None:
+        ltp = _f(row, "avg")
+    if broker_pnl is not None:
+        return float(broker_pnl), ltp
     buy_value = _f(row, "buy_value")
     sell_value = _f(row, "sell_value")
     if buy_value is None or sell_value is None:
-        return float(broker_pnl), _f(row, "ltp")
+        return 0.0, ltp
     qty = float(row.get("qty") or 0)
     mult = _f(row, "multiplier")
     if mult is None:
         mult = 1.0
     if qty == 0:
-        return float(sell_value) - float(buy_value), _f(row, "ltp")
-    ltp = ltp_override
+        return float(sell_value) - float(buy_value), ltp
     if ltp is None:
-        ltp = _f(row, "ltp")
-    if ltp is None:
-        ltp = _f(row, "avg")
-    if ltp is None:
-        return float(broker_pnl), None
+        return 0.0, None
     return (float(sell_value) - float(buy_value)) + (qty * float(ltp) * float(mult)), float(ltp)
 
 
@@ -173,22 +175,16 @@ def update_day_pnl_from_positions(data: Any) -> None:
             if c is not None:
                 compact.append(c)
         _DAY_PNL_CACHE["positions"] = _select_rows(src)
-        # All legs with open qty or non-zero day pnl (incl. closed) for live MTM.
+        # All net legs for MTM — keep broker pnl on each row (matches Kite Total).
         _DAY_PNL_CACHE["pnl_rows"] = [
             c
             for c in compact
             if (c.get("qty") or 0) != 0
             or (c.get("pnl") is not None and float(c.get("pnl") or 0) != 0)
         ] or compact
-        total = 0.0
-        for c in _DAY_PNL_CACHE.get("pnl_rows") or []:
-            try:
-                total += float(c.get("pnl") or 0)
-            except (TypeError, ValueError):
-                continue
-        official = round(float(total), 2)
-        _DAY_PNL_CACHE["hybrid_pnl"] = official
-        _DAY_PNL_CACHE["pnl"] = official
+        # Headline Day PnL = sum of raw Kite net[].pnl (same as Positions Total P&L).
+        _DAY_PNL_CACHE["hybrid_pnl"] = broker_pnl
+        _DAY_PNL_CACHE["pnl"] = broker_pnl
     except Exception:
         pass
 
@@ -203,9 +199,10 @@ def _leg_hybrid_pnl(row: dict[str, Any], *, ltp_override: float | None) -> float
 
 
 def refresh_hybrid_day_pnl(*, broker: Any = None, force: bool = False) -> float | None:
-    """Recompute day PnL from broker book + fresh Kite LTPs (1 batched quote / ~1s max).
+    """Refresh open-leg LTPs for display; Day PnL stays on Kite broker pnl.
 
-    Uses sell_value/buy_value from the last get_positions(); marks open legs with live LTPs.
+    Previously rebuilt pnl with a local LTP formula, which drifted from Kite
+    Positions Total (seen after close / between polls). Keep broker pnl.
     """
     positions = _DAY_PNL_CACHE.get("pnl_rows") or _DAY_PNL_CACHE.get("positions") or []
     if not positions:
@@ -233,13 +230,14 @@ def refresh_hybrid_day_pnl(*, broker: Any = None, force: bool = False) -> float 
             except Exception:
                 pass
 
-    total = 0.0
+    # Update LTP only — do not rewrite row pnl (broker is source of truth).
     for row in positions:
         if not isinstance(row, dict):
             continue
         sym = str(row.get("symbol") or "")
         ltp_ov = hybrid_ltps.get(sym)
-        total += _apply_official_pnl(row, ltp_override=ltp_ov)
+        if ltp_ov is not None and float(row.get("qty") or 0) != 0:
+            row["ltp"] = float(ltp_ov)
 
     display = _DAY_PNL_CACHE.get("positions")
     if isinstance(display, list) and display is not positions:
@@ -247,13 +245,17 @@ def refresh_hybrid_day_pnl(*, broker: Any = None, force: bool = False) -> float 
             if not isinstance(row, dict):
                 continue
             sym = str(row.get("symbol") or "")
-            _apply_official_pnl(row, ltp_override=hybrid_ltps.get(sym))
+            ltp_ov = hybrid_ltps.get(sym)
+            if ltp_ov is not None and float(row.get("qty") or 0) != 0:
+                row["ltp"] = float(ltp_ov)
 
-    hybrid = round(float(total), 2)
-    _DAY_PNL_CACHE["hybrid_pnl"] = hybrid
-    _DAY_PNL_CACHE["hybrid_ts"] = now
-    _DAY_PNL_CACHE["pnl"] = hybrid
-    return hybrid
+    broker = cached_broker_day_pnl()
+    if broker is not None:
+        _DAY_PNL_CACHE["hybrid_pnl"] = broker
+        _DAY_PNL_CACHE["pnl"] = broker
+        _DAY_PNL_CACHE["hybrid_ts"] = now
+        return broker
+    return cached_day_pnl()
 
 
 def cached_broker_day_pnl() -> float | None:
