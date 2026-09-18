@@ -413,9 +413,9 @@
       total += n;
       any = true;
     }
-    if (!any) return "";
-    const pnlCls = clsPnl(total);
-    return `<tr><td colspan="5">TOTAL</td><td class="${pnlCls}">${esc(fmtPnl(total))}</td></tr>`;
+    const pnlCls = any ? clsPnl(total) : "";
+    const pnlTxt = any ? esc(fmtPnl(total)) : "—";
+    return `<tr class="hist-total"><td colspan="5"><b>TOTAL</b></td><td class="${pnlCls}"><b>${pnlTxt}</b></td></tr>`;
   }
 
   function paintPositions(positions) {
@@ -424,6 +424,19 @@
     const foot = $("posFoot");
     if (foot) foot.innerHTML = posFootHtml(positions);
   }
+
+
+  function positionsCardHtml(positions) {
+    return `<div class="card hist-wrap pos-card home-pos-card positions-page-card">
+      <h4 class="sec-title positions-card-title">POSITIONS</h4>
+      <div class="home-pos-table-wrap">
+        <table class="hist-table pos-table"><thead><tr>
+          <th>Symbol</th><th>Type</th><th>Qty</th><th>Avg</th><th>LTP</th><th>PnL</th>
+        </tr></thead><tbody id="posBody">${posRowsHtml(positions)}</tbody><tfoot id="posFoot">${posFootHtml(positions)}</tfoot></table>
+      </div>
+    </div>`;
+  }
+
 
 
   /* ---- ATO surety audio (always on; unlock on first gesture) ---- */
@@ -1698,6 +1711,16 @@
         };
         return;
       }
+
+      if (page === "positions") {
+        const s = await api("/api/state");
+        applyChrome(s);
+        view.innerHTML = `
+          <header class="page-head"><h3>POSITIONS</h3></header>
+          ${positionsCardHtml(s.positions)}`;
+        finishPageRender("positions", view, null, navT0);
+        return;
+      }
       if (page === "status") {
         const stTxt = (await api("/api/status")).text;
         let ready = {};
@@ -2038,7 +2061,7 @@
         await renderTokenPage(view);
       }
       if (page === "ato" || page === "buffer") page = "ato";
-      if (page === "status" || page === "summary" || page === "overnight" || page === "ato" || page === "deploy" || page === "payoff" || page === "token" || page === "alerts") {
+      if (page === "status" || page === "summary" || page === "overnight" || page === "ato" || page === "deploy" || page === "payoff" || page === "token" || page === "alerts" || page === "positions") {
         finishPageRender(page, view, pageMeta, navT0);
       } else {
         playViewIn(view);
