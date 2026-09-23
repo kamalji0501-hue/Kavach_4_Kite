@@ -247,12 +247,19 @@ class BatmanBroker:
         Returns ``{'NIFTY': 25234.50, ...}``.
         """
         try:
+            from core.dhan_instruments import map_dhan_order_symbol
+
+            mapped = [map_dhan_order_symbol(n) for n in names]
             tsl, _, _ = self._snapshot_tsl()
             with self._circuit:
-                data = cast(dict[str, float], tsl.get_ltp_data(names=names))
+                data = cast(dict[str, float], tsl.get_ltp_data(names=mapped))
                 if not data:
                     raise BrokerConnectionError(f"LTP fetch returned no data for: {names}")
-                return data
+                out: dict[str, float] = dict(data)
+                for orig, dhan_name in zip(names, mapped):
+                    if dhan_name in data:
+                        out[orig] = data[dhan_name]
+                return out
         except BrokerConnectionError:
             raise
         except Exception as exc:
@@ -389,9 +396,12 @@ class BatmanBroker:
         """
         self._enforce_live_mode_for_orders()
         try:
+            from core.dhan_instruments import map_dhan_order_symbol
+
+            dhan_symbol = map_dhan_order_symbol(symbol)
             tsl, _, _ = self._snapshot_tsl()
             order_id = tsl.order_placement(
-                tradingsymbol=symbol,
+                tradingsymbol=dhan_symbol,
                 exchange=exchange,
                 quantity=qty,
                 price=price,
@@ -403,7 +413,7 @@ class BatmanBroker:
             logger.info(
                 "Order placed: %s %s %s qty=%d price=%s → order_id=%s",
                 transaction_type,
-                symbol,
+                dhan_symbol,
                 order_type,
                 qty,
                 price,
@@ -755,8 +765,10 @@ class BatmanBroker:
 
         broker_lot: int | None = None
         try:
+            from core.dhan_instruments import map_dhan_order_symbol
+
             tsl, _, _ = self._snapshot_tsl()
-            raw = int(tsl.get_lot_size(tradingsymbol=symbol))
+            raw = int(tsl.get_lot_size(tradingsymbol=map_dhan_order_symbol(symbol)))
             if raw > 0:
                 broker_lot = raw
         except Exception:
