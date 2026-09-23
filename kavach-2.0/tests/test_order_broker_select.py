@@ -60,6 +60,8 @@ def test_set_main_order_broker_writes_env(tmp_path: Path, monkeypatch) -> None:
     env_file = secrets_root(tmp_path) / "config" / "order_broker.env"
     assert env_file.is_file()
     assert "MAIN_ORDER_BROKER=dhan" in env_file.read_text(encoding="utf-8")
+    # set_main_order_broker also writes os.environ; hand it to monkeypatch for teardown
+    monkeypatch.setenv("MAIN_ORDER_BROKER", "dhan")
 
 
 def test_uat_shadow_ignores_main_picker(tmp_path: Path, monkeypatch) -> None:

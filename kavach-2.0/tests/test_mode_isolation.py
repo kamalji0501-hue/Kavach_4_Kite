@@ -28,7 +28,8 @@ def _write_mode_config(root: Path, mode: str) -> None:
 
 
 @pytest.mark.parametrize("mode", ["dev", "prod"])
-def test_non_uat_modes_use_zerodha_broker(mode: str, tmp_path: Path) -> None:
+def test_non_uat_modes_use_zerodha_broker(mode: str, tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("MAIN_ORDER_BROKER", raising=False)
     _write_mode_config(tmp_path, mode)
     assert get_mode(tmp_path) == mode
     assert not is_uat(tmp_path)
