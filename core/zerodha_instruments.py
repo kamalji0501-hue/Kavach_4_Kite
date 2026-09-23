@@ -203,6 +203,90 @@ def kite_weekly_prefix(expiry: date) -> str:
         mon = _KITE_MONTH_TO_LETTER[expiry.month]
     return f"NIFTY{yy:02d}{mon}{expiry.day:02d}"
 
+
+_KITE_MONTH_ABBR = {
+    1: "JAN", 2: "FEB", 3: "MAR", 4: "APR", 5: "MAY", 6: "JUN",
+    7: "JUL", 8: "AUG", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DEC",
+}
+_KITE_ABBR_TO_MONTH = {v: k for k, v in _KITE_MONTH_ABBR.items()}
+
+
+def kite_monthly_prefix(expiry: date) -> str:
+    """date(2026, 9, 29) -> NIFTY26SEP (monthly series key)."""
+    return f"NIFTY{expiry.year % 100:02d}{_KITE_MONTH_ABBR[expiry.month]}"
+
+
+def _last_tuesday(year: int, month: int) -> date:
+    if month == 12:
+        cursor = date(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        cursor = date(year, month + 1, 1) - timedelta(days=1)
+    while cursor.weekday() != 1:  # Tuesday
+        cursor -= timedelta(days=1)
+    return cursor
+
+
+def parse_kite_monthly_expiry(
+    symbol: str,
+    *,
+    client=None,
+    root: Path | None = None,
+) -> date | None:
+    """NIFTY26SEP23300CE -> date(2026, 9, 29) via NFO instrument dump.
+
+    Monthly Kite symbols encode YY+MMM only (no day). Resolve the real expiry
+    from the cached instruments list; fall back to last-Tuesday convention.
+    """
+    compact = compact_nifty_symbol(symbol)
+    m = _KITE_MONTHLY_NIFTY.fullmatch(compact)
+    if not m:
+        # Also accept bare prefix NIFTY26SEP
+        if re.fullmatch(r"NIFTY\d{2}[A-Z]{3}", compact):
+            prefix = compact
+        else:
+            return None
+    else:
+        prefix = m.group(1)
+    rows = load_nifty_options(client, root=root)
+    for row in rows:
+        if nifty_expiry_key(row.tradingsymbol) == prefix:
+            return row.expiry
+    ym = re.fullmatch(r"NIFTY(\d{2})([A-Z]{3})", prefix)
+    if not ym:
+        return None
+    month = _KITE_ABBR_TO_MONTH.get(ym.group(2))
+    if month is None:
+        return None
+    return _last_tuesday(2000 + int(ym.group(1)), month)
+
+
+def parse_kite_option_expiry(
+    symbol: str,
+    *,
+    client=None,
+    root: Path | None = None,
+) -> date | None:
+    """Weekly or monthly Kite NIFTY option -> expiry date."""
+    weekly = parse_kite_weekly_expiry(symbol)
+    if weekly is not None:
+        return weekly
+    return parse_kite_monthly_expiry(symbol, client=client, root=root)
+
+
+def register_expiry_keys(expiry: date, *, root: Path | None = None) -> set[str]:
+    """Symbol prefixes that belong to one Register expiry date.
+
+    On monthly expiry Tuesday, both weekly (NIFTY26929) and monthly (NIFTY26SEP)
+    series share the same calendar date — Register must accept both.
+    """
+    keys = {kite_weekly_prefix(expiry)}
+    mprefix = kite_monthly_prefix(expiry)
+    monthly_day = parse_kite_monthly_expiry(mprefix, root=root)
+    if monthly_day == expiry:
+        keys.add(mprefix)
+    return keys
+
+
 def kite_tradingsymbol_from_any(
     symbol: str,
     *,

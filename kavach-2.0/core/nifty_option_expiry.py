@@ -246,12 +246,13 @@ def list_register_week_expiries(
     return out
 
 
-def position_expiry_date(pos: dict[str, Any]) -> date | None:
-    from core.zerodha_instruments import parse_kite_weekly_expiry
 
-    weekly = parse_kite_weekly_expiry(str(pos.get("symbol") or ""))
-    if weekly is not None:
-        return weekly
+def position_expiry_date(pos: dict[str, Any]) -> date | None:
+    from core.zerodha_instruments import parse_kite_option_expiry
+
+    parsed = parse_kite_option_expiry(str(pos.get("symbol") or ""))
+    if parsed is not None:
+        return parsed
     raw = str(pos.get("expiry") or "").strip()
     if not raw or raw.upper() == "UNKNOWN":
         return None
@@ -265,13 +266,13 @@ def filter_positions_for_expiry(
     positions: list[dict[str, Any]],
     expiry: date,
 ) -> list[dict[str, Any]]:
-    from core.zerodha_instruments import kite_weekly_prefix, nifty_expiry_key
+    from core.zerodha_instruments import nifty_expiry_key, register_expiry_keys
 
-    want_key = kite_weekly_prefix(expiry)
+    want_keys = register_expiry_keys(expiry)
     out: list[dict[str, Any]] = []
     for pos in positions:
         key = nifty_expiry_key(str(pos.get("symbol") or ""))
-        if key == want_key:
+        if key in want_keys:
             out.append(pos)
             continue
         got = position_expiry_date(pos)
@@ -281,13 +282,16 @@ def filter_positions_for_expiry(
 
 
 def symbol_matches_register_expiry(symbol: str, expiry: date) -> bool:
-    from core.zerodha_instruments import kite_weekly_prefix, nifty_expiry_key, parse_kite_weekly_expiry
+    from core.zerodha_instruments import (
+        nifty_expiry_key,
+        parse_kite_option_expiry,
+        register_expiry_keys,
+    )
 
     key = nifty_expiry_key(symbol)
-    if key == kite_weekly_prefix(expiry):
+    if key in register_expiry_keys(expiry):
         return True
-    weekly = parse_kite_weekly_expiry(symbol)
-    return weekly == expiry
+    return parse_kite_option_expiry(symbol) == expiry
 
 
 def choose_default_register_expiry(
