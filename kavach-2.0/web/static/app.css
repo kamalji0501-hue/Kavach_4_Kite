@@ -3196,8 +3196,9 @@ body:has(#desk:not(.hidden)) { height: 100dvh; max-height: 100dvh; overflow: hid
     padding-bottom: 4px;
   }
 
-  /* Home — hide positions only; keep OPEN ATO */
-  .home-pos-card {
+  /* Home — hide positions only; keep OPEN ATO (POSITIONS page keeps its card) */
+  .home-dash .home-pos-card,
+  .home-body-grid > .home-pos-card {
     display: none !important;
   }
   .home-open-card {
@@ -4732,7 +4733,7 @@ body:has(#desk:not(.hidden)) { height: 100dvh; max-height: 100dvh; overflow: hid
   .home-left-stack > .dep-card-green { order: 2 !important; display: flex !important; }
   .home-left-stack > .ato-ready-card { order: 3 !important; display: flex !important; }
   .home-body-grid > .home-pos-card,
-  .home-pos-card {
+  .home-dash .home-pos-card {
     display: none !important;
   }
 }
@@ -5808,3 +5809,453 @@ html[data-theme="dark"] .ato-mgr-buf #bufMsg.buf-hint-bad {
 }
 @media (max-width: 1100px) {
   .tok-grid.tok-grid-3 { grid-template-columns: 1fr !important; }
+
+.home-pnl-pair {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: stretch;
+}
+.home-pnl-strip-batman {
+  border-color: rgba(42, 36, 80, 0.28);
+}
+html[data-theme="dark"] .home-pnl-strip-batman {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+/* === MOBILE CARDS v2: grow height; keep table WIDTH scroll; Summary 10-row floor === */
+/* Laptop/desktop unchanged. Does not change column layout / data display. */
+@media (max-width: 900px) and (pointer: coarse) {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* Page scrolls vertically — not the cards */
+  .body,
+  .body:has(.home-dash),
+  .body:has(.page-frame),
+  .body:has(.tok-grid),
+  .body:has(.ato-mgr),
+  .body:has(.reg-form),
+  .body:has(.dep-complete),
+  .body:has(.hist-wrap),
+  .body:has(.payoff-page),
+  .body:has(.oh-page-grid),
+  .body:has(.bsec),
+  .body:has(.add-form) {
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Stop viewport-fill flex that caused INNER vertical card scroll */
+  .page-frame,
+  .home-dash,
+  .oh-page-grid,
+  .oh-left-stack,
+  .tok-grid,
+  .ato-mgr,
+  .dep-complete,
+  .reg-form,
+  .payoff-page,
+  .bsec,
+  .home-left-stack {
+    height: auto !important;
+    max-height: none !important;
+    flex: 0 0 auto !important;
+  }
+  .page-frame,
+  .home-dash,
+  .oh-page-grid {
+    overflow: visible !important;
+  }
+  .page-frame > .dep-complete,
+  .page-frame > .ato-mgr,
+  .page-frame > .tok-grid,
+  .page-frame > .payoff-page,
+  .page-frame > .reg-form,
+  .page-frame > .hist-wrap,
+  .page-frame > .card.hist-wrap,
+  .page-frame > .card,
+  .page-frame > .oh-page-grid {
+    flex: 0 0 auto !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+  }
+
+  /* Info cards (non-table): full content height, no vertical clip */
+  .tok-card,
+  .home-card,
+  .home-open-card,
+  .home-pnl-card,
+  .dep-card-green,
+  .dep-card-blue,
+  .ato-ready-card,
+  .ato-mgr-buf,
+  .ato-mgr-status,
+  .ato-mgr-poll,
+  .reg-side,
+  .oh-left-stack > .home-card,
+  .oh-left-stack > .dep-card-blue,
+  .oh-left-stack > .card:not(.hist-wrap) {
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+  }
+
+  .tok-grid {
+    grid-template-columns: 1fr !important;
+    align-items: start !important;
+  }
+  .tok-card .tokbox {
+    flex: 0 0 auto !important;
+    max-height: none !important;
+    height: auto !important;
+  }
+
+  /*
+   * TABLE / hist cards:
+   * - Vertical: grow with rows (no inner vertical scroll)
+   * - Horizontal: KEEP swipe scroll so overnight/summary columns stay reachable
+   *   (same as before — do not change column layout)
+   */
+  .hist-wrap,
+  .oh-summary-card,
+  .oh-left-stack > .hist-wrap,
+  .oh-left-stack > .card.hist-wrap,
+  .page-frame > .hist-wrap,
+  .page-frame > .card.hist-wrap,
+  .home-pos-table-wrap,
+  .home-pos-card.hist-wrap,
+  .home-dash .home-pos-card {
+    height: auto !important;
+    max-height: none !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100% !important;
+  }
+  .home-pos-inner {
+    height: auto !important;
+    max-height: none !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+  }
+
+  /* Keep table wide enough that horizontal scroll still works */
+  .hist-wrap .hist-table,
+  .oh-summary-card .hist-table,
+  .page-frame .hist-table,
+  .home-pos-card .hist-table,
+  .home-pos-card .pos-table {
+    min-width: 480px;
+  }
+
+  /*
+   * SUMMARY (and overnight cycles card): empty/short tables still look like
+   * ~10 entry rows so the box is usable; more than 10 → page scrolls.
+   * thead ~2.75rem + 10 body rows ~2.4rem each
+   */
+  .page-frame > .hist-wrap,
+  .page-frame > .card.hist-wrap,
+  .oh-summary-card {
+    min-height: calc(2.75rem + (10 * 2.4rem)) !important;
+  }
+
+  .field input,
+  .field select,
+  .tokbox,
+  .top-exit-inp {
+    font-size: max(16px, 1rem) !important;
+  }
+}
+
+/* Safari / WebView twin (hover:none) — same height + table width-scroll rules */
+@media (max-width: 900px) and (hover: none) {
+  .body,
+  .body:has(.page-frame),
+  .body:has(.hist-wrap),
+  .body:has(.oh-page-grid),
+  .body:has(.tok-grid) {
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .page-frame,
+  .home-dash,
+  .oh-page-grid,
+  .oh-left-stack,
+  .tok-grid {
+    height: auto !important;
+    max-height: none !important;
+    flex: 0 0 auto !important;
+  }
+  .tok-card,
+  .home-card,
+  .dep-card-blue,
+  .dep-card-green,
+  .oh-left-stack > .home-card,
+  .oh-left-stack > .dep-card-blue {
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+  }
+  .hist-wrap,
+  .oh-summary-card,
+  .oh-left-stack > .hist-wrap,
+  .page-frame > .hist-wrap,
+  .page-frame > .card.hist-wrap {
+    height: auto !important;
+    max-height: none !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100% !important;
+  }
+  .hist-wrap .hist-table,
+  .oh-summary-card .hist-table {
+    min-width: 480px;
+  }
+  .page-frame > .hist-wrap,
+  .page-frame > .card.hist-wrap,
+  .oh-summary-card {
+    min-height: calc(2.75rem + (10 * 2.4rem)) !important;
+  }
+}
+
+/* === MOBILE HOME: PNL pair only (hide status chips) === */
+/* Laptop unchanged — only max-width 900px touch / hover:none */
+@media (max-width: 900px) and (pointer: coarse) {
+  /* Hide Kavach/Hedge/ATO/Broker/Token status chips on HOME strip */
+  .home-strip > .home-strip-group,
+  .home-strip-ops,
+  .home-strip-ato,
+  .home-strip-tok {
+    display: none !important;
+  }
+
+  /* Compact strip: only the two PnL pills */
+  .home-dash > .home-strip,
+  .home-strip {
+    display: block !important;
+    grid-template-columns: none !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    margin: 0 0 8px !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    width: 100% !important;
+  }
+
+  .home-pnl-pair {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+    width: 100% !important;
+    align-items: stretch !important;
+  }
+
+  .home-pnl-pair > .home-pnl-strip,
+  .home-strip .home-pnl-strip {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+    gap: 4px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: none !important;
+    box-sizing: border-box !important;
+    padding: 10px 12px !important;
+    border-radius: 14px !important;
+  }
+
+  .home-pnl-strip-lab {
+    font-size: 9px !important;
+    letter-spacing: 0.12em !important;
+    line-height: 1.1 !important;
+  }
+
+  .home-pnl-strip-val {
+    font-size: clamp(15px, 4.6vw, 18px) !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    text-align: left !important;
+    line-height: 1.15 !important;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 900px) and (hover: none) {
+  .home-strip > .home-strip-group,
+  .home-strip-ops,
+  .home-strip-ato,
+  .home-strip-tok {
+    display: none !important;
+  }
+  .home-dash > .home-strip,
+  .home-strip {
+    display: block !important;
+    grid-template-columns: none !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  .home-pnl-pair {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+  .home-pnl-pair > .home-pnl-strip,
+  .home-strip .home-pnl-strip {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: none !important;
+    padding: 10px 12px !important;
+    border-radius: 14px !important;
+  }
+  .home-pnl-strip-val {
+    font-size: clamp(15px, 4.6vw, 18px) !important;
+    min-width: 0 !important;
+    text-align: left !important;
+  }
+}
+
+
+/* === MOBILE POSITIONS PAGE + menu entry === */
+/* Laptop: POSITIONS menu hidden — card stays on HOME with vertical label */
+.nav.nav-mobile-only {
+  display: none !important;
+}
+
+@media (max-width: 900px) and (pointer: coarse),
+       (max-width: 900px) and (hover: none) {
+  .nav.nav-mobile-only {
+    display: block !important;
+  }
+
+  /* Page title duplicated on card — hide head on POSITIONS */
+  .body:has(.positions-page-card) .page-head {
+    display: none !important;
+  }
+
+  .positions-page-card,
+  .page-frame > .positions-page-card,
+  .page-frame > .card.positions-page-card {
+    display: flex !important;
+    flex-direction: column !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: calc(2.75rem + (10 * 2.4rem)) !important;
+    flex: 0 0 auto !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100% !important;
+    width: 100% !important;
+    gap: 10px !important;
+    padding: 12px 12px 10px !important;
+  }
+
+  /* Title on TOP of card (not vertical side) */
+  .positions-page-card .positions-card-title {
+    display: block !important;
+    flex: 0 0 auto !important;
+    margin: 0 !important;
+    padding: 0 2px 2px !important;
+    font-size: 15px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.12em !important;
+    text-transform: uppercase !important;
+    text-align: center !important;
+    color: var(--purple, #7C6AE8) !important;
+  }
+  .positions-page-card .home-pos-side {
+    display: none !important;
+  }
+  .positions-page-card .home-pos-inner {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    width: 100% !important;
+  }
+  .positions-page-card .home-pos-table-wrap {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    width: max-content;
+    min-width: 100%;
+  }
+
+  /* Slightly larger column titles + cells for readability */
+  .positions-page-card .hist-table,
+  .positions-page-card .pos-table {
+    min-width: 520px;
+    table-layout: auto !important;
+    font-size: 13px !important;
+  }
+  .positions-page-card .hist-table thead th,
+  .positions-page-card .pos-table thead th {
+    font-size: 12px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.06em !important;
+    padding: 10px 8px !important;
+    white-space: nowrap !important;
+  }
+  .positions-page-card .hist-table tbody td,
+  .positions-page-card .pos-table tbody td {
+    font-size: 13px !important;
+    padding: 9px 8px !important;
+  }
+
+  /* TOTAL row — same dark bar as laptop; never sticky-clipped on mobile */
+  .positions-page-card .hist-table tfoot,
+  .positions-page-card .pos-table tfoot {
+    display: table-footer-group !important;
+  }
+  .positions-page-card .hist-table tfoot td,
+  .positions-page-card .pos-table tfoot td {
+    position: static !important;
+    bottom: auto !important;
+    z-index: auto !important;
+    display: table-cell !important;
+    background: #1B2A4A !important;
+    color: #FFFFFF !important;
+    font-size: 13px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.06em !important;
+    padding: 10px 8px !important;
+    border-top: 2px solid rgba(255, 255, 255, 0.18) !important;
+  }
+  .positions-page-card .hist-table tfoot td:first-child,
+  .positions-page-card .pos-table tfoot td:first-child {
+    text-align: left !important;
+    color: #FFFFFF !important;
+  }
+  .positions-page-card .hist-table tfoot td.buy,
+  .positions-page-card .pos-table tfoot td.buy {
+    color: #4ADE80 !important;
+  }
+  .positions-page-card .hist-table tfoot td.sell,
+  .positions-page-card .pos-table tfoot td.sell {
+    color: #F87171 !important;
+  }
+
+  .body:has(.positions-page-card) {
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+}

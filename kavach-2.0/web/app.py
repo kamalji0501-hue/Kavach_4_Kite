@@ -97,7 +97,7 @@ async def index(request: Request) -> Response:
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     html = re.sub(
         r'app\.(css|js)\?(?:v|cb)=[^"]+',
-        lambda m: f'app.{m.group(1)}?cb=20260910ohColor',
+        lambda m: f'app.{m.group(1)}?cb=20260918posTitleTotal',
         html,
     )
     return Response(html, media_type="text/html")

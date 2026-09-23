@@ -413,9 +413,9 @@
       total += n;
       any = true;
     }
-    if (!any) return "";
-    const pnlCls = clsPnl(total);
-    return `<tr><td colspan="5">TOTAL</td><td class="${pnlCls}">${esc(fmtPnl(total))}</td></tr>`;
+    const pnlCls = any ? clsPnl(total) : "";
+    const pnlTxt = any ? esc(fmtPnl(total)) : "—";
+    return `<tr class="hist-total"><td colspan="5"><b>TOTAL</b></td><td class="${pnlCls}"><b>${pnlTxt}</b></td></tr>`;
   }
 
   function paintPositions(positions) {
@@ -424,6 +424,19 @@
     const foot = $("posFoot");
     if (foot) foot.innerHTML = posFootHtml(positions);
   }
+
+
+  function positionsCardHtml(positions) {
+    return `<div class="card hist-wrap pos-card home-pos-card positions-page-card">
+      <h4 class="sec-title positions-card-title">POSITIONS</h4>
+      <div class="home-pos-table-wrap">
+        <table class="hist-table pos-table"><thead><tr>
+          <th>Symbol</th><th>Type</th><th>Qty</th><th>Avg</th><th>LTP</th><th>PnL</th>
+        </tr></thead><tbody id="posBody">${posRowsHtml(positions)}</tbody><tfoot id="posFoot">${posFootHtml(positions)}</tfoot></table>
+      </div>
+    </div>`;
+  }
+
 
 
   /* ---- ATO surety audio (always on; unlock on first gesture) ---- */
@@ -712,6 +725,15 @@
         : (pnlEl.classList.contains("home-pnl-big") ? "home-pnl-big" : "");
       const tone = (v == null || v === "") ? "" : clsPnl(v);
       pnlEl.className = [base, tone].filter(Boolean).join(" ");
+    }
+    const batEl = $("statBatmanPnl");
+    if (batEl) {
+      const v = live.deployment
+        ? (live.batman_pnl != null ? live.batman_pnl : live.day_pnl)
+        : 0;
+      batEl.textContent = fmtPnl(v);
+      const tone = (v == null || v === "") ? "" : clsPnl(v);
+      batEl.className = ["home-pnl-strip-val", tone].filter(Boolean).join(" ");
     }
     paintToggle(
       $("runToggle"),
@@ -1260,6 +1282,11 @@
                 : (pnlEl.classList.contains("home-pnl-big") ? "home-pnl-big" : "");
               pnlEl.className = base;
             }
+            const batEl = $("statBatmanPnl");
+            if (batEl) {
+              batEl.textContent = fmtPnl(0);
+              batEl.className = "home-pnl-strip-val";
+            }
           }
         } catch (err) {
           $("doneMsg").textContent = err.message;
@@ -1626,7 +1653,9 @@
         if (demoOvernight()) s.overnight = overnightDemoData();
         applyChrome(s);
         const homePnl = s.deployment ? s.day_pnl : 0;
+        const batmanPnl = s.deployment ? (s.batman_pnl != null ? s.batman_pnl : homePnl) : 0;
         const pnlCls = homePnl == null || homePnl === "" ? "" : clsPnl(homePnl);
+        const batmanCls = batmanPnl == null || batmanPnl === "" ? "" : clsPnl(batmanPnl);
         const mode = String(s.order_mode || "paper").toUpperCase();
         const armed = !!s.deployment;
         const dhan = (tok && tok.dhan) || {};
@@ -1645,9 +1674,15 @@
           <header class="page-head"><h3>HOME</h3></header>
           <div class="home-dash">
             <div class="home-strip">
-              <div class="home-pnl-strip" title="Day PnL">
-                <span class="home-pnl-strip-lab">DAY PNL</span>
-                <span id="statPnl" class="home-pnl-strip-val ${pnlCls}">${esc(fmtPnl(homePnl))}</span>
+              <div class="home-pnl-pair">
+                <div class="home-pnl-strip" title="Day PnL">
+                  <span class="home-pnl-strip-lab">DAY PNL</span>
+                  <span id="statPnl" class="home-pnl-strip-val ${pnlCls}">${esc(fmtPnl(homePnl))}</span>
+                </div>
+                <div class="home-pnl-strip home-pnl-strip-batman" title="${esc((s.batman_pnl_detail && (s.batman_pnl_detail.asof_label + ' | day ' + s.batman_pnl_detail.day_pnl + ' + ATO ' + s.batman_pnl_detail.ato_prev_day_rupees + ' + OH ' + s.batman_pnl_detail.overnight_prev_day_rupees)) || 'Day PnL + prior-day ATO + prior-day overnight')}">
+                  <span class="home-pnl-strip-lab">BATMAN PNL</span>
+                  <span id="statBatmanPnl" class="home-pnl-strip-val ${batmanCls}">${esc(fmtPnl(batmanPnl))}</span>
+                </div>
               </div>
               <div class="home-strip-group home-strip-ops">
                 <span class="home-chip ${s.paused ? "bad" : "ok"}">${s.paused ? "KAVACH PAUSED" : "KAVACH RESUMED"}</span>
@@ -1734,6 +1769,16 @@
         };
         return;
       }
+
+      if (page === "positions") {
+        const s = await api("/api/state");
+        applyChrome(s);
+        view.innerHTML = `
+          <header class="page-head"><h3>POSITIONS</h3></header>
+          ${positionsCardHtml(s.positions)}`;
+        finishPageRender("positions", view, null, navT0);
+        return;
+      }
       if (page === "status") {
         const stTxt = (await api("/api/status")).text;
         let ready = {};
@@ -1785,6 +1830,7 @@
         let cycTotal = 0;
         let cycRs = 0;
         let cycN = 0;
+        const sess = o.session_totals || {};
         const cycRows = cycles.map((b, i) => {
           const impact = b.impact == null || b.impact === "" ? null : Number(b.impact);
           if (impact != null && Number.isFinite(impact)) {
@@ -1792,25 +1838,30 @@
             cycRs += Number(b.impact_rupees || 0);
             cycN += 1;
           }
+          const num = b.session_cycle != null ? b.session_cycle : (i + 1);
+          const when = b.entry_time || "—";
           return `<tr class="hist-buy">
-            <td>${i + 1}</td>
+            <td>${num}</td>
             <td>${esc(b.side)}</td>
             <td>${esc(b.symbol)}</td>
-            <td>${esc(b.entry_time || "—")}</td>
+            <td>${esc(when)}</td>
             <td>${b.entry_premium != null && b.entry_premium !== "" ? fmt(b.entry_premium) : "—"}</td>
             <td>${esc(b.exit_time || "—")}</td>
             <td>${b.exit_premium != null && b.exit_premium !== "" ? fmt(b.exit_premium) : "—"}</td>
-            <td class="${impact == null ? "" : clsPnl(impact)}">${impact == null ? "—" : ((impact >= 0 ? "+" : "") + fmt(impact))}</td>
+            <td class="${impact == null ? "" : clsPnl(impact)}">${impact == null ? (b.converted_to_ato ? "→ ATO" : "—") : ((impact >= 0 ? "+" : "") + fmt(impact))}</td>
           </tr>`;
         }).join("");
-        const cycFoot = cycN
+        const footImpact = sess.total_impact != null ? Number(sess.total_impact) : cycTotal;
+        const footRs = sess.total_rupees != null ? Number(sess.total_rupees) : cycRs;
+        const footN = sess.closed_count != null ? Number(sess.closed_count) : cycN;
+        const cycFoot = (cycles.length || footN)
           ? `<tfoot><tr class="hist-total">
-              <td colspan="7"><b>${cycN} hedge cycle${cycN === 1 ? "" : "s"} · ₹ ${fmt(cycRs)}</b></td>
-              <td class="${clsPnl(cycTotal)}"><b>${(cycTotal >= 0 ? "+" : "") + fmt(cycTotal)}</b></td>
+              <td colspan="7"><b>Session total since Register — ${footN} closed hedge cycle${footN === 1 ? "" : "s"} · ₹ ${fmt(footRs)}</b></td>
+              <td class="${clsPnl(footImpact)}"><b>${(footImpact >= 0 ? "+" : "") + fmt(footImpact)}</b></td>
             </tr></tfoot>`
           : "";
         view.innerHTML = `
-          <header class="page-head"><h3>OVERNIGHT HEDGE</h3></header>
+          <header class="page-head"><h3>OVERNIGHT HEDGE</h3><p class="sub">Right card keeps every buy/sell from Register until Batman Complete.</p></header>
           <div class="oh-page-grid">
             <div class="oh-left-stack">
               <div class="card home-card dep-card-blue">
@@ -1832,7 +1883,7 @@
               <table class="hist-table"><thead><tr>
                 <th>#</th><th>Side</th><th>Hedge</th><th>Entry Time</th><th>Entry Px</th>
                 <th>Exit Time</th><th>Exit Px</th><th>Impact</th>
-              </tr></thead><tbody>${cycRows || '<tr><td colspan="8">No completed hedge cycles since Register.</td></tr>'}</tbody>${cycFoot}</table>
+              </tr></thead><tbody>${cycRows || '<tr><td colspan="8">No overnight hedge cycles since Register.</td></tr>'}</tbody>${cycFoot}</table>
             </div>
           </div>`;
         const denyBtnEl = $("hedgeBoxDeny");
@@ -1852,8 +1903,9 @@
             const impact = Number(b.impact || 0);
             total += impact;
             totalRs += Number(b.impact_rupees || 0);
+            const num = b.session_cycle != null ? b.session_cycle : (i + 1);
             return `<tr class="hist-buy">
-            <td>${i + 1}</td>
+            <td>${num}</td>
             <td>${esc(b.side)}</td>
             <td>${esc(b.symbol)}</td>
             <td>${esc(b.entry_time)}</td>
@@ -1867,17 +1919,19 @@
         const n = closed.length;
         const foot = n
           ? `<tfoot><tr class="hist-total">
-              <td colspan="7"><b>${n} ATO cycle${n === 1 ? "" : "s"} · ₹ ${fmt(d.total_rupees != null ? d.total_rupees : totalRs)}</b></td>
+              <td colspan="7"><b>Session total since Register — ${n} ATO cycle${n === 1 ? "" : "s"} · ₹ ${fmt(d.total_rupees != null ? d.total_rupees : totalRs)}</b></td>
               <td class="${clsPnl(d.total_impact != null ? d.total_impact : total)}"><b>${((d.total_impact != null ? d.total_impact : total) >= 0 ? "+" : "") + fmt(d.total_impact != null ? d.total_impact : total)}</b></td>
             </tr></tfoot>`
           : "";
         view.innerHTML = `
-          <header class="page-head"><h3>ATO SUMMARY</h3></header>
+          <header class="page-head"><h3>ATO SUMMARY</h3>
+            <p class="sub">Cycles keep numbering from Register until Batman Complete (not reset each day).</p>
+          </header>
           <div class="card hist-wrap">
             <table class="hist-table"><thead><tr>
               <th>#</th><th>Side</th><th>Protect</th><th>Entry Time</th><th>Entry Px</th>
               <th>Exit Time</th><th>Exit Px</th><th>Impact</th>
-            </tr></thead><tbody>${rows || '<tr><td colspan="8">No completed ATO cycles today.</td></tr>'}</tbody>${foot}</table>
+            </tr></thead><tbody>${rows || '<tr><td colspan="8">No completed ATO cycles since Register.</td></tr>'}</tbody>${foot}</table>
           </div>`;
 
 
@@ -2065,7 +2119,7 @@
         await renderTokenPage(view);
       }
       if (page === "ato" || page === "buffer") page = "ato";
-      if (page === "status" || page === "summary" || page === "overnight" || page === "ato" || page === "deploy" || page === "payoff" || page === "token" || page === "alerts") {
+      if (page === "status" || page === "summary" || page === "overnight" || page === "ato" || page === "deploy" || page === "payoff" || page === "token" || page === "alerts" || page === "positions") {
         finishPageRender(page, view, pageMeta, navT0);
       } else {
         playViewIn(view);

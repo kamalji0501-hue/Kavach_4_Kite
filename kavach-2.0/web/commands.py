@@ -49,7 +49,7 @@ def kavach_status() -> dict[str, Any]:
         from core.ato_monitoring_schedule import format_monitoring_schedule_line
 
         nifty = format_nifty_feed_status_line()
-        schedule = format_monitoring_schedule_line(deployed=bool(dep))
+        schedule = format_monitoring_schedule_line(deployed=bool(dep), state=st)
     except Exception as exc:
         nifty, schedule = str(exc), ""
     text = (

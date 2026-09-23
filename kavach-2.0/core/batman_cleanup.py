@@ -93,6 +93,12 @@ def reset_state_after_complete(state: Any, *, save: bool = True) -> None:
     if save:
         state.save()
     try:
+        from core.overnight_handoff import reset_overnight_cycles
+
+        reset_overnight_cycles(state)
+    except Exception as exc:
+        logger.warning("reset overnight cycles after complete failed: %s", exc)
+    try:
         from core.ato_cycle_feed import reset_open_holdings
 
         reset_open_holdings()

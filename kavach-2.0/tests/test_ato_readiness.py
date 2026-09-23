@@ -42,6 +42,10 @@ def _base_patches(*, ready=True, detail="ok", snap=None, socket=True, dfb=True, 
             "core.ato_monitoring_schedule.is_past_monitoring_start",
             return_value=True,
         ),
+        patch(
+            "core.ato_monitoring_schedule.ato_session_open_for_breach",
+            return_value=True,
+        ),
         patch("core.ato_readiness._levels_from_state", return_value={
             "pe_entry": "24100",
             "pe_exit": "24150",

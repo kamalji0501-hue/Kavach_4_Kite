@@ -238,9 +238,14 @@ def compute_ato_readiness(
 
     outside_window = False
     try:
-        from core.ato_monitoring_schedule import is_past_monitoring_start
+        from core.ato_monitoring_schedule import (
+            ato_session_open_for_breach,
+            is_past_monitoring_start,
+        )
 
-        if not is_past_monitoring_start():
+        if (not ato_session_open_for_breach()) or (
+            not is_past_monitoring_start(state=state)
+        ):
             outside_window = True
             reasons.append("outside_monitoring_window")
             reason_labels["outside_monitoring_window"] = (
